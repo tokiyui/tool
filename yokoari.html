@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>とき宣横アリ物販シミュレーター</title>
+  <title>2024.01.27/28(Sat/Sun) @y横浜アリーナ</title>
+  <style>
+    .price-input {
+      text-align: right;
+    }
+    .price-sum {
+      font-weight: bold;
+      font-size: 60px;
+      margin-top: 15px;
+    }
+    .subsection {
+      font-weight: bold;
+      margin-top: 15px;
+    }
+    .item-label {
+      display: inline-block;
+      width: 250px;
+    }   
+    .item-price {
+      display: inline-block;
+      width: 100px;
+      text-align: right;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+  <script>
+    function calculateTotal() {
+      let totalPrice = 0;
+
+      // すべての個数入力欄の要素を取得して、金額と数量を計算
+      const quantityInputs = document.querySelectorAll('input[type="number"]');
+      quantityInputs.forEach(input => {
+        const price = input.dataset.price;
+        let quantity = input.value || 0;
+
+        // 個数が負の値にならないようにする
+        if (quantity < 0) {
+          quantity = 0;
+          input.value = 0;
+        }
+
+        totalPrice += price * quantity;
+      });
+
+      // ランダムプレミアムフォトのテキストボックスの数量を取得して、金額を計算
+      const premiumphotoPrice = document.querySelector('input[type="text"][data-price="1500"]').dataset.price;
+      let premiumphotoQuantity = document.querySelector('input[type="text"][data-price="1500"]').value || 0;
+      
+      // 個数が負の値にならないようにする
+      if (premiumphotoQuantity < 0) {
+        premiumphotoQuantity = 0;
+        //document.querySelector('input[type="text"][data-price="1500"]').value = 0;
+      }
+
+      totalPrice += premiumphotoPrice * premiumphotoQuantity;
+      
+      // 缶バッジのテキストボックスの数量を取得して、金額を計算
+      const rawphotoPrice = document.querySelector('input[type="text"][data-price="1000"]').dataset.price;
+      let rawphotoQuantity = document.querySelector('input[type="text"][data-price="1000"]').value || 0;
+
+      // 個数が負の値にならないようにする
+      if (rawphotoQuantity < 0) {
+        rawphotoQuantity = 0;
+        //document.querySelector('input[type="text"][data-price="1000"]').value = 0;
+      }
+
+      totalPrice += rawphotoPrice * rawphotoQuantity;
+
+      // 合計金額を表示
+      document.getElementById('totalPrice').textContent = `合計金額: ${totalPrice}円`;
+    }
+
+    function toggleVisibility(sectionId) {
+      const section = document.getElementById(sectionId);
+      if (section.classList.contains('hidden')) {
+        section.classList.remove('hidden');
+      } else {
+        section.classList.add('hidden');
+      }
+    }
+    
+    function showHiddenElement() {
+      var hiddenElement = document.getElementById("hiddenElement");
+      hiddenElement.style.visibility = "visible";
+    }
+
+  </script>
+</head>
+<body>
+  <h1>とき宣横アリ物販シミュレーター</h1>
+  
+  <form oninput="calculateTotal()">
+    <!-- 商品ごとのフォーム -->
+    <!-- 商品名、価格、個数入力欄を記述 -->
+    <!-- 例：<label>商品名</label><input type="number" data-price="価格"> -->
+    
+<div id="totalPrice" class="price-sum">合計金額: 0円</div>
+    
+<div class="subsection">「行くぜ！超ときめき♡宣伝部 at 横浜アリーナ！」グッズ</div>
+    <label class="item-label">ときめき恋♡Tシャツ（M/L/XL/XXL）※1月27日限定</label>
+    <label class="item-price">3800円✕</label>
+    <input type="number" data-price="3800" class="price-input" value="0"><br>
+    <label class="item-label">ときめき青春♡Tシャツ（M/L/XL/XXL）※1月28日限定</label>
+    <label class="item-price">3800円✕</label>
+    <input type="number" data-price="3800" class="price-input" value="0"><br>
+    <label class="item-label">恋と青春♡マフラータオル（各メンバー）</label>
+    <label class="item-price">2200円✕</label>
+    <input type="number" data-price="2200" class="price-input" value="0"><br>
+    <label class="item-label">ときめき♡リバーシブルトートバッグ（各メンバー）</label>
+    <label class="item-price">4600円✕</label>
+    <input type="number" data-price="4600" class="price-input" value="0"><br>
+    <label class="item-label">ときめき♡フォトホルダー（各メンバー）</label>
+    <label class="item-price">2700円✕</label>
+    <input type="number" data-price="2700" class="price-input" value="0"><br>
+    <label class="item-label">恋と青春♡ステッカーセット</label>
+    <label class="item-price">1000円✕</label>
+    <input type="number" data-price="1000" class="price-input" value="0"><br>
+    <label class="item-label">超ときめき♡推しうちわ vol.6（各メンバー）</label>
+    <label class="item-price">1200円✕</label>
+    <input type="number" data-price="1200" class="price-input" value="0"><br>
+    <label class="item-label">恋衣装♡アクリルキーホルダー ※1月27日限定</label>
+    <label class="item-price">1200円✕</label>
+    <input type="number" data-price="1200" class="price-input" value="0"><br>
+    <label class="item-label">青春衣装♡アクリルキーホルダー ※1月28日限定</label>
+    <label class="item-price">1200円✕</label>
+    <input type="number" data-price="1200" class="price-input" value="0"><br>
+    
+<div class="subsection">ランダム商品</div>
+    <label class="item-label">恋と青春♡ランダムプレミアムフォト(全12種)</label>
+    <label class="item-price">1500円✕</label>
+    <input type="text" data-price="1500" class="price-input" value="0"><br>    
+    <label class="item-label">ときめき♡生写真第36弾(No.1415~No.1451)</label>
+    <label class="item-price">1000円✕</label>
+    <input type="text" data-price="1000" class="price-input" value="0"><br>  
+    
+<div class="subsection">「ときめき♡プレシャス」番組公式グッズ</div>
+    <label class="item-label">プレシャス缶バッジ7種セット</label>
+    <label class="item-price">2200円✕</label>
+    <input type="number" data-price="2200" class="price-input" value="0"><br>
+    <label class="item-label">プレシャスな未来を描こうペン（各メンバー）</label>
+    <label class="item-price">600円✕</label>
+    <input type="number" data-price="600" class="price-input" value="0"><br>
+    <label class="item-label">ふわふわクッション</label>
+    <label class="item-price">2000円✕</label>
+    <input type="number" data-price="2000" class="price-input" value="0"><br>
+    <label class="item-label">カラフルプレシャスアロマキャンドル（各メンバー）</label>
+    <label class="item-price">1200円✕</label>
+    <input type="number" data-price="1200" class="price-input" value="0"><br>
+    <label class="item-label">とき宣ちゃん似顔絵マグカップ（各メンバー）</label>
+    <label class="item-price">1500円✕</label>
+    <input type="number" data-price="1500" class="price-input" value="0"><br>
+    <label class="item-label">プレシャスキャップ</label>
+    <label class="item-price">2500円✕</label>
+    <input type="number" data-price="2500" class="price-input" value="0"><br>
+
+<div class="subsection" onclick="toggleVisibility('hiddenSection')">▼過去のグッズはこちら</div>
+<div id="hiddenSection" class="hidden">
+  <label class="item-label">超 宣伝部員のための定番ペンライトvol.4</label>
+  <label class="item-price">3500円✕</label>
+  <input type="number" data-price="3500" class="price-input" value="0"><br>
+  <label class="item-label">ときめき♡ショッピングバッグ</label>
+  <label class="item-price">1100円✕</label>
+  <input type="number" data-price="1100" class="price-input" value="0"><br>
+
+  </form>
+</body>
+</html>
