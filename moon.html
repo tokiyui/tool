@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>現在時刻と太陽・月の情報</title>
+<style>
+    canvas[id*='a'] {
+        position: absolute;
+        top: 0px;
+        left: 0px;
+    }
+</style>
+</head>
+<body>
+<div class='d'>
+    <div class='moonAge'>
+        <canvas id='a0'></canvas>
+        <canvas id='a1'></canvas>
+        <canvas id='a2'></canvas>
+    </div>
+    <div id='disp'></div>
+    <p id="clock"></p>
+    <div id="imageContainer"></div>
+    <p id="astronomy"></p>
+</div>
+<script>
+const size = 200, pi = Math.PI, pi2 = pi * 2, topAngle = pi + pi / 2 * 3, bottomAngle = pi + pi / 2, halfSize = size / 2, c = [], ctx = [], start = [0, topAngle, 0], end = [pi2, bottomAngle, pi2];
+
+document.querySelector('.moonAge').style.height = `${size}px`;
+document.querySelector('.d').style.width = `${size}px`;
+for(let i = 0; i < 3; i++) {
+    c[i] = document.getElementById(`a${i}`);
+    c[i].style.width = `${size}px`;
+    c[i].style.height = `${size}px`;
+    c[i].width = size;
+    c[i].height = size;
+    ctx[i] = c[i].getContext('2d');
+    ctx[i].fillStyle = i === 0 ? '#444444' : '#ffff00';
+    ctx[i].arc(halfSize, halfSize, halfSize * .95, start[i], end[i]);
+    ctx[i].fill();
+}
+
+function appearance(isou) {
+    const s  = Math.cos(pi2 * isou / 360), s2 = Math.sin(pi2 * isou / 360), r  = Math.abs(halfSize * s);
+    c[1].style.transform = `rotate(${s2 > 0 ? 180 : 0}deg)`;
+    ctx[2].clearRect(0, 0, size, size);
+    ctx[2].beginPath();
+    ctx[2].fillStyle = s > 0 ? '#444444' : '#ffff00';
+    ctx[2].arc(halfSize, halfSize, halfSize * .95, 0, pi2);
+    ctx[2].fill();
+    c[2].style.width = `${r * 2}px`;
+    c[2].style.left = `${halfSize - r}px`;
+}
+
+function showClock() {
+    let date = new Date();
+    let year = date.getFullYear();
+    let month = date.getMonth() + 1;
+    let day = date.getDate();
+    let week = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+    let hour = date.getHours();
+    let minute = date.getMinutes();
+    let second = date.getSeconds();
+    var imageContainer = document.getElementById("imageContainer");
+    while (imageContainer.firstChild) imageContainer.removeChild(imageContainer.firstChild);
+    // 1桁の場合、先頭に0を付ける
+    let formattedHour = hour < 10 ? "0" + hour : hour;
+    let formattedMinute = minute < 10 ? "0" + minute : minute;
+    let formattedSecond = second < 10 ? "0" + second : second;
+    let clockStr = `${year}年${month}月${day}日（${week}）<br>${formattedHour}時${formattedMinute}分${formattedSecond}秒`;
+    document.getElementById("clock").innerHTML = clockStr; // innerHTMLを使用することでHTMLタグが解釈されます
+    let k = Math.PI / 180;
+    let md = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let delta_t = 60.0;
+    let resultElement = document.getElementById("astronomy");
+    resultElement.innerHTML = ""; // Clear previous results
+    let days = (year - 2000) * 365.0 + Math.ceil((year - 2000) / 4.0) - Math.ceil((year - 2000) / 100.0) + Math.ceil((year - 2000) / 400.0);
+    for (let t = 0; t < month - 1; t++) days += md[t];
+    if (month > 2) days += ((year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0)) ? 1 : 0;
+    days += day + ((((second / 60.0) + minute) / 60.0 + hour - 9.0) / 24.0) - 1;
+    let diffyears = (days - 0.5) / 365.25;
+    let x = diffyears + delta_t / 31557600;
+    let ramda_s = ramda_sun(x);
+    let r_s = r_sun(x)*149597870.7;
+    let r_m = r_moon(x);
+    let ramda_m = ramda_moon(x);
+    let beta_m = beta_moon(x);
+    let isou = ramda_m - ramda_s;
+    if (isou < 0) isou += 360;
+    let kimenhi = (1 - Math.cos(k * isou)) * 100 / 2;
+    let pic = Math.round(kimenhi)
+    appearance(isou);
+    resultElement.innerHTML += `太陽黄経&nbsp;${ramda_s.toFixed(3)}<br>太陽距離&nbsp;${r_s.toFixed(0)}km<br>月黄経&nbsp;${ramda_m.toFixed(3)}<br>月黄緯&nbsp;${beta_m.toFixed(4)}<br>月距離&nbsp;${r_m.toFixed(0)}km<br>離角&nbsp;${isou.toFixed(3)}<br>輝面比&nbsp;${kimenhi.toFixed(1)}%<br>月齢&nbsp;${geturei(x).toFixed(1)}<br>`;
+}
+		
+function r_moon(x) {
+    let k = Math.PI / 180;
+    let sinpi = 0.950725 + 0.051820 * Math.cos(k * (4771.98868 * x + 134.963)) + 0.009530 * Math.cos(k * (4133.3535 * x + 100.74)) + 0.007842 * Math.cos(k * (8905.3422 * x + 235.70))
+              + 0.002824 * Math.cos(k * (9543.9774 * x + 269.93)) + 0.000858 * Math.cos(k * (13677.331 * x + 10.7)) + 0.000531 * Math.cos(k * (8545.352 * x + 238.2)) + 0.000400 * Math.cos(k * (3773.363 * x + 103.2))
+              + 0.000319 * Math.cos(k * (4411.998 * x + 137.4)) + 0.000271 * Math.cos(k * (4452.67 * x + 118)) + 0.000263 * Math.cos(k * (5131.98 * x + 312)) + 0.000197 * Math.cos(k * (4892.05 * x + 232))
+              + 0.000173 * Math.cos(k * (14315.97 * x + 45)) + 0.000167 * Math.cos(k * (13038.70 * x + 336)) + 0.000111 * Math.cos(k * (359.99 * x + 178)) + 0.000103 * Math.cos(k * (8266.71 * x + 201))
+              + 0.000084 * Math.cos(k * (638.64 * x + 214)) + 0.000083 * Math.cos(k * (9265.33 * x + 53)) + 0.000078 * Math.cos(k * (18449.32 * x + 146)) + 0.000078 * Math.cos(k * (17810.68 * x + 111))
+              + 0.000064 * Math.cos(k * (13317.34 * x + 13)) + 0.000063 * Math.cos(k * (4493.34 * x + 278)) + 0.000041 * Math.cos(k * (4812.66 * x + 295)) + 0.000034 * Math.cos(k * (9183.99 * x + 272))
+              + 0.000033 * Math.cos(k * (5410.62 * x + 349)) + 0.000031 * Math.cos(k * (9224.66 * x + 253)) + 0.000030 * Math.cos(k * (758.70 * x + 131)) + 0.000029 * Math.cos(k * (9903.97 * x + 87))
+              + 0.000026 * Math.cos(k * (8185.36 * x + 241)) + 0.000023 * Math.cos(k * (5530.69 * x + 266)) + 0.000019 * Math.cos(k * (12678.71 * x + 339)) + 0.000013 * Math.cos(k * (14037.32 * x + 188))
+              + 0.000013 * Math.cos(k * (3413.37 * x + 106)) + 0.000013 * Math.cos(k * (4013.29 * x + 4)) + 0.000012 * Math.cos(k * (22582.67 * x + 246)) + 0.000011 * Math.cos(k * (19087.95 * x + 180))
+              + 0.000011 * Math.cos(k * (8586.02 * x + 219)) + 0.000010 * Math.cos(k * (17450.69 * x + 114));
+    let r = 6378.137 / (sinpi * k);
+    return r;
+}
+                
+function r_sun(x) {
+    let k = Math.PI / 180;
+    let r = Math.pow(10, (0.007256 - 0.0000002 * x) * Math.sin(k * (267.54 + 359.991 * x)) + 0.000091 * Math.sin(k * (265.1 + 719.98 * x)) + 0.000030+ 0.000013 * Math.sin(k * (27.8 + 4452.67 * x)) 
+          + 0.000007 * Math.sin(k * (254 + 450.4 * x)) + 0.000007 * Math.sin(k * (156 + 329.6 * x)));
+    return r;
+}
+                
+function ramda_moon(x) {
+    let k = Math.PI / 180;
+    let am = 0.0040 * Math.sin(k * (119.5 + 1.33 * x)) + 0.0020 * Math.sin(k * (55.0 + 19.34 * x)) + 0.0006 * Math.sin(k * (71 + 0.2 * x)) + 0.0006 * Math.sin(k * (54 + 19.3 * x));
+    let ramda_m = fmod((218.3161 + 4812.67881 * x + 6.2887 * Math.sin(k * (134.961 + 4771.9886 * x + am)) + 1.2740 * Math.sin(k * (100.738 + 4133.3536 * x)) + 0.6583 * Math.sin(k * (235.700 + 8905.3422 * x)) 
+                + 0.2136 * Math.sin(k * (269.926 + 9543.9773 * x)) + 0.1856 * Math.sin(k * (177.525 + 359.9905 * x)) + 0.1143 * Math.sin(k * (6.546 + 9664.0404 * x)) + 0.0588 * Math.sin(k * (214.22 + 638.635 * x)) 
+                + 0.0572 * Math.sin(k * (103.21 + 3773.363 * x)) + 0.0533 * Math.sin(k * (10.66 + 13677.331 * x)) + 0.0459 * Math.sin(k * (238.18 + 8545.352 * x)) + 0.0410 * Math.sin(k * (137.43 + 4411.998 * x)) 
+                + 0.0348 * Math.sin(k * (117.84 + 4452.671 * x)) + 0.0305 * Math.sin(k * (312.49 + 5131.979 * x)) + 0.0153 * Math.sin(k * (130.84 + 758.698 * x)) + 0.0125 * Math.sin(k * (141.51 + 14436.029 * x)) 
+                + 0.0110 * Math.sin(k * (231.59 + 4892.052 * x)) + 0.0107 * Math.sin(k * (336.44 + 13038.696 * x)) + 0.0100 * Math.sin(k * (44.89 + 14315.966 * x)) + 0.0085 * Math.sin(k * (201.5 + 8266.71 * x)) 
+                + 0.0079 * Math.sin(k * (278.2 + 4493.34 * x)) + 0.0068 * Math.sin(k * (53.2 + 9265.33 * x)) + 0.0052 * Math.sin(k * (197.2 + 319.32 * x)) + 0.0050 * Math.sin(k * (295.4 + 4812.66 * x)) 
+                + 0.0048 * Math.sin(k * (235.0 + 19.34 * x)) + 0.0040 * Math.sin(k * (13.2 + 13317.34 * x)) + 0.0040 * Math.sin(k * (145.6 + 18449.32 * x)) + 0.0040 * Math.sin(k * (119.5 + 1.33 * x)) 
+                + 0.0039 * Math.sin(k * (111.3 + 17810.68 * x)) + 0.0037 * Math.sin(k * (349.1 + 5410.62 * x)) + 0.0027 * Math.sin(k * (272.5 + 9183.99 * x)) + 0.0026 * Math.sin(k * (107.2 + 13797.39 * x)) 
+                + 0.0024 * Math.sin(k * (211.9 + 988.63 * x)) + 0.0024 * Math.sin(k * (252.8 + 9224.66 * x)) + 0.0022 * Math.sin(k * (240.6 + 8185.36 * x)) + 0.0021 * Math.sin(k * (87.5 + 9903.97 * x)) 
+                + 0.0021 * Math.sin(k * (175.1 + 719.98 * x)) + 0.0021 * Math.sin(k * (105.6 + 3413.37 * x)) + 0.0020 * Math.sin(k * (55.0 + 19.34 * x)) + 0.0018 * Math.sin(k * (4.1 + 4013.29 * x)) 
+                + 0.0016 * Math.sin(k * (242.2 + 18569.38 * x)) + 0.0012 * Math.sin(k * (339.0 + 12678.71 * x)) + 0.0011 * Math.sin(k * (276.5 + 19208.02 * x)) + 0.0009 * Math.sin(k * (218 + 8586.0 * x)) 
+                + 0.0008 * Math.sin(k * (188 + 14037.3 * x)) + 0.0008 * Math.sin(k * (204 + 7906.7 * x)) + 0.0007 * Math.sin(k * (140 + 4052.0 * x)) + 0.0007 * Math.sin(k * (275 + 4853.3 * x)) 
+                + 0.0007 * Math.sin(k * (216 + 278.6 * x)) + 0.0006 * Math.sin(k * (128 + 1118.7 * x)) + 0.0005 * Math.sin(k * (247 + 22582.7 * x)) + 0.0005 * Math.sin(k * (181 + 19088.0 * x)) 
+                + 0.0005 * Math.sin(k * (114 + 17450.7 * x)) + 0.0005 * Math.sin(k * (332 + 5091.3 * x)) + 0.0004 * Math.sin(k * (313 + 398.7 * x)) + 0.0004 * Math.sin(k * (278 + 120.1 * x)) 
+                + 0.0004 * Math.sin(k * (71 + 9584.7 * x)) + 0.0004 * Math.sin(k * (20 + 720.0 * x)) + 0.0003 * Math.sin(k * (83 + 3814.0 * x)) + 0.0003 * Math.sin(k * (66 + 3494.7 * x)) 
+                + 0.0003 * Math.sin(k * (147 + 18089.3 * x)) + 0.0003 * Math.sin(k * (311 + 5492.0 * x)) + 0.0003 * Math.sin(k * (161 + 40.7 * x)) + 0.0003 * Math.sin(k * (280 + 23221.3 * x))), 360);
+    if (ramda_m < 0) ramda_m += 360;
+    return ramda_m;
+}
+                
+function ramda_sun(x) {
+    let k = Math.PI / 180;
+    let ramda_s = fmod((280.4603 
+                + 360.00769 * x + (1.9146 - 0.00005 * x) * Math.sin(k * (357.538 + 359.991 * x)) + 0.0200 * Math.sin(k * (355.05 + 719.981 * x)) + 0.0048 * Math.sin(k * (234.95 + 19.341 * x)) 
+                + 0.0020 * Math.sin(k * (247.1 + 329.64 * x)) + 0.0018 * Math.sin(k * (297.8 + 4452.67 * x)) + 0.0018 * Math.sin(k * (251.3 + 0.20 * x)) + 0.0015 * Math.sin(k * (343.2 + 450.37 * x)) 
+                + 0.0013 * Math.sin(k * (81.4 + 225.18 * x)) + 0.0008 * Math.sin(k * (132.5 + 659.29 * x)) + 0.0007 * Math.sin(k * (153.3 + 90.38 * x)) + 0.0007 * Math.sin(k * (206.8 + 30.35 * x)) 
+                + 0.0006 * Math.sin(k * (29.8 + 337.18 * x)) + 0.0005 * Math.sin(k * (207.4 + 1.50 * x)) + 0.0005 * Math.sin(k * (291.2 + 22.81 * x)) + 0.0004 * Math.sin(k * (234.9 + 315.56 * x)) 
+                + 0.0004 * Math.sin(k * (157.3 + 299.30 * x)) + 0.0004 * Math.sin(k * (21.1 + 720.02 * x)) + 0.0003 * Math.sin(k * (352.5 + 1079.97 * x)) + 0.0003 * Math.sin(k * (329.7 + 44.43 * x))), 360);
+    if (ramda_s < 0) ramda_s += 360;
+    return ramda_s;
+}
+                
+function beta_moon(x) {
+    let k = Math.PI / 180;
+    let bm = 0.0267 * Math.sin(k * (234.95 + 19.341 * x)) + 0.0043 * Math.sin(k * (322.1 + 19.36 * x)) + 0.0040 * Math.sin(k * (119.5 + 1.33 * x)) + 0.0026 * Math.sin(k * (55.0 + 19.34 * x)) + 0.0005 * Math.sin(k * (307 + 19.4 * x));
+    let beta_m = 5.1282 * Math.sin(k * (93.273 + 4832.0202 * x + bm)) + 0.2806 * Math.sin(k * (228.235 + 9604.0088 * x)) + 0.2777 * Math.sin(k * (138.311 + 60.0316 * x)) + 0.1732 * Math.sin(k * (142.427 + 4073.3220 * x)) 
+               + 0.0554 * Math.sin(k * (194.01 + 8965.374 * x)) + 0.0463 * Math.sin(k * (172.55 + 698.667 * x)) + 0.0326 * Math.sin(k * (328.96 + 13737.362 * x)) + 0.0172 * Math.sin(k * (3.18 + 14375.997 * x)) 
+               + 0.0093 * Math.sin(k * (277.4 + 8845.31 * x)) + 0.0088 * Math.sin(k * (176.7 + 4711.96 * x)) + 0.0082 * Math.sin(k * (144.9 + 3713.33 * x)) + 0.0043 * Math.sin(k * (307.6 + 5470.66 * x)) 
+               + 0.0042 * Math.sin(k * (103.9 + 18509.35 * x)) + 0.0034 * Math.sin(k * (319.9 + 4433.31 * x)) + 0.0025 * Math.sin(k * (196.5 + 8605.38 * x)) + 0.0022 * Math.sin(k * (331.4 + 13377.37 * x)) 
+               + 0.0021 * Math.sin(k * (170.1 + 1058.66 * x)) + 0.0019 * Math.sin(k * (230.7 + 9244.02 * x)) + 0.0018 * Math.sin(k * (243.3 + 8206.68 * x)) + 0.0018 * Math.sin(k * (270.8 + 5192.01 * x)) 
+               + 0.0017 * Math.sin(k * (99.8 + 14496.06 * x)) + 0.0016 * Math.sin(k * (135.7 + 420.02 * x)) + 0.0015 * Math.sin(k * (211.1 + 9284.69 * x)) + 0.0015 * Math.sin(k * (45.8 + 9964.00 * x)) 
+               + 0.0014 * Math.sin(k * (219.2 + 299.96 * x)) + 0.0013 * Math.sin(k * (95.8 + 4472.03 * x)) + 0.0013 * Math.sin(k * (155.4 + 379.35 * x)) + 0.0012 * Math.sin(k * (38.4 + 4812.68 * x)) 
+               + 0.0012 * Math.sin(k * (148.2 + 4851.36 * x)) + 0.0011 * Math.sin(k * (138.3 + 19147.99 * x)) + 0.0010 * Math.sin(k * (18.0 + 12978.66 * x)) + 0.0008 * Math.sin(k * (70 + 17870.7 * x)) 
+               + 0.0008 * Math.sin(k * (326 + 9724.1 * x)) + 0.0007 * Math.sin(k * (294 + 13098.7 * x)) + 0.0006 * Math.sin(k * (224 + 5590.7 * x)) + 0.0006 * Math.sin(k * (52 + 13617.3 * x)) 
+               + 0.0005 * Math.sin(k * (280 + 8485.3 * x)) + 0.0005 * Math.sin(k * (239 + 4193.4 * x)) + 0.0004 * Math.sin(k * (311 + 9483.9 * x)) + 0.0004 * Math.sin(k * (238 + 23281.3 * x)) 
+               + 0.0004 * Math.sin(k * (81 + 10242.6 * x)) + 0.0004 * Math.sin(k * (13 + 9325.4 * x)) + 0.0004 * Math.sin(k * (147 + 14097.4 * x)) + 0.0003 * Math.sin(k * (205 + 22642.7 * x)) 
+               + 0.0003 * Math.sin(k * (107 + 18149.4 * x)) + 0.0003 * Math.sin(k * (146 + 3353.3 * x)) + 0.0003 * Math.sin(k * (234 + 19268.0 * x));
+    return beta_m;
+}
+
+function geturei(x) {
+    let cnt = 0;
+    let g = 0;
+    let delta_ramda, delta_g;
+    while (Math.abs(delta_ramda) >= 0.001 || cnt === 0) {
+        delta_ramda = (ramda_moon(x) - ramda_sun(x)) % 360;
+        if (cnt === 0 && delta_ramda < 0) delta_ramda += 360;
+        if (cnt !== 0 && delta_ramda < -180) delta_ramda += 360;
+        if (cnt !== 0 && delta_ramda > 180) delta_ramda -= 360;
+        delta_g = delta_ramda / 12.1908;
+        g += delta_g;
+        x -= delta_g / 365.25;
+        cnt++;
+    }
+    return g;
+}
+
+function fmod(a, b) {
+    return Number((a - (Math.floor(a / b) * b)).toPrecision(8));
+}
+
+setInterval(function () {showClock();}, 1000);
+</script>
+</body>
+</html>
