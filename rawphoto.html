@@ -2,9 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Probability Calculator</title>
+  <title>コンプリート確率計算</title>
 </head>
 <body>
+  <h1>コンプリート確率計算</h1>
+  <p>アイドルの生写真(など)のコンプリート確率を計算するツールです。ブラウザ上で実行できます。<br>
+  1セットの中にはかぶりはないものとし、全てが同じ確率で出現することを仮定しています。計算式は<a href="https://note.com/mumumumu_sa/n/n65888e6b7d00" target="_blank">無作さんの記事</a>を参照しています。</p>
+  
+  <h2>使い方の例</h2>
+  <ul>
+    <li>
+      <strong>とき宣生誕生写真の場合</strong><br>
+      1セット当たりの枚数を5、全部の種類数を20に設定します。（例年の場合）
+    </li>
+    <li>
+      <strong>小倉唯11周年ライブのポストカードの場合</strong><br>
+      1セット当たりの枚数を4、全部の種類数を11に設定します。
+    </li>
+    <li>
+      <strong>応用例: とき宣CD受注生産盤のサインの場合</strong><br>
+      全メンバーのサインをそろえるための計算は、1セット当たりの枚数を1(一枚に一人のサイン)、全部の種類数を6(メンバー数)に設定すればできます。
+    </li>
+    <li>
+      <strong>等確率を仮定しているので、水瀬いのりのMinaca(グッズ購入特典)などレアものがある場合には使えません。</strong>
+    </li>
+  </ul>
+
   <form id="probabilityForm">
     <label for="m">1セット当たりの枚数(1にするとランダムグッズに対応可):</label>
     <input type="number" id="m" name="m"><br><br>
