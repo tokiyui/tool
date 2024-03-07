@@ -2,6 +2,7 @@
 
 - [コンプリート確率計算](https://tokiyui.github.io/tool/rawphoto.html): アイドルの生写真(など)のコンプリート確率を計算するツールです。
 - [RealtimeMoon](https://tokiyui.github.io/tool/moon.html): 月の位置や満ち欠けの状況をリアルタイムで表示(1秒ごとに自動更新)するツールです。
+- [野球の統計計算機](https://tokiyui.github.io/tool/batter.html): 各種セイバーメトリクス指標を計算するツールですが、**計算結果は未確認です**。
 
 ## 過去ツール
 
