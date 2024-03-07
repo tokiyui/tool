@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>野球の統計計算機</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+    }
+    input {
+        margin: 5px;
+        padding: 5px;
+        width: 100px;
+    }
+    button {
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    #result {
+        margin-top: 20px;
+        font-weight: bold;
+    }
+</style>
+</head>
+<body>
+
+<h2>野球の統計計算機</h2>
+<p>打数：<input type="number" id="atBats" min="0"></p>
+<p>安打数：<input type="number" id="hits" min="0"></p>
+<p>四球数：<input type="number" id="walks" min="0"></p>
+<p>犠飛数：<input type="number" id="sacrificeFlies" min="0"></p>
+<button onclick="calculate()">計算する</button>
+<div id="result"></div>
+
+<script>
+function calculate() {
+    var atBats = parseFloat(document.getElementById('atBats').value);
+    var hits = parseFloat(document.getElementById('hits').value);
+    var walks = parseFloat(document.getElementById('walks').value);
+    var sacrificeFlies = parseFloat(document.getElementById('sacrificeFlies').value);
+
+    var battingAverage = (hits / atBats).toFixed(3);
+    var onBasePercentage = ((hits + walks) / (atBats + walks + sacrificeFlies)).toFixed(3);
+    var sluggingPercentage = ((hits + 2 * (hits - walks - sacrificeFlies)) / atBats).toFixed(3);
+
+    document.getElementById('result').innerHTML = `
+        <p>打率: ${battingAverage}</p>
+        <p>出塁率: ${onBasePercentage}</p>
+        <p>長打率: ${sluggingPercentage}</p>
+    `;
+}
+</script>
+
+</body>
+</html>
