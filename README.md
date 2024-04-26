@@ -18,3 +18,7 @@ pythonディレクトリ以下にある各ファイルです
 
 - [Tothe11](https://tokiyui.github.io/tool/tothe11.html): 小倉唯 Memorial LIVE 2023 〜To the 11'Eleven〜 の会場物販用の金額計算シート。スマホだと操作性が悪いですがご容赦ください。
 - [Yokoari](https://tokiyui.github.io/tool/yokoari.html): 行くぜ！超ときめき♡宣伝部 at 横浜アリーナ！〜隣はきみって決めてるの〜 の会場物販用の金額計算シート。スマホだと操作性が悪いですがご容赦ください。
+
+## その他
+- [ドヤコンガツイートログ](https://tokiyui.github.io/tool/tweets.csv): 上記のツールで取得したドヤコンガと複垢のツイート集です。
+
