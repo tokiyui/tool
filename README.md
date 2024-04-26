@@ -4,6 +4,14 @@
 - [RealtimeMoon](https://tokiyui.github.io/tool/moon.html): 月の位置や満ち欠けの状況をリアルタイムで表示(1秒ごとに自動更新)するツールです。
 - [野球の統計計算機](https://tokiyui.github.io/tool/batter.html): 各種セイバーメトリクス指標を計算するツールですが、**計算結果は未確認です**。
 
+## Pythonツール
+
+pythonディレクトリ以下にある各ファイルです
+
+- [ゆいかおり公式HPニュースアーカイブ取得](https://tokiyui.github.io/tool/python/yuikaori_scrap.py): 小倉唯の旧公式HPとゆいかおり公式HPのNEWSの情報をwayback machineから一括取得します。
+- [イベンターノート　スクレイピングツール](https://tokiyui.github.io/tool/python/eventernote.py): イベンターノートから特定のアーティストのイベントの情報を一括取得します。
+- [ドヤコンガツイート一括取得](https://tokiyui.github.io/tool/python/doyakonga.py): ドヤコンガとその複垢のツイートのアーカイブ情報をwayback machineから一括取得します。
+
 ## 過去ツール
 
 今となっては使う場面がないですが、過去のメモとして残しておきます
