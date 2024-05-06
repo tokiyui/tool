@@ -11,6 +11,8 @@ pythonディレクトリ以下にある各ファイルです
 - [ゆいかおり公式HPニュースアーカイブ取得](https://tokiyui.github.io/tool/python/yuikaori_scrap.py): 小倉唯の旧公式HPとゆいかおり公式HPのNEWSの情報をwayback machineから一括取得します。
 - [イベンターノート　スクレイピングツール](https://tokiyui.github.io/tool/python/eventernote.py): イベンターノートから特定のアーティストのイベントの情報を一括取得します。
 - [ドヤコンガツイート一括取得](https://tokiyui.github.io/tool/python/doyakonga.py): ドヤコンガとその複垢のツイートのアーカイブ情報をwayback machineから一括取得します。
+- [彗星の位置計算プログラム](https://tokiyui.github.io/tool/python/2023A3.py): 2024年秋に肉眼彗星となると予想されるTsuchinshan-ATLAS彗星の位置を出力し、日の出・日の入り時の高度方位図を作成します。
+- [内惑星の位置計算プログラム](https://tokiyui.github.io/tool/python/inner_planet.py): 内惑星の日の出・日の入り時の高度方位図を作成します。
 
 ## 過去ツール
 
