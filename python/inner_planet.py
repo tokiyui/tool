@@ -15,7 +15,7 @@ observer = wgs84.latlon(+40.0, 0.0)
 
 yy = 2025
 ts = load.timescale()
-start, end = ts.utc(yy, 1, 1), ts.utc(yy, 12, 31)
+start, end = ts.utc(yy - 1, 12, 31), ts.utc(yy, 12, 31)
 
 f = almanac.sunrise_sunset(eph, observer)
 t, y = almanac.find_discrete(start, end, f)
@@ -37,7 +37,7 @@ size = 40 - 30 * (m - min(m)) / (max(m) - min(m))
 fig, ax = plt.subplots(figsize=[6, 3])
 ax.plot(x, y, c='#fff6', zorder=1)
 
-fives = (day % 5 == 1) & (day < 30)
+fives = (day % 10 == 1) & (day < 30)
 ax.scatter(x[fives], y[fives], size[fives], 'white', edgecolor='black', linewidth=0.25, zorder=2)
 
 offset_x, offset_y = 10, 8
@@ -54,12 +54,9 @@ for i in np.flatnonzero(fives):
 
     xytext = - offset_x*dy, offset_y*dx
 
-    if day[i] in (1, 11, 21):
-        ax.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
-
-    if day[i] == 16:
+    if day[i] == 1:
         name = MONTH_NAMES[month[i]]
-        ax.annotate(name, (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=2.2 * np.array(xytext))
+        ax.annotate(name, (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext)
 
 points = 'N NE E SE S SW W NW'.split()
 for i, name in enumerate(points):
@@ -91,7 +88,7 @@ size = 40 - 30 * (m - min(m)) / (max(m) - min(m))
 fig, ax = plt.subplots(figsize=[6, 3])
 ax.plot(x, y, c='#fff6', zorder=1)
 
-fives = (day % 5 == 1) & (day < 30)
+fives = (day % 10 == 1) & (day < 30)
 ax.scatter(x[fives], y[fives], size[fives], 'white', edgecolor='black', linewidth=0.25, zorder=2)
 
 offset_x, offset_y = 10, 8
@@ -111,7 +108,7 @@ for i in np.flatnonzero(fives):
     if day[i] in (1, 11, 21):
         ax.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
 
-    if day[i] == 16:
+    if day[i] == 1:
         name = MONTH_NAMES[month[i]]
         ax.annotate(name, (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=2.2 * np.array(xytext))
 
@@ -145,7 +142,7 @@ size = 40 - 30 * (m - min(m)) / (max(m) - min(m))
 fig, ax = plt.subplots(figsize=[9, 3])
 ax.plot(x, y, c='#fff6', zorder=1)
 
-fives = (day % 5 == 1) & (day < 30)
+fives = (day % 10 == 1) & (day < 30)
 ax.scatter(x[fives], y[fives], size[fives], 'white', edgecolor='black', linewidth=0.25, zorder=2)
 
 offset_x, offset_y = 10, 8
@@ -165,7 +162,7 @@ for i in np.flatnonzero(fives):
     if day[i] in (1, 11, 21):
         ax.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
 
-    if day[i] == 16:
+    if day[i] == 1:
         name = MONTH_NAMES[month[i]]
         ax.annotate(name, (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=2.2 * np.array(xytext))
 
@@ -199,7 +196,7 @@ size = 40 - 30 * (m - min(m)) / (max(m) - min(m))
 fig, ax = plt.subplots(figsize=[9, 3])
 ax.plot(x, y, c='#fff6', zorder=1)
 
-fives = (day % 5 == 1) & (day < 30)
+fives = (day % 10 == 1) & (day < 30)
 ax.scatter(x[fives], y[fives], size[fives], 'white', edgecolor='black', linewidth=0.25, zorder=2)
 
 offset_x, offset_y = 10, 8
@@ -219,7 +216,7 @@ for i in np.flatnonzero(fives):
     if day[i] in (1, 11, 21):
         ax.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
 
-    if day[i] == 16:
+    if day[i] == 1:
         name = MONTH_NAMES[month[i]]
         ax.annotate(name, (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=2.2 * np.array(xytext))
 
