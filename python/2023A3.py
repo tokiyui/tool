@@ -19,7 +19,7 @@ ts = load.timescale()
 eph = load('de421.bsp')
 sun, earth = eph['sun'], eph['earth']
 observer = wgs84.latlon(+35.0, 135.0)
- 
+print(f"   Date   ,       Ra      ,        Dec      ,  Mag")
  
 # 7月1日から12月31日までの日付を作成
 start_date = ts.utc(2024, 9, 17)
@@ -34,7 +34,7 @@ while date < end_date:
     dist_e = earth.at(date).observe(comet).distance().au
     dist_s = sun.at(date).observe(comet).distance().au
     mag = 4.5 + 5.0 * math.log10(dist_e) + 10.0 *  math.log10(dist_s)
-    print(f"{t_str}, RA: {ra}, Dec: {dec}, Magnitude: {mag:0.2f}")
+    print(f"{t_str}, {ra}, {dec}, {mag:+0.2f}")
     date = ts.tt_jd(date.tt + 1)
  
 offset_x, offset_y = 10, 8
@@ -55,7 +55,7 @@ x, y = az.degrees, alt.degrees
 dist_e = earth.at(t).observe(comet).distance().au
 dist_s = sun.at(t).observe(comet).distance().au
 m = 4.5 + 5.0 * np.log10(dist_e) + 10.0 * np.log10(dist_s)
-size = np.where(m < 2.0, 10 * (2.0 - m), 0)
+size = np.where(m < 2.0, 20 * (2.0 - m), 0)
 
 fig, ax = plt.subplots(figsize=[9, 3])
 ax.plot(x, y, c='#fff6', zorder=1)
@@ -111,7 +111,7 @@ x, y = az.degrees, alt.degrees
 dist_e = earth.at(t).observe(comet).distance().au
 dist_s = sun.at(t).observe(comet).distance().au
 m = 4.5 + 5.0 * np.log10(dist_e) + 10.0 * np.log10(dist_s)
-size = np.where(m < 2.0, 10 * (2.0 - m), 0)
+size = np.where(m < 2.0, 20 * (2.0 - m), 0)
 
 fig, bx = plt.subplots(figsize=[9, 3])
 bx.plot(x, y, c='#fff6', zorder=1)
