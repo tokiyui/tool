@@ -67,7 +67,7 @@ for i in np.flatnonzero(day):
     length = np.sqrt(dx*dx + dy*dy)
     dx /= length
     dy /= length 
-    xytext = - offset_x*dy, offset_y*dx
+    xytext = offset_x*dy, - offset_y*dx
  
     if day[i] in (1, 6, 11, 16, 21, 26):
         ax.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
@@ -123,7 +123,7 @@ for i in np.flatnonzero(day):
     length = np.sqrt(dx*dx + dy*dy)
     dx /= length
     dy /= length 
-    xytext = - offset_x*dy, offset_y*dx
+    xytext = offset_x*dy, - offset_y*dx
  
     if day[i] in (1, 6, 11, 16, 20, 26):
         bx.annotate(day[i], (x[i], y[i]), c='white', ha='center', va='center', textcoords='offset points', xytext=xytext, size=8)
