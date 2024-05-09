@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画像更新</title>
+<style>
+  .image-container {
+    display: inline-block;
+    width: 150px;
+    height: 150px;
+    margin: 10px;
+    overflow: hidden;
+  }
+  .image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+</style>
+</head>
+<body>
+<div class="image-container" id="image1"></div>
+<div class="image-container" id="image2"></div>
+<div class="image-container" id="image3"></div>
+<div class="image-container" id="image4"></div>
+<div class="image-container" id="image5"></div>
+<div class="image-container" id="image6"></div>
+
+<script>
+  // 画像のファイル名
+  const imageNames = ['Kanami.jpg', 'Julia.jpg', 'Hitoka.jpg', 'Haruka.jpg', 'Aki.jpg', 'Hiyori.jpg'];
+
+  // 画像の更新間隔 (ミリ秒)
+  const updateInterval = 500;
+
+  // ランダムな整数を生成する関数
+  function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  // 画像を更新する関数
+  function updateImage(imgElement) {
+    const currentIndex = getRandomInt(0, imageNames.length - 1);
+    imgElement.src = `Pic/${imgElement.dataset.directory}/${imageNames[currentIndex]}`;
+  }
+
+  // 画像の更新を切り替える関数
+  function toggleImageUpdate(imgElement) {
+    if (imgElement.dataset.update === 'true') {
+      clearInterval(imgElement.intervalId);
+      imgElement.dataset.update = 'false';
+    } else {
+      const intervalId = setInterval(() => updateImage(imgElement), updateInterval);
+      imgElement.intervalId = intervalId;
+      imgElement.dataset.update = 'true';
+    }
+  }
+
+  // 初期化
+  function initialize() {
+    const usedDirectories = [];
+    const containers = document.querySelectorAll('.image-container');
+    containers.forEach(container => {
+      let randomDirectory;
+      do {
+        randomDirectory = getRandomInt(1, 6);
+      } while (usedDirectories.includes(randomDirectory));
+      usedDirectories.push(randomDirectory);
+      container.dataset.directory = randomDirectory;
+      const imgElement = document.createElement('img');
+      const currentIndex = getRandomInt(0, imageNames.length - 1);
+      imgElement.src = `Pic/${randomDirectory}/${imageNames[currentIndex]}`;
+      imgElement.dataset.directory = randomDirectory; // 画像要素にもディレクトリ情報を持たせる
+      imgElement.onclick = function() {
+        toggleImageUpdate(imgElement);
+      };
+      container.appendChild(imgElement);
+      toggleImageUpdate(imgElement);
+    });
+  }
+
+  initialize();
+</script>
+</body>
+</html>
