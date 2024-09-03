@@ -11,7 +11,8 @@ pythonディレクトリ以下にある各ファイルです。クリックす�
 ### 天文計算系
 - [彗星の位置計算プログラム](https://tokiyui.github.io/tool/python/2023A3.py): 2024年秋に肉眼彗星となると予想されるTsuchinshan-ATLAS彗星の位置を出力し、日の出・日の入り時の高度方位図を作成します。
 - [内惑星の位置計算プログラム](https://tokiyui.github.io/tool/python/inner_planet.py): 内惑星の日の出・日の入り時の高度方位図を作成します。
-- [星食地図作成](https://tokiyui.github.io/tool/python/spica.py): 星食地図を作成するプログラムの例です。2024/8/10のスピカ食を計算するようになっています。
+- [星食開始終了図作成](https://tokiyui.github.io/tool/python/spica.py): 星食開始終了図を作成するプログラムの例です。2024/8/10のスピカ食を計算するようになっています。
+- [星食図作成](https://tokiyui.github.io/tool/python/occultation.py): 星食図を作成するプログラムの例です。2024/12/25のスピカ食を計算するようになっています。
 - [日食地図作成](https://tokiyui.github.io/tool/python/eclipse.py): 日食地図を作成するプログラムの例です。2035/9/2の皆既日食を計算するようになっています。
 
 ### スクレイピング系
