@@ -18,6 +18,7 @@ pythonディレクトリ以下にある各ファイルです。クリックす�
 ### スクレイピング系
 - [ゆいかおり公式HPニュースアーカイブ取得](https://tokiyui.github.io/tool/python/yuikaori_scrap.py): 小倉唯の旧公式HPとゆいかおり公式HPのNEWSの情報をwayback machineから一括取得します。
 - [イベンターノート　スクレイピングツール](https://tokiyui.github.io/tool/python/eventernote.py): イベンターノートから特定のアーティストのイベントの情報を一括取得します。
+- [イベンターノート　共演イベント取得](https://tokiyui.github.io/tool/python/kaburi.py): イベンターノートから特定の2つのアーティストが共演したイベントを一括取得します。
 - [ドヤコンガツイート一括取得](https://tokiyui.github.io/tool/python/doyakonga.py): ドヤコンガとその複垢のツイートのアーカイブ情報をwayback machineから一括取得します。
 
 ## 過去ツール（会場物販用の金額計算シート）
