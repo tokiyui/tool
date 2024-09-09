@@ -28,6 +28,7 @@
                 <th>降水カウント</th>
                 <th>視程</th>
                 <th>ナウファスデータ</th>
+                <th>海上風（灯台風）</th>
             </tr>
         </thead>
         <tbody id="weatherData">
@@ -275,6 +276,7 @@
                     ${rainbool}</td>
                     <td>${weatherData.visibility[0] / 1000.0}</td>
                     <td>${nawphusData}</td>
+                    <td>${seawindData}</td>
                 `;
                 weatherDataElement.appendChild(row);
             }
