@@ -167,9 +167,9 @@
                     const time = firstRow.children[1].textContent.trim();
                     const windDirection = firstRow.children[2].textContent.trim();
                     const windSpeed = firstRow.children[3].textContent.trim();
-
+console.log("hoge",windDirection,windSpeed,time);
                     return `${windDirection} ${windSpeed} (${time})`;
-                    console.log("hoge",windDirection,windSpeed,time);
+                    
                 })
                 .catch(error => {
                     console.error('データの取得中にエラーが発生しました:', error);
