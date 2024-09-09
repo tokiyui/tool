@@ -153,6 +153,7 @@
         }
         
         async function fetchWeatherInfo(url) {
+            console.log("hoge");
             fetch('https://api.allorigins.win/get?url=' + url)
                 .then(response => response.json())
                 .then(data => {
