@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ECMWF-AIFS 初期値比較</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .weather-image {
+    margin: 10px;
+    width: 25%;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+<h2>AI気象モデルECMWF-AIFSの予想図を、<a href="https://climatlas.com/temperature/graph/">米国の気象愛好家Ryan Maue氏が公開しているサイト</a>から取得し、初期値比較ができるように表示しています。</h2>
+<div id="weatherImages"></div>
+
+<script>
+function getRoundedTime(hourOffset) {
+  const now = new Date();
+  const roundedTime = new Date(now - hourOffset * 60 * 60 * 1000);
+  const year = roundedTime.getUTCFullYear();
+  const month = String(roundedTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(roundedTime.getUTCDate()).padStart(2, '0');
+  const hour = String(Math.floor(roundedTime.getUTCHours() / 12) * 12).padStart(2, '0');
+
+  return `${year}${month}${day}${hour}`;
+}
+
+const weatherImagesDiv = document.getElementById('weatherImages');
+
+for (let hour = 12; hour <= 336; hour += 12) {
+  const time = getRoundedTime(8.5);
+  const time2 = getRoundedTime(20.5);
+  const time3 = getRoundedTime(32.5);
+
+  const imageURL1 = `https://climatlas.com/temperature/aifs/${time}/japan/aifs_mslp_japan_${hour}.png`;
+  const imageURL2 = `https://climatlas.com/temperature/aifs/${time2}/japan/aifs_mslp_japan_${hour + 12}.png`;
+  const imageURL3 = `https://climatlas.com/temperature/aifs/${time3}/japan/aifs_mslp_japan_${hour + 24}.png`;
+
+  const imageElement = document.createElement('img');
+  imageElement.src = imageURL1;
+  imageElement.classList.add('weather-image');
+  weatherImagesDiv.appendChild(imageElement);
+
+  const imageElement2 = document.createElement('img');
+  imageElement2.src = imageURL2;
+  imageElement2.classList.add('weather-image');
+  weatherImagesDiv.appendChild(imageElement2);
+
+  const imageElement3 = document.createElement('img');
+  imageElement3.src = imageURL3;
+  imageElement3.classList.add('weather-image');
+  weatherImagesDiv.appendChild(imageElement3);
+}
+</script>
+</body>
+</html>
