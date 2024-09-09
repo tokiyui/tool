@@ -247,6 +247,7 @@ console.log(firstRow);
                 }
 
                 let nawphusData;
+                let seawindData;
                 if (point.name.includes('金沢')) {
                     nawphusData = await fetchNawphusData(nawphusUrls.kanazawa);
                     seawindData = await fetchWeatherInfo(seawindUrls.kanazawa);
@@ -261,6 +262,7 @@ console.log(firstRow);
                     seawindData = await fetchWeatherInfo(seawindUrls.tsuruga);
                 } else {
                     nawphusData = 'データが見つかりませんでした';
+                    seawindData =  'データが見つかりませんでした';
                 }
 
                 const row = document.createElement('tr');
