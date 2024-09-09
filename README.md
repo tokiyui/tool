@@ -4,6 +4,7 @@
 - [RealtimeMoon](https://tokiyui.github.io/tool/moon.html): 月の位置や満ち欠けの状況をリアルタイムで表示(1秒ごとに自動更新)するツールです。
 - [野球の統計計算機](https://tokiyui.github.io/tool/batter.html): 各種セイバーメトリクス指標を計算するツールです。
 - [ときめき♡ルーレット](https://tokiyui.github.io/tool/roulette/index.html): 超ときめき♡宣伝部の個人アー写が切り替わります。クリックで一時停止して遊ぶことができます。
+- [ECMWF-AIFS初期値比較](https://tokiyui.github.io/tool/AIFS.html): AI気象モデルECMWF-AIFSの予想図を、米国の気象愛好家Ryan Maue氏が公開しているサイトから取得し、初期値比較ができるように表示しています。
 
 ## Pythonツール
 
