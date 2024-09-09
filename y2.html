@@ -141,8 +141,6 @@
                                 latestTime = rightTimeMinutes;
                                 latestData = `${cells[5].innerText.trim()} (${rightTime})`;
                             }
-                        } else {
-                            console.log(`Data missing at ${cells[0].innerText.trim()}${cells[4] ? ` and ${cells[4].innerText.trim()}` : ''}`);
                         }
                     }
                 }
@@ -170,6 +168,7 @@
                     const windSpeed = firstRow.children[3].textContent.trim();
 
                     return `${windDirection} ${windSpeed} (${time})`;
+                    console.log("${windDirection} ${windSpeed} (${time}");
                 })
                 .catch(error => {
                     console.error('データの取得中にエラーが発生しました:', error);
