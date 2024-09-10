@@ -7,7 +7,6 @@
 - [ECMWF-AIFS初期値比較](https://tokiyui.github.io/tool/AIFS.html): AI気象モデルECMWF-AIFSの予想図を、米国の気象愛好家Ryan Maue氏が公開しているサイトから取得し、初期値比較ができるように表示しています。
 
 ## Pythonツール
-
 pythonディレクトリ以下にある各ファイルです。クリックするとダウンロードされます。
 ### 天文計算系
 - [彗星の位置計算プログラム](https://tokiyui.github.io/tool/python/2023A3.py): 2024年秋に肉眼彗星となると予想されるTsuchinshan-ATLAS彗星の位置を出力し、日の出・日の入り時の高度方位図を作成します。
@@ -26,7 +25,3 @@ pythonディレクトリ以下にある各ファイルです。クリックす�
 今となっては使う場面がないですが、過去のメモとして残しておきます。スマホだと操作性が悪いですがご容赦ください。
 - [Tothe11](https://tokiyui.github.io/tool/tothe11.html): 小倉唯 Memorial LIVE 2023 〜To the 11'Eleven〜 の会場物販用の金額計算シート。
 - [Yokoari](https://tokiyui.github.io/tool/yokoari.html): 行くぜ！超ときめき♡宣伝部 at 横浜アリーナ！〜隣はきみって決めてるの〜 の会場物販用の金額計算シート。
-
-## その他
-- [ドヤコンガツイートログ](https://tokiyui.github.io/tool/tweets.csv): 上記のツールで取得したドヤコンガと複垢のツイート集です。2022年の途中までしかデータが残っていませんでした。
-- [水瀬いのり出演イベント一覧](https://tokiyui.github.io/tool/inori.txt): 上記のツールで取得した水瀬いのりの出演イベント一覧。データベース化まで時間がかかりそうなので一覧だけ先行公開。
