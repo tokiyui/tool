@@ -1,26 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>ツール集</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event Data</title>
 </head>
 <body>
-  <h1>ツール集</h1>
-  <ul>
-    <li>
-      <a href="rawphoto.html" target="_blank">コンプリート確率計算</a>: アイドルの生写真(など)のコンプリート確率を計算するツールです。
-    </li>
-    <li>
-      <a href="moon.html" target="_blank">RealtimeMoon</a>: 月の位置や満ち欠けの状況をリアルタイムで表示(1秒ごとに自動更新)するツールです。
-    </li>
-    <h2>過去ツール</h2>
-    <p>今となっては使う場面がないですが、過去のメモとして残しておきます</p>
-    <li>
-      <a href="tothe11.html" target="_blank">Tothe11</a>: 小倉唯 Memorial LIVE 2023 〜To the 11'Eleven〜 の会場物販用の金額計算シート。スマホだと操作性が悪いですがご容赦ください。
-    </li>
-    <li>
-      <a href="yokoari.html" target="_blank">Yokoari</a>: 行くぜ！超ときめき♡宣伝部 at 横浜アリーナ！〜隣はきみって決めてるの〜 の会場物販用の金額計算シート。スマホだと操作性が悪いですがご容赦ください。
-    </li>
-  </ul>
+
+<script>
+async function getEventData(url) {
+    const response = await fetch(url);
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const events = doc.querySelectorAll('li.clearfix');
+    const data = [];
+
+    events.forEach(event => {
+        const dateElem = event.querySelector('p[class^="day"]');
+        const startElem = event.querySelector('span.s');
+        const titleElem = event.querySelector('h4');
+        const venueElem = event.querySelector('div.place');
+
+        const dateInfo = dateElem ? dateElem.innerText.trim().split(' ') : [];
+        const year = dateInfo.length > 0 ? dateInfo[0].slice(0, 4) : 'Date information not available';
+        const month = dateInfo.length > 0 ? dateInfo[0].slice(5, 7) : 'Date information not available';
+        const day = dateInfo.length > 0 ? dateInfo[0].slice(8, 10) : 'Date information not available';
+        const weekday = dateInfo.length > 1 ? dateInfo[1].charAt(1) : 'Date information not available';
+
+        const startTime = startElem ? startElem.innerText.trim().split(' ')[3] : '--:--';
+        const title = titleElem ? titleElem.innerText.trim() : 'Title not available';
+        const venue = venueElem ? venueElem.innerText.trim().replace('会場:', '').trim() : 'Venue not available';
+
+        data.push([year, month, day, weekday, startTime, title, venue]);
+    });
+
+    return data;
+}
+
+async function compareEventData() {
+    const url1 = 'https://www.eventernote.com/actors/2618/events?limit=2000';
+    const url2 = 'https://www.eventernote.com/actors/2890/events?limit=2000';
+
+    const data1 = await getEventData(url1);
+    const data2 = await getEventData(url2);
+
+    data1.forEach(eventData1 => {
+        if (data2.some(eventData2 => JSON.stringify(eventData1) === JSON.stringify(eventData2))) {
+            console.log(eventData1.join(','));
+        }
+    });
+}
+
+compareEventData();
+</script>
+
 </body>
 </html>
