@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>イベントデータ取得</title>
+    <title>共通イベント検索</title>
 </head>
 <body>
 
-<h2>イベント検索</h2>
-<input type="text" id="actor1" placeholder="俳優名1を入力">
-<input type="text" id="actor2" placeholder="俳優名2を入力">
+<h2>共通イベント検索</h2>
+<input type="text" id="actor1" placeholder="アーティスト名1を入力">
+<input type="text" id="actor2" placeholder="アーティスト名2を入力">
 <button id="searchBtn">検索</button>
 
-<h2>共通イベント情報</h2>
+<div id="status"></div> <!-- 検索中のメッセージ表示用 -->
 <div id="result"></div>
 
 <script>
@@ -25,12 +25,12 @@
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        // 俳優名が一致するリンクを探す
+        // アーティスト名が一致するリンクを探す
         const actorLinks = doc.querySelectorAll('li a');
         for (let link of actorLinks) {
             if (link.textContent.includes(actorName)) {
                 const actorUrl = link.getAttribute('href');
-                const actorId = actorUrl.split('/').pop(); // URLから俳優IDを取得
+                const actorId = actorUrl.split('/').pop(); // URLからアーティストIDを取得
                 return actorId;
             }
         }
@@ -76,18 +76,25 @@
     async function findCommonEvents() {
         const actor1 = document.getElementById('actor1').value.trim();
         const actor2 = document.getElementById('actor2').value.trim();
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
 
         if (!actor1 || !actor2) {
-            alert('両方の俳優名を入力してください');
+            alert('両方のアーティスト名を入力してください');
             return;
         }
 
-        // 俳優IDを取得
+        // 検索中メッセージを表示
+        statusDiv.textContent = "検索中です...";
+        resultDiv.innerHTML = ''; // 結果をクリア
+
+        // アーティストIDを取得
         const actorId1 = await fetchActorId(actor1);
         const actorId2 = await fetchActorId(actor2);
 
         if (!actorId1 || !actorId2) {
-            alert('俳優名が見つかりませんでした');
+            alert('アーティスト名が見つかりませんでした');
+            statusDiv.textContent = ''; // 検索中メッセージを削除
             return;
         }
 
@@ -97,10 +104,10 @@
         const data1 = await fetchEventData(url1);
         const data2 = await fetchEventData(url2);
 
-        const resultDiv = document.getElementById('result');
-        resultDiv.innerHTML = ''; // 結果をクリア
-
         const commonEvents = data1.filter(eventData => data2.some(e => JSON.stringify(e) === JSON.stringify(eventData)));
+
+        // 検索完了後の処理
+        statusDiv.textContent = ''; // 検索中メッセージを削除
 
         if (commonEvents.length > 0) {
             commonEvents.forEach(event => {
@@ -110,7 +117,7 @@
                 resultDiv.appendChild(p);
             });
         } else {
-            resultDiv.textContent = "共通するイベントはありません。";
+            resultDiv.textContent = "共通するイベントはありません";
         }
     }
 
