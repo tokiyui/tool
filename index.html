@@ -1,59 +1,76 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Event Data</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>イベントデータ取得</title>
 </head>
 <body>
 
+<h2>共通イベント情報</h2>
+<div id="result"></div>
+
 <script>
-async function getEventData(url) {
-    const response = await fetch(url);
-    const html = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    const events = doc.querySelectorAll('li.clearfix');
-    const data = [];
-
-    events.forEach(event => {
-        const dateElem = event.querySelector('p[class^="day"]');
-        const startElem = event.querySelector('span.s');
-        const titleElem = event.querySelector('h4');
-        const venueElem = event.querySelector('div.place');
-
-        const dateInfo = dateElem ? dateElem.innerText.trim().split(' ') : [];
-        const year = dateInfo.length > 0 ? dateInfo[0].slice(0, 4) : 'Date information not available';
-        const month = dateInfo.length > 0 ? dateInfo[0].slice(5, 7) : 'Date information not available';
-        const day = dateInfo.length > 0 ? dateInfo[0].slice(8, 10) : 'Date information not available';
-        const weekday = dateInfo.length > 1 ? dateInfo[1].charAt(1) : 'Date information not available';
-
-        const startTime = startElem ? startElem.innerText.trim().split(' ')[3] : '--:--';
-        const title = titleElem ? titleElem.innerText.trim() : 'Title not available';
-        const venue = venueElem ? venueElem.innerText.trim().replace('会場:', '').trim() : 'Venue not available';
-
-        data.push([year, month, day, weekday, startTime, title, venue]);
-    });
-
-    return data;
-}
-
-async function compareEventData() {
     const url1 = 'https://www.eventernote.com/actors/2618/events?limit=2000';
     const url2 = 'https://www.eventernote.com/actors/2890/events?limit=2000';
 
-    const data1 = await getEventData(url1);
-    const data2 = await getEventData(url2);
+    async function fetchEventData(url) {
+        const response = await fetch(url);
+        const text = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'text/html');
 
-    data1.forEach(eventData1 => {
-        if (data2.some(eventData2 => JSON.stringify(eventData1) === JSON.stringify(eventData2))) {
-            console.log(eventData1.join(','));
+        const events = doc.querySelectorAll('li.clearfix');
+        const data = [];
+
+        events.forEach(event => {
+            const dateElem = event.querySelector('p[class^="day"]');
+            if (dateElem) {
+                const dateStr = dateElem.textContent.trim();
+                const dateInfo = dateStr.split(' ');
+                const year = dateInfo[0].slice(0, 4);
+                const month = dateInfo[0].slice(5, 7);
+                const day = dateInfo[0].slice(8, 10);
+                const weekday = dateInfo[1].charAt(1);
+
+                const startTimeElem = event.querySelector('span.s');
+                const startTime = startTimeElem ? startTimeElem.textContent.trim().split(' ')[3] : '--:--';
+                
+                const titleElem = event.querySelector('h4');
+                const title = titleElem ? titleElem.textContent.trim() : 'Title not available';
+
+                const venueElem = event.querySelector('div.place');
+                const venue = venueElem ? venueElem.textContent.trim().replace('会場:', '').trim() : 'Venue not available';
+
+                data.push([year, month, day, weekday, startTime, title, venue]);
+            } else {
+                data.push(['Date information not available', '', '', '', '', 'Title not available', 'Venue not available']);
+            }
+        });
+        return data;
+    }
+
+    async function findCommonEvents() {
+        const data1 = await fetchEventData(url1);
+        const data2 = await fetchEventData(url2);
+        
+        const resultDiv = document.getElementById('result');
+        const commonEvents = data1.filter(eventData => data2.some(e => JSON.stringify(e) === JSON.stringify(eventData)));
+        
+        if (commonEvents.length > 0) {
+            commonEvents.forEach(event => {
+                const eventStr = event.join(', ');
+                const p = document.createElement('p');
+                p.textContent = eventStr;
+                resultDiv.appendChild(p);
+            });
+        } else {
+            resultDiv.textContent = "共通するイベントはありません。";
         }
-    });
-}
+    }
 
-compareEventData();
+    // ページ読み込み時に実行
+    window.onload = findCommonEvents;
 </script>
 
 </body>
