@@ -11,6 +11,7 @@
 <div id="result"></div>
 
 <script>
+    const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
     const url1 = 'https://www.eventernote.com/actors/2618/events?limit=2000';
     const url2 = 'https://www.eventernote.com/actors/2890/events?limit=2000';
 
@@ -51,8 +52,8 @@
     }
 
     async function findCommonEvents() {
-        const data1 = await fetchEventData(url1);
-        const data2 = await fetchEventData(url2);
+        const data1 = await fetchEventData(proxyUrl + url1);
+        const data2 = await fetchEventData(proxyUrl + url2);
         
         const resultDiv = document.getElementById('result');
         const commonEvents = data1.filter(eventData => data2.some(e => JSON.stringify(e) === JSON.stringify(eventData)));
