@@ -17,10 +17,9 @@
 
 <script>
     const proxyUrl = 'https://api.allorigins.win/raw?url=';
-    const searchUrlBase = 'https://www.eventernote.com/actors/search?limit=100000&page=1';
 
     async function fetchActorId(actorName) {
-        const searchUrl = proxyUrl + encodeURIComponent(searchUrlBase);
+        const searchUrl = proxyUrl + encodeURIComponent(`https://www.eventernote.com/actors/search?keyword=${actorName}`);
         const response = await fetch(searchUrl);
         const text = await response.text();
         const parser = new DOMParser();
