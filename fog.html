@@ -222,10 +222,12 @@ function convertTime(timeInUTC) {
                                     <td>${feature.properties.i}</td>
                                     <td>${feature.properties.rd}</td>
                                 `;
-                                dataBody.appendChild(row);
+                                        dataBody.appendChild(row);
+                                    }
+                                });
                             }
-                        });
-                    }
+                        })
+                        .catch(error => console.error('Error:', error));
                 })
                 .catch(error => console.error('Error:', error));
         }
