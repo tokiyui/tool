@@ -185,12 +185,12 @@ function convertTime(timeInUTC) {
                 .then(response => response.json())
                 .then(data => {
                     const contents = JSON.parse(data.contents);
-                    const target = contents.target;
+                    const targetTime = contents.target;
                     const newTarget = target.slice(0, 12);
-                    console.log(target,newTarget);
+                    //console.log(target,newTarget);
             const urls = [
-                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${newTarget}/d/301/A04.json',
-                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${newTarget}/d/301/A06.json'
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/A04.json',
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/A06.json'
             ];
 
             Promise.all(urls.map(url => fetch(url)))
