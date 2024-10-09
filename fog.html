@@ -190,7 +190,11 @@ function convertTime(timeInUTC) {
                     //console.log(target,newTarget);
             const urls = [
                 `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/A04.json`,
-                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/A06.json`
+                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/A06.json`,
+                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/R15.json`,
+                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/R16.json`,
+                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/R17.json`,
+                `https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${targetTime}/d/301/R18.json`,            
             ];
 
             Promise.all(urls.map(url => fetch(url)))
