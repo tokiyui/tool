@@ -185,9 +185,16 @@ function convertTime(timeInUTC) {
         }
 
         function fetchDataAndDisplay() {
+            const target = 'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/target.json';
+            fetch(target)
+                .then(response => response.json())
+                .then(data => {
+                    const contents = JSON.parse(data.contents);
+                    const target = contents.target;
+                    const newTarget = target.slice(0, 8) + "52";
             const urls = [
-                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/202410100402/d/301/A04.json',
-                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/202410100402/d/301/A06.json'
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${newTarget}/d/301/A04.json',
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/${newTarget}/d/301/A06.json'
             ];
 
             Promise.all(urls.map(url => fetch(url)))
