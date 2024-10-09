@@ -22,6 +22,21 @@
             <div class="metar-report" id="visibility_57066"></div>
             <div class="metar-report" id="visibility_57248"></div>         
         </div>
+        <div class="data-container" id="data-container">
+            <p id="loading-message">霧規制取得中...</p>
+            <table id="data-table" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>道路名</th>
+                        <th>区間</th>
+                        <th>状況</th>
+                    </tr>
+                </thead>
+                <tbody id="data-body">
+                </tbody>
+            </table>
+            <p id="no-data-message" style="display: none;">霧規制はありません</p>
+        </div>
     </div>
 
     <script>
@@ -157,9 +172,54 @@ function convertTime(timeInUTC) {
             }
         }
 
+        function fetchDataAndDisplay() {
+            const urls = [
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/202410100402/d/301/A04.json',
+                'https://api.allorigins.win/get?url=https://www.jartic.or.jp/d/traffic_info/r1/202410100402/d/301/A06.json'
+            ];
+
+            Promise.all(urls.map(url => fetch(url)))
+                .then(responses => Promise.all(responses.map(res => res.json())))
+                .then(dataArray => {
+                    const features = [];
+
+                    dataArray.forEach(data => {
+                        features.push(...JSON.parse(data.contents).features);
+                    });
+
+                    const container = document.getElementById('data-container');
+                    const loadingMessage = document.getElementById('loading-message');
+                    const dataTable = document.getElementById('data-table');
+                    const dataBody = document.getElementById('data-body');
+                    const noDataMessage = document.getElementById('no-data-message');
+
+                    if (features.length === 0) {
+                        loadingMessage.style.display = 'none';
+                        noDataMessage.style.display = 'block';
+                    } else {
+                        loadingMessage.style.display = 'none';
+                        dataTable.style.display = 'table';
+
+                        features.forEach(feature => {
+                            if (feature.properties.c === "霧") {
+                                const row = document.createElement('tr');
+                                row.innerHTML = `
+                                    <td>${feature.properties.r}</td>
+                                    <td>${feature.properties.i}</td>
+                                    <td>${feature.properties.rd}</td>
+                                `;
+                                dataBody.appendChild(row);
+                            }
+                        });
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
         window.onload = displayVisibility;
 
         displayMetarReports();
+        fetchDataAndDisplay();
     </script>
 </body>
 </html>
