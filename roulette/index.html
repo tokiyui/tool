@@ -64,7 +64,7 @@
     containers.forEach(container => {
       let randomDirectory;
       do {
-        randomDirectory = getRandomInt(1, 8);
+        randomDirectory = getRandomInt(1, 6);
       } while (usedDirectories.includes(randomDirectory));
       usedDirectories.push(randomDirectory);
       container.dataset.directory = randomDirectory;
