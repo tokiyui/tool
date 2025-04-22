@@ -14,9 +14,7 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 CALENDAR_ID = "67578b234641c2147039ad93ec542661ad13fcfa1be66bfac6fbc80e11075973@group.calendar.google.com"
 
 # 認証
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
+credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 service = build("calendar", "v3", credentials=credentials)
 
 # TVとRadikoのURL設定
@@ -54,9 +52,7 @@ def convert_to_iso8601(timestr):
 # 既存のGoogleカレンダーのイベントを取得
 def get_existing_events():
     existing_events = []
-    events_result = service.events().list(
-        calendarId=CALENDAR_ID, maxResults=2500, singleEvents=True, orderBy="startTime"
-    ).execute()
+    events_result = service.events().list(calendarId=CALENDAR_ID, maxResults=2500, singleEvents=True, orderBy="startTime").execute()
 
     for event in events_result.get("items", []):
         existing_events.append({
