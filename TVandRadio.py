@@ -25,8 +25,8 @@ end_date = (base_date + datetime.timedelta(weeks=2)).strftime("%Y-%m-%d")
 
 # 検索キーワード
 keywords = ["超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより", "パブりん"]
-radioids = [36347, 37521, 58704, 37519, 66284, 36598]
-radiomembers = ["超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "吉川ひより"] #すだあきだけ抜けている
+radioids = [36347, 37521, 58704, 37519, 66284, 37530, 36598]
+radiomembers = ["超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより"]
 
 # テレビ・ラジオの辞書
 tv_programs = defaultdict(lambda: {"start_time": "", "end_time": "", "stations": set(), "members": set()})
