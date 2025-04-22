@@ -15,7 +15,7 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 CALENDAR_ID = "67578b234641c2147039ad93ec542661ad13fcfa1be66bfac6fbc80e11075973@group.calendar.google.com"
 
 # 認証
-credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+credentials = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 service = build("calendar", "v3", credentials=credentials)
 
 # TVとRadikoのURL設定
