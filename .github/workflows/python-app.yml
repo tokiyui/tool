@@ -1,6 +1,10 @@
 name: Python application
 
 on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   schedule:
     - cron: '5,10,15,20,24,25,26,28,30,32,35,40,45,50,55 * * * *'
 
