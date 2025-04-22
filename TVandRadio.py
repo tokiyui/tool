@@ -10,7 +10,7 @@ import pytz
 import os
 
 # Google Calendar API の認証情報
-SERVICE_ACCOUNT_FILE = json.loads(os.environ["TokisenCalender"])
+SERVICE_ACCOUNT_FILE = json.loads(os.environ["TokisenCalendar"])
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 CALENDAR_ID = "67578b234641c2147039ad93ec542661ad13fcfa1be66bfac6fbc80e11075973@group.calendar.google.com"
 
