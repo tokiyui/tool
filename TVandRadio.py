@@ -7,6 +7,7 @@ import datetime
 import json
 import re
 import pytz
+import os
 
 # Google Calendar API の認証情報
 SERVICE_ACCOUNT_FILE = os.environ.get('TokisenCalendar')
