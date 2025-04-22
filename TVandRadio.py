@@ -25,7 +25,7 @@ start_date = (base_date - datetime.timedelta(weeks=2)).strftime("%Y-%m-%d")
 end_date = (base_date + datetime.timedelta(weeks=2)).strftime("%Y-%m-%d")
 
 # 検索キーワード
-keywords = ["超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより", "パブりん"]
+keywords = ["超ときめき♡宣伝部", "超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより", "パブりん"]
 radioids = [36347, 37521, 58704, 37519, 66284, 37530, 36598]
 radiomembers = ["超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより"]
 
