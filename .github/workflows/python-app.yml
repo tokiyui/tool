@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y build-essential
           python -m pip install --upgrade pip
           pip install bs4
-          pip install google
+          pip install google-auth google-auth-oauthlib google-api-python-client
           export PATH=$PATH:/opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages:/home/runner/.local/lib/python3.10/site-packages
 
       - name: Action
