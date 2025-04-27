@@ -154,6 +154,7 @@ def add_event_to_calendar(summary, description, start_time, end_time):
 
 # TV番組をカレンダーに追加
 for title, info in tv_programs.items():
+    print(title, info)
     event_title = f"【テレビ】{title}"
     description = f"局: {', '.join(info['stations'])}　出演: {', '.join(info['members'])}"
     start_time = convert_to_iso8601(info['start_time'])
