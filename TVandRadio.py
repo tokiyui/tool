@@ -93,9 +93,18 @@ for keyword in keywords:
                     date_part, start_time, end_time = match.groups()
                     print(match,start_time, end_time)
 
-                    # 開始時間と終了時間を辞書に追加
-                    tv_programs[title]["start_time"] = f"{date_part} {start_time}+09:00"
-                    tv_programs[title]["end_time"] = f"{date_part} {end_time}+09:00"
+
+                    # 日付と時刻をdatetime型に変換
+                    start_dt = datetime.strptime(f"{date_part} {start_time}", "%m/%d %H:%M")
+                    end_dt = datetime.strptime(f"{date_part} {end_time}", "%m/%d %H:%M")
+
+                    # end_timeがstart_timeより前なら、end_dtの日付を1日進める
+                    if end_dt <= start_dt:
+                        end_dt += timedelta(days=1)
+
+                    # 辞書に追加（ISO8601風にするなら「+09:00」も付ける）
+                    tv_programs[title]["start_time"] = start_dt.strftime("%m/%d %H:%M") + "+09:00"
+                    tv_programs[title]["end_time"] = end_dt.strftime("%m/%d %H:%M") + "+09:00"
                     tv_programs[title]["stations"] = {station_name}
                     tv_programs[title]["members"].add(keyword)
                 else:
@@ -108,8 +117,6 @@ for keyword in keywords:
 # Radiko API からデータ取得
 for radioid, member in zip(radioids, radiomembers):
     radiko_api_url = f"https://api.radiko.jp/program/api/v1/programs?person_id={radioid:d}&start_at_gte={start_date}T05:00:00%2B09:00&start_at_lt={end_date}T05:00:00%2B09:00"
-    print(radioid)
-    print(radiko_api_url)
     response = requests.get(radiko_api_url)
     if response.status_code == 200:
         try:
@@ -155,7 +162,6 @@ def add_event_to_calendar(summary, description, start_time, end_time):
 
 # TV番組をカレンダーに追加
 for title, info in tv_programs.items():
-    print(title, info)
     event_title = f"【テレビ】{title}"
     description = f"局: {', '.join(info['stations'])}　出演: {', '.join(info['members'])}"
     start_time = convert_to_iso8601(info['start_time'])
