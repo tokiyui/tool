@@ -91,6 +91,7 @@ for keyword in keywords:
 
                 if match:
                     date_part, start_time, end_time = match.groups()
+                    print(match,start_time, end_time)
 
                     # 開始時間と終了時間を辞書に追加
                     tv_programs[title]["start_time"] = f"{date_part} {start_time}+09:00"
