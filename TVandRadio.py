@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-import datetime
+from datetime import datetime, timedelta
 import json
 import re
 import pytz
@@ -20,9 +20,9 @@ service = build("calendar", "v3", credentials=credentials)
 
 # TVとRadikoのURL設定
 tv_base_url = "https://www.tvkingdom.jp/schedulesBySearch.action?stationPlatformId=0&condition.keyword="
-base_date = datetime.datetime.now()
-start_date = (base_date - datetime.timedelta(weeks=2)).strftime("%Y-%m-%d")
-end_date = (base_date + datetime.timedelta(weeks=2)).strftime("%Y-%m-%d")
+base_date = datetime.now()
+start_date = (base_date - timedelta(weeks=2)).strftime("%Y-%m-%d")
+end_date = (base_date + timedelta(weeks=2)).strftime("%Y-%m-%d")
 
 # 検索キーワード
 keywords = ["超ときめき♡宣伝部", "超ときめき宣伝部", "辻野かなみ", "杏ジュリア", "坂井仁香", "小泉遥香", "菅田愛貴", "吉川ひより", "パブりん"]
@@ -35,8 +35,8 @@ radio_programs = defaultdict(lambda: {"start_time": "", "end_time": "", "station
 
 def convert_to_iso8601(timestr):
     # "4/15 7:05+09:00" のような文字列を、年を補って ISO8601 に変換する。
-    now = datetime.datetime.now(pytz.timezone("Asia/Tokyo"))
-    parsed_dt = datetime.datetime.strptime(timestr, "%m/%d %H:%M%z")  # 年なしでパース
+    now = datetime.now(pytz.timezone("Asia/Tokyo"))
+    parsed_dt = datetime.strptime(timestr, "%m/%d %H:%M%z")  # 年なしでパース
 
     month_diff = parsed_dt.month - now.month
 
@@ -95,8 +95,8 @@ for keyword in keywords:
 
 
                     # 日付と時刻をdatetime型に変換
-                    start_dt = datetime.datetime.strptime(f"{date_part} {start_time}", "%m/%d %H:%M")
-                    end_dt = datetime.datetime.strptime(f"{date_part} {end_time}", "%m/%d %H:%M")
+                    start_dt = datetime.strptime(f"{date_part} {start_time}", "%m/%d %H:%M")
+                    end_dt = datetime.strptime(f"{date_part} {end_time}", "%m/%d %H:%M")
 
                     # end_timeがstart_timeより前なら、end_dtの日付を1日進める
                     if end_dt <= start_dt:
