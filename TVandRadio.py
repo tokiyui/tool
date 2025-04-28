@@ -95,8 +95,8 @@ for keyword in keywords:
 
 
                     # 日付と時刻をdatetime型に変換
-                    start_dt = datetime.strptime(f"{date_part} {start_time}", "%m/%d %H:%M")
-                    end_dt = datetime.strptime(f"{date_part} {end_time}", "%m/%d %H:%M")
+                    start_dt = datetime.datetime..strptime(f"{date_part} {start_time}", "%m/%d %H:%M")
+                    end_dt = datetime.datetime..strptime(f"{date_part} {end_time}", "%m/%d %H:%M")
 
                     # end_timeがstart_timeより前なら、end_dtの日付を1日進める
                     if end_dt <= start_dt:
