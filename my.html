@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>イベントカレンダー</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    h1 { font-size: 24px; margin-bottom: 10px; }
+    .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .day-header, .cell {
+      border: 1px solid #ccc;
+      padding: 4px;
+      min-height: 80px;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    .day-header { background: #eee; text-align: center; font-weight: bold; }
+    .cell { background: #fafafa; }
+    .event { font-size: 12px; margin-top: 4px; border-left: 4px solid; padding-left: 4px; }
+    .orange { border-color: orange; }
+    .pink { border-color: hotpink; }
+    .cyan { border-color: cyan; }
+    .blue { border-color: blue; }
+    .event-title { font-weight: bold; }
+    .event-title a {
+      text-decoration: none;
+      color: inherit;
+    }
+    .event-title a:hover {
+      text-decoration: underline;
+    }
+    .month-title { font-size: 18px; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>イベントカレンダー</h1>
+  <div id="calendar">読み込み中...</div>
+
+  <script>
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    threeMonthsAgo.setDate(1);
+
+    const actors = [
+      { id: 14046, name: "超ときめき♡宣伝部", color: "orange" },
+      { id: 2618, name: "小倉唯", color: "pink" },
+      { id: 2603, name: "石原夏織", color: "cyan" },
+      { id: 2890, name: "水瀬いのり", color: "blue" }
+    ];
+
+    // 祝日データをAPIから取得（YYYY-MM-DD: 祝日名 の連想配列）
+    async function fetchHolidays() {
+      try {
+        const res = await fetch('https://holidays-jp.github.io/api/v1/date.json');
+        if (!res.ok) throw new Error('祝日APIの取得失敗');
+        return await res.json();
+      } catch (e) {
+        console.warn('祝日API取得失敗:', e);
+        return {}; // 失敗時は空オブジェクト返す（祝日なし扱い）
+      }
+    }
+
+    async function fetchEventsFromActor(actor) {
+      const url = `https://corsproxy.io/?https://www.eventernote.com/actors/${actor.id}/events?limit=400`;
+      const response = await fetch(url);
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const events = [];
+
+      doc.querySelectorAll(".gb_event_list li").forEach(li => {
+        const dateText = li.querySelector(".date p.day1, .date p.day0, .date p.day6")?.textContent?.trim().match(/\d{4}-\d{2}-\d{2}/)?.[0];
+        const titleAnchor = li.querySelector("h4 a");
+        const title = titleAnchor?.textContent?.trim();
+        const eventLink = titleAnchor ? 'https://www.eventernote.com' + titleAnchor.getAttribute('href') : null;
+        const venueAnchor = li.querySelector(".place a");
+        const venue = venueAnchor?.textContent?.trim();
+        const timeText = li.querySelector(".place span.s")?.textContent?.trim() || '';
+
+        if (dateText && title && venue) {
+          const eventDate = new Date(dateText);
+          if (eventDate >= threeMonthsAgo) {
+            events.push({
+              date: dateText,
+              title,
+              venue,
+              actor: actor.name,
+              color: actor.color,
+              time: timeText,
+              link: eventLink,
+            });
+          }
+        }
+      });
+
+      return events;
+    }
+
+    function groupEventsByMonth(events) {
+      const months = {};
+      events.forEach(event => {
+        const date = new Date(event.date);
+        const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        if (!months[monthKey]) months[monthKey] = [];
+        months[monthKey].push(event);
+      });
+      return months;
+    }
+
+    function generateCalendar(eventsByMonth, holidays) {
+      const calendar = document.getElementById('calendar');
+      calendar.innerHTML = '';
+
+      const weekDays = ['月', '火', '水', '木', '金', '土', '日'];
+
+      Object.keys(eventsByMonth).sort().forEach(monthKey => {
+        const [year, month] = monthKey.split('-').map(Number);
+        const firstDay = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0);
+
+        const monthEvents = eventsByMonth[monthKey].reduce((map, ev) => {
+          if (!map[ev.date]) map[ev.date] = [];
+          map[ev.date].push(ev);
+          return map;
+        }, {});
+
+        const title = document.createElement('div');
+        title.className = 'month-title';
+        title.textContent = `${year}年${month}月`;
+        calendar.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'calendar';
+
+        // 曜日ヘッダー
+        for (const day of weekDays) {
+          const head = document.createElement('div');
+          head.className = 'day-header';
+          head.textContent = day;
+          grid.appendChild(head);
+        }
+
+        // 月曜始まりの空白セル埋め
+        let dayOfWeek = (firstDay.getDay() + 6) % 7; // 日曜=0を月曜=0へ変換
+        for (let i = 0; i < dayOfWeek; i++) {
+          const empty = document.createElement('div');
+          empty.className = 'cell';
+          grid.appendChild(empty);
+        }
+
+        // 日付セル作成
+        for (let d = 1; d <= lastDay.getDate(); d++) {
+          const dateStr = `${year}-${month.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+
+          // 日付表示
+          const dateDiv = document.createElement('div');
+          dateDiv.textContent = d;
+          cell.appendChild(dateDiv);
+
+          // 土日・祝日色付け
+          const day = new Date(year, month -1, d).getDay();
+
+          if (holidays[dateStr]) {
+            // 祝日ならピンク系背景
+            cell.style.backgroundColor = '#ffdfdf';
+            // 祝日名をツールチップ表示
+            cell.title = holidays[dateStr];
+          } else if (day === 0) {
+            cell.style.backgroundColor = '#ffe6e6'; // 日曜 赤系
+          } else if (day === 6) {
+            cell.style.backgroundColor = '#e6f0ff'; // 土曜 青系
+          }
+
+          // イベント追加
+          if (monthEvents[dateStr]) {
+            for (const ev of monthEvents[dateStr]) {
+              const evDiv = document.createElement('div');
+              evDiv.className = `event ${ev.color}`;
+              evDiv.innerHTML = `
+                <div class="event-title"><a href="${ev.link}" target="_blank" rel="noopener noreferrer">${ev.title}</a></div>
+                <div>${ev.venue}</div>
+                <div>${ev.time}</div>
+              `;
+              cell.appendChild(evDiv);
+            }
+          }
+
+          grid.appendChild(cell);
+        }
+
+        calendar.appendChild(grid);
+      });
+    }
+
+    (async () => {
+      const holidays = await fetchHolidays();
+      const allEvents = (await Promise.all(actors.map(fetchEventsFromActor))).flat();
+      const grouped = groupEventsByMonth(allEvents);
+      generateCalendar(grouped, holidays);
+    })();
+  </script>
+</body>
+</html>
