@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>イベントカレンダー</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    h1 { font-size: 24px; margin-bottom: 10px; }
+    .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .day-header, .cell {
+      border: 1px solid #ccc;
+      padding: 4px;
+      min-height: 80px;
+      vertical-align: top;
+    }
+    .day-header { background: #eee; text-align: center; font-weight: bold; }
+    .cell { background: #fafafa; }
+    .event { font-size: 12px; margin-top: 4px; }
+    .event-title { font-weight: bold; }
+    .month-title { font-size: 18px; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>超ときめき♡宣伝部 イベントカレンダー</h1>
+  <div id="calendar">読み込み中...</div>
+
+  <script>
+    async function fetchEvents() {
+      const url = "https://corsproxy.io/?https://www.eventernote.com/actors/14046/events?limit=20000";
+      const response = await fetch(url);
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const eventList = [];
+      doc.querySelectorAll(".gb_event_list li").forEach(li => {
+        const dateText = li.querySelector(".date .day0, .date .day6, .date p")?.textContent?.trim().match(/\d{4}-\d{2}-\d{2}/)?.[0];
+        const title = li.querySelector("h4 a")?.textContent?.trim();
+        const venue = li.querySelector(".place a")?.textContent?.trim();
+
+        if (dateText && title && venue) {
+          eventList.push({
+            date: dateText,
+            title,
+            venue
+          });
+        }
+      });
+
+      return eventList;
+    }
+
+    function groupEventsByMonth(events) {
+      const months = {};
+      events.forEach(event => {
+        const date = new Date(event.date);
+        const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        if (!months[monthKey]) months[monthKey] = [];
+        months[monthKey].push(event);
+      });
+      return months;
+    }
+
+    function generateCalendar(eventsByMonth) {
+      const calendar = document.getElementById('calendar');
+      calendar.innerHTML = '';
+
+      const weekDays = ['月', '火', '水', '木', '金', '土', '日'];
+
+      Object.keys(eventsByMonth).sort().forEach(monthKey => {
+        const [year, month] = monthKey.split('-').map(Number);
+        const firstDay = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0);
+
+        const monthEvents = eventsByMonth[monthKey].reduce((map, ev) => {
+          if (!map[ev.date]) map[ev.date] = [];
+          map[ev.date].push(ev);
+          return map;
+        }, {});
+
+        const title = document.createElement('div');
+        title.className = 'month-title';
+        title.textContent = `${year}年${month}月`;
+        calendar.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'calendar';
+
+        // 曜日ヘッダー
+        for (const day of weekDays) {
+          const head = document.createElement('div');
+          head.className = 'day-header';
+          head.textContent = day;
+          grid.appendChild(head);
+        }
+
+        // 空白埋め（月曜始まり）
+        let dayOfWeek = (firstDay.getDay() + 6) % 7; // Sunday=0を Monday=0 に変換
+        for (let i = 0; i < dayOfWeek; i++) {
+          const empty = document.createElement('div');
+          empty.className = 'cell';
+          grid.appendChild(empty);
+        }
+
+        // 日付セル
+        for (let d = 1; d <= lastDay.getDate(); d++) {
+          const dateStr = `${year}-${month.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.innerHTML = `<div>${d}</div>`;
+
+          if (monthEvents[dateStr]) {
+            for (const ev of monthEvents[dateStr]) {
+              const evDiv = document.createElement('div');
+              evDiv.className = 'event';
+              evDiv.innerHTML = `<div class="event-title">${ev.title}</div><div>${ev.venue}</div>`;
+              cell.appendChild(evDiv);
+            }
+          }
+
+          grid.appendChild(cell);
+        }
+
+        calendar.appendChild(grid);
+      });
+    }
+
+    (async () => {
+      const events = await fetchEvents();
+      const grouped = groupEventsByMonth(events);
+      generateCalendar(grouped);
+    })();
+  </script>
+</body>
+</html>
