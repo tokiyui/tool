@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>気象庁式 気象量計算</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 650px; margin: 20px auto; }
+  label { display: inline-block; width: 130px; margin-top: 8px; }
+  input[type="number"] { width: 100px; }
+  .result { margin-top: 20px; padding: 15px; border: 1px solid #ccc; background: #f9f9f9; }
+</style>
+</head>
+<body>
+
+<h2>気象庁式 露点・湿数・湿球温度・温位・相当温位・飽和相当温位 計算</h2>
+
+<form onsubmit="return false;">
+  <label for="temp">気温 (℃):</label>
+  <input type="number" id="temp" step="0.1" required><br>
+
+  <label for="rh">相対湿度 (%):</label>
+  <input type="number" id="rh" min="0" max="100" step="0.1" required><br>
+
+  <label>気圧 (hPa):</label>
+  <label><input type="radio" name="pressure" value="1000" checked>1000</label>
+  <label><input type="radio" name="pressure" value="925">925</label>
+  <label><input type="radio" name="pressure" value="850">850</label>
+  <label><input type="radio" name="pressure" value="500">500</label><br><br>
+
+  <button onclick="calculate()">計算</button>
+</form>
+
+<div class="result" id="result"></div>
+
+<script>
+const Rd = 287.05;    // 乾燥空気の気体定数 J/(kg·K)
+const Cpd = 1004;     // 乾燥空気の定圧比熱 J/(kg·K)
+const epsilon = 0.622;
+const Lv = 2.501e6;   // 蒸発潜熱 J/kg
+
+// 飽和水蒸気圧 e_s(T) [hPa] (気象庁式)
+function es(T) {
+  return 6.1078 * Math.exp(17.2693882 * T / (T + 237.3));
+}
+
+// 実際の水蒸気圧 e [hPa]
+function eActual(T, RH) {
+  return es(T) * RH / 100;
+}
+
+// 混合比 x [kg/kg]
+function mixingRatio(p, e) {
+  return epsilon * e / (p - e);
+}
+
+// 飽和混合比 ws [kg/kg]
+function satMixingRatio(p, T) {
+  const esT = es(T);
+  return epsilon * esT / (p - esT);
+}
+
+// 露点温度 [℃]（逆計算）
+function dewPointTemp(T, RH) {
+  const e = eActual(T, RH);
+  const lnE = Math.log(e / 6.1078);
+  return 237.3 * lnE / (17.2693882 - lnE);
+}
+
+// 湿球温度 [℃] Stull 2011近似式
+function wetBulbTemp(T, RH) {
+  const RHclamped = Math.min(Math.max(RH, 0.1), 100);
+  return T * Math.atan(0.151977 * Math.sqrt(RHclamped + 8.313659))
+    + Math.atan(T + RHclamped)
+    - Math.atan(RHclamped - 1.676331)
+    + 0.00391838 * Math.pow(RHclamped, 1.5) * Math.atan(0.023101 * RHclamped)
+    - 4.686035;
+}
+
+// 温位 θ [K]
+function theta(T, p) {
+  const Tk = T + 273.15;
+  return Tk * Math.pow(1000 / p, 0.2854);
+}
+
+// LCL温度 [K] Bolton式 (T, TdはK)
+function calcT_LCL(T, Td) {
+  const numerator = 1 / (Td - 56.0);
+  const denominator = Math.log(T / Td) / 800.0;
+  return 1 / (numerator + denominator) + 56.0;
+}
+
+// 相当温位 θe 計算 気象庁式詳細版
+function calcThetaE_JMA(T_C, p, RH) {
+  const T = T_C + 273.15;
+  const Td_C = dewPointTemp(T_C, RH);
+  const Td = Td_C + 273.15;
+  const e = eActual(T_C, RH);
+  const x = mixingRatio(p, e);
+  const T_LCL = calcT_LCL(T, Td);
+
+  const term1 = T * Math.pow(1000 / (p - e), Rd / Cpd);
+  const term2 = Math.pow(T / T_LCL, 0.28 * x);
+  const expTerm = Math.exp((3036.0 / T_LCL - 1.78) * x * (1 + 0.448 * x));
+
+  const theta_e = term1 * term2 * expTerm;
+
+  return theta_e;
+}
+
+function calculate() {
+  const T = parseFloat(document.getElementById("temp").value);
+  const RH = parseFloat(document.getElementById("rh").value);
+  const p = parseFloat(document.querySelector('input[name="pressure"]:checked').value);
+
+  if (isNaN(T) || isNaN(RH) || isNaN(p)) {
+    alert("すべての値を正しく入力してください");
+    return;
+  }
+  if (RH < 0 || RH > 100) {
+    alert("相対湿度は0〜100%の範囲で入力してください");
+    return;
+  }
+
+  const Td_C = dewPointTemp(T, RH);
+  const e = eActual(T, RH);
+  const w = mixingRatio(p, e);
+  const ws = satMixingRatio(p, T);
+  const shissu = T - Td_C; // 湿数(%)
+  const Tw = wetBulbTemp(T, RH);
+  const thetaVal = theta(T, p);
+  const thetaE = calcThetaE_JMA(T, p, RH);
+  const thetaEs = calcThetaE_JMA(T, p, 100);
+
+  document.getElementById("result").innerHTML = `
+    <h3>計算結果</h3>
+    <ul>
+      <li>露点温度: ${Td_C.toFixed(2)} ℃</li>
+      <li>湿数: ${shissu.toFixed(2)} ℃</li>
+      <li>湿球温度 (Stull式近似): ${Tw.toFixed(2)} ℃</li>
+      <li>温位 θ: ${thetaVal.toFixed(2)} K</li>
+      <li>相当温位 θₑ: ${thetaE.toFixed(2)} K</li>
+      <li>飽和相当温位 θₑs: ${thetaEs.toFixed(2)} K</li>
+    </ul>
+  `;
+}
+</script>
+
+</body>
+</html>
