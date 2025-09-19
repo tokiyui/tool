@@ -17,6 +17,7 @@
     z-index:1000; border-radius:5px;
     font-family:sans-serif;
   }
+  #controls div:first-child { font-weight:bold; margin-bottom:6px; }
   #selectedTime { margin-top:6px; font-weight:bold; }
 </style>
 </head>
@@ -43,6 +44,7 @@ function getColor(pwv){
          pwv>20?"#FD8D3C":pwv>15?"#FEB24C":pwv>10?"#FED976":"#FFEDA0";
 }
 
+// --- UTC基準の時刻選択用 ---
 function getRoundedHourUTC(){
   const now=new Date();
   const utc=new Date(now.getTime());
@@ -58,7 +60,7 @@ function populateDatetimeSelect(){
   for(let i=0;i<=192;i++){
     const dtUTC=new Date(baseUTC.getTime()-i*3600000);
     const utcStr=formatDatetimeJMA(dtUTC);
-    const dtJST=new Date(dtUTC.getTime()); dtJST.setHours(dtJST.getHours()+9);
+    const dtJST=new Date(dtUTC.getTime()+9*3600000);
     const label=`${dtJST.getFullYear()}-${String(dtJST.getMonth()+1).padStart(2,"0")}-${String(dtJST.getDate()).padStart(2,"0")} ${String(dtJST.getHours()).padStart(2,"0")}:00 JST`;
     const option=document.createElement("option"); option.value=utcStr; option.textContent=label;
     if(i===0) option.selected=true; select.appendChild(option);
@@ -104,8 +106,11 @@ function addWindMarker(lat, lon, angle, color, labelHTML){
 }
 
 // --- そらまめ ---
-async function loadSoramame(){
-  const {YYYY,MM,DD,HH}=getTargetDate01();
+async function loadSoramameJST(datetimeStr){
+  const YYYY = datetimeStr.slice(0,4);
+  const MM   = datetimeStr.slice(4,6);
+  const DD   = datetimeStr.slice(6,8);
+  const HH   = datetimeStr.slice(8,10);
   const metaUrl=`https://soramame.env.go.jp/data/map/kyokuNoudo/${YYYY}/${MM}/${DD}/01.csv`;
   const obsUrl=`https://soramame.env.go.jp/data/sokutei/noudoAll/${YYYY}/${MM}/${DD}/${HH}.csv`;
   const [meta,obs]=await Promise.all([fetchCSV(metaUrl),fetchCSV(obsUrl)]);
@@ -123,9 +128,12 @@ async function loadSoramame(){
 }
 
 // --- アメダス ---
-async function loadAmedas(){
+async function loadAmedasJST(datetimeStr){
   if(!amedasLocData) await loadAmedasLocData();
-  const {YYYY,MM,DD,HH}=getTargetDate01();
+  const YYYY = datetimeStr.slice(0,4);
+  const MM   = datetimeStr.slice(4,6);
+  const DD   = datetimeStr.slice(6,8);
+  const HH   = datetimeStr.slice(8,10);
   const obsUrl=`https://www.jma.go.jp/bosai/amedas/data/map/${YYYY}${MM}${DD}${HH}0000.json`;
   const res=await fetch(obsUrl); if(!res.ok) return;
   const obs=await res.json();
@@ -134,15 +142,15 @@ async function loadAmedas(){
     const st=obs[code]; const mt=amedasLocData[code]; if(!st||!mt) continue;
     const lat=mt.lat[0]+mt.lat[1]/60; const lon=mt.lon[0]+mt.lon[1]/60;
     const T=st.temp?.[0]; const RH=st.humidity?.[0]; if(T==null||RH==null) continue;
-    const wb=calcWetBulb(T,RH); const WD_idx=st.windDirection?.[0]; const WD=windDir[WD_idx]; const WS=st.wind?.[0];
+    const WD_idx=st.windDirection?.[0]; const WD=windDir[WD_idx]; const WS=st.wind?.[0];
     const angle=windDirToAngle(WD_idx); const color=getWindColor(WS);
     const labelHTML=`<strong>${mt.kjName}（アメダス）</strong><br>T=${T}℃ RH=${RH}%<br>風向:${WD||'–'} 風速:${WS||'–'}`;
     addWindMarker(lat,lon,angle,color,labelHTML);
   }
 }
 
-// --- PWV表示 ---
-async function loadPWV(datetimeStr){
+// --- PWV表示 (UTC基準) ---
+async function loadPWVUTC(datetimeStr){
   pwvLayerGroup.clearLayers();
   const ymd=datetimeStr.substring(0,8), h=datetimeStr.substring(8,10);
   const pwvURL=proxy+encodeURIComponent(`https://web.lhtc-pwv.com/web/${ymd}/pwvweb.${datetimeStr}.csv`);
@@ -172,14 +180,25 @@ async function loadPWV(datetimeStr){
   }catch(err){console.error(err);}
 }
 
-// --- UTC→JST変換＋更新 ---
+// --- 更新 ---
 async function updateAll(){
   const datetimeStr=document.getElementById("datetime").value;
-  const y=parseInt(datetimeStr.slice(0,4),10), m=parseInt(datetimeStr.slice(4,6),10), d=parseInt(datetimeStr.slice(6,8),10), h=parseInt(datetimeStr.slice(8,10),10);
-  const utcDate=new Date(Date.UTC(y,m-1,d,h)); const jstDate=new Date(utcDate.getTime()+9*3600000);
+
+  // JST表示
+  const y=parseInt(datetimeStr.slice(0,4),10), m=parseInt(datetimeStr.slice(4,6),10),
+        d=parseInt(datetimeStr.slice(6,8),10), h=parseInt(datetimeStr.slice(8,10),10);
+  const jstDate=new Date(Date.UTC(y,m-1,d,h)+9*3600000);
   document.getElementById("selectedTime").textContent=`表示時刻: ${jstDate.getFullYear()}-${String(jstDate.getMonth()+1).padStart(2,"0")}-${String(jstDate.getDate()).padStart(2,"0")} ${String(jstDate.getHours()).padStart(2,"0")}:00 JST`;
+
+  // レイヤークリア
   pwvLayerGroup.clearLayers(); windLayerGroup.clearLayers();
-  await Promise.all([loadPWV(datetimeStr), loadSoramame(), loadAmedas()]);
+
+  // データ取得
+  await Promise.all([
+      loadPWVUTC(datetimeStr),
+      loadSoramameJST(datetimeStr),
+      loadAmedasJST(datetimeStr)
+  ]);
 }
 
 document.getElementById("datetime").addEventListener("change",updateAll);
@@ -189,8 +208,6 @@ updateAll();
 // --- CSV/JSON取得 ---
 function fetchJSON(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.json());}
 function fetchCSV(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.text()).then(t=>d3.csvParse(t));}
-function getTargetDate01(){const now=new Date(); now.setHours(now.getHours()-1); const YYYY=now.getFullYear(); const MM=String(now.getMonth()+1).padStart(2,'0'); const DD=String(now.getDate()).padStart(2,'0'); const HH=String(now.getHours()).padStart(2,'0'); return {YYYY,MM,DD,HH};}
-
 </script>
 </body>
 </html>
