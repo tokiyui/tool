@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>湿球温度 マップ（そらまめ＋アメダス）</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const BBOX = {minLat:35, maxLat:37, minLon:139, maxLon:141};
+const map = L.map('map').setView([36, 140], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'
+}).addTo(map);
+
+// 湿球温度の簡易計算式
+function calcWetBulb(T, RH) {
+  return T * Math.atan(0.151977 * Math.sqrt(RH + 8.313659)) +
+         Math.atan(T + RH) - Math.atan(RH - 1.676331) +
+         0.00391838 * Math.pow(RH, 1.5) * Math.atan(0.023101 * RH) - 4.686035;
+}
+
+// プロキシを通してCORS回避
+function fetchJSON(url){
+  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  return fetch(proxy).then(r => r.json());
+}
+function fetchCSV(url){
+  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  return fetch(proxy).then(r => r.text()).then(t => d3.csvParse(t));
+}
+
+// --- 時刻計算 ---
+function getTargetDate01() {
+  const now = new Date();
+  now.setHours(now.getHours() - 1); // 1時間前
+  const YYYY = now.getFullYear();
+  const MM = String(now.getMonth()+1).padStart(2,'0');
+  const DD = String(now.getDate()).padStart(2,'0');
+  const HH = String(now.getHours()).padStart(2,'0');
+  return {YYYY, MM, DD, HH};
+}
+
+// --- 風速→色 ---
+function getWindColor(ws) {
+  if (ws == null) return "gray";
+  if (ws < 3) return "white";
+  if (ws < 6) return "skyblue";
+  if (ws < 10) return "yellow";
+  return "orange";
+}
+
+// --- 風向インデックス → 度 ---
+function windDirToAngle(idx) {
+  if (!idx) return 0;
+  return (idx - 1) * 22.5 + 180; 
+}
+
+// --- そらまめデータ ---
+async function loadSoramame() {
+  const {YYYY, MM, DD, HH} = getTargetDate01();
+  const metaUrl = `https://soramame.env.go.jp/data/map/kyokuNoudo/${YYYY}/${MM}/${DD}/01.csv`;
+  const obsUrl  = `https://soramame.env.go.jp/data/sokutei/noudoAll/${YYYY}/${MM}/${DD}/${HH}.csv`;
+
+  const [meta, obs] = await Promise.all([fetchCSV(metaUrl), fetchCSV(obsUrl)]);
+  const windDirMap = {
+  '南': 0, '南南西': 22.5, '南西': 45, '西南西': 67.5,
+  '西': 90, '西北西': 112.5, '北西': 135, '北北西': 157.5,
+  '北': 180, '北北東': 202.5, '北東': 225, '東北東': 247.5,
+  '東': 270, '東南東': 292.5, '南東': 315, '南南東': 337.5
+  };
+  
+  const metaMap = new Map();
+  meta.forEach(d => {
+    const code = d['測定局コード'];
+    const lat = parseFloat(d['緯度']);
+    const lon = parseFloat(d['経度']);
+    if (!isNaN(lat) && !isNaN(lon)) {
+      metaMap.set(code, {lat, lon, name: d['測定局名称'] || ''});
+    }
+  });
+
+  obs.forEach(d => {
+    const m = metaMap.get(d['測定局コード']);
+    if (!m) return;
+    const T = parseFloat(d['TEMP']);
+    const RH = parseFloat(d['HUM']);
+    if (isNaN(T) || isNaN(RH) || RH <= 0) return;
+    const wb = calcWetBulb(T, RH);
+    const WD = d['WD'];
+    const WD_idx = parseInt(d['WD']);
+    const WS = parseFloat(d['WS']);
+    console.log(WD,WS);
+    if (isNaN(WS)) {
+      return;
+    }
+    const angle = windDirMap[WD] ?? 0;
+    const color = getWindColor(WS);
+
+    const icon = L.divIcon({
+      className: "custom-wind-icon",
+      html: `<svg width="30" height="30" viewBox="0 0 30 30"
+                   style="transform: rotate(${angle}deg);">
+               <line x1="15" y1="45" x2="15" y2="15" stroke="${color}" stroke-width="12"/>
+               <polygon points="6,15 24,15 15,0" fill="${color}"/>
+             </svg>`,
+      iconSize: [30,30],
+      iconAnchor: [15,15]
+    });
+
+    L.marker([m.lat, m.lon], {icon})
+      .addTo(map)
+      .bindPopup(`<strong>${m.name}（そらまめ）</strong><br>
+                  Tw=${wb.toFixed(1)}℃<br>T=${T}℃ RH=${RH}%<br>
+                  風向:${WD||'–'} 風速:${WS||'–'}`);
+  });
+}
+
+// --- アメダスデータ ---
+async function loadAmedas() {
+  const {YYYY, MM, DD, HH} = getTargetDate01();
+  const obsUrl = `https://www.jma.go.jp/bosai/amedas/data/map/${YYYY}${MM}${DD}${HH}0000.json`;
+  const metaUrl = `https://www.jma.go.jp/bosai/amedas/const/amedastable.json`;
+
+  const [obs, meta] = await Promise.all([fetchJSON(obsUrl), fetchJSON(metaUrl)]);
+  const windDir = ['', '北', '北北東', '北東', '東北東', '東', '東南東', '南東', '南南東', '南', '南南西', '南西', '西南西', '西', '西北西', '北西', '北北西'];
+
+  for (const code in obs) {
+    const st = obs[code];
+    const mt = meta[code];
+    if (!mt || !st) continue;
+    const lat = mt.lat[0] + mt.lat[1]/60;
+    const lon = mt.lon[0] + mt.lon[1]/60;
+    const T = st.temp?.[0];
+    const RH = st.humidity?.[0];
+    if (T == null || RH == null) continue;
+    const wb = calcWetBulb(T, RH);
+
+    const WD_idx = st.windDirection?.[0];
+    const WD = windDir[WD_idx];
+    const WS = st.wind?.[0];
+    const angle = windDirToAngle(WD_idx);
+    const color = getWindColor(WS);
+
+    const icon = L.divIcon({
+      className: "custom-wind-icon",
+      html: `<svg width="30" height="30" viewBox="0 0 30 30"
+                   style="transform: rotate(${angle}deg);">
+               <line x1="15" y1="45" x2="15" y2="15" stroke="${color}" stroke-width="12"/>
+               <polygon points="6,15 24,15 15,0" fill="${color}"/>
+             </svg>`,
+      iconSize: [30,30],
+      iconAnchor: [15,15]
+    });
+
+    L.marker([lat, lon], {icon})
+      .addTo(map)
+      .bindPopup(`<strong>${mt.kjName}（アメダス）</strong><br>
+                  Tw=${wb.toFixed(1)}℃<br>T=${T}℃ RH=${RH}%<br>
+                  風向:${WD||'–'} 風速:${WS||'–'}`);
+  }
+}
+
+// --- 初期表示 ---
+(async function(){
+  await loadSoramame();
+  await loadAmedas();
+  map.fitBounds([[BBOX.minLat, BBOX.minLon],[BBOX.maxLat, BBOX.maxLon]]);
+})();
+</script>
+</body>
+</html>
