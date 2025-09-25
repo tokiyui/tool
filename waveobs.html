@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>波高地図 + Copernicus WMTS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100vh; width: 100vw; }
+    .legend {
+      background: white;
+      padding: 6px 8px;
+      font-size: 14px;
+      line-height: 18px;
+      color: #333;
+    }
+    .legend i {
+      width: 18px;
+      height: 18px;
+      float: left;
+      margin-right: 6px;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // --- マップ作成 ---
+    const map = L.map("map", { crs: L.CRS.EPSG3857 }).setView([36, 138], 5);
+
+    // --- 背景 OSM ---
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    // --- Copernicus WMTS ---
+    // const datasetList = ['cfo','c2','h2b','h2c','j3','al','s3a','s3b','s6a','swon'];
+    const datasetList = ['cfo','c2','j3','al','s3a','s3b','s6a'];
+    
+    // 現在時刻 UTC
+    const now = new Date();
+
+    // 3時間前
+    now.setUTCHours(now.getUTCHours() - 3);
+
+    // 6時間単位に切り捨て
+    const hours = now.getUTCHours();
+    const flooredHours = Math.floor(hours / 6) * 6;
+    now.setUTCHours(flooredHours, 0, 0, 0);
+
+    // ISO形式で Z 表記
+    const time = now.toISOString();
+
+// タイル情報を配列でまとめる
+const tiles = [
+  {tileMatrix: 4, row: 6, col: 13, bounds: [[21.943045533438166,112.5],[40.979898069620155,135]]},
+  {tileMatrix: 4, row: 5, col: 13, bounds: [[40.979898069620155,112.5],[55.7765730186677,135]]},
+  {tileMatrix: 4, row: 6, col: 14, bounds: [[21.943045533438166,135],[40.979898069620155,157.5]]},
+  {tileMatrix: 4, row: 5, col: 14, bounds: [[40.979898069620155,135],[55.7765730186677,157.5]]}
+];
+
+/* const tiles = [
+  {tileMatrix: 3, row: 6, col: 2, bounds: [[0,90],[40.979898069620155,135]]},
+  {tileMatrix: 3, row: 6, col: 3, bounds: [[40.979898069620155,90],[66.51326044311185,135]]},
+  {tileMatrix: 3, row: 7, col: 2, bounds: [[0,135],[40.979898069620155,180]]},
+  {tileMatrix: 3, row: 7, col: 3, bounds: [[40.979898069620155,135],[66.51326044311185,180]]}
+]; */
+
+// datasetListと時間変数 time は既に定義されている前提
+tiles.forEach(tile => {
+  datasetList.forEach(datasetId => {
+    const wmtsUrl =
+      `https://wmts.marine.copernicus.eu/teroWmts/` +
+      `?service=WMTS&version=1.0.0&request=GetTile` +
+      `&layer=WAVE_GLO_PHY_SWH_L3_NRT_014_001/` +
+      `cmems_obs-wave_glo_phy-swh_nrt_${datasetId}-l3_PT1S_202211/VAVH` +
+      `&tilematrixset=EPSG:3857@3x` +
+      `&tilematrix=${tile.tileMatrix}&tilerow=${tile.row}&tilecol=${tile.col}` +
+      `&time=${time}&style=cmap:rainbow,range:0.0/3.0`;
+
+    const img = new Image();
+    img.onload = () => {
+      L.imageOverlay(wmtsUrl, tile.bounds, { opacity: 0.5 }).addTo(map);
+    };
+    img.onerror = () => console.warn(`画像が存在しない: ${wmtsUrl}`);
+    img.src = wmtsUrl;
+  });
+});
+
+
+    // --- NOWPHAS + NOAA Ship Obs ---
+    const proxy = "https://api.allorigins.win/raw?url=";
+    const setupURL = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml");
+    const dataURL  = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/mapxml/DataMap.xml");
+    const shipURL  = proxy + encodeURIComponent("https://www.ndbc.noaa.gov/ship_obs.php?uom=E&time=1");
+
+    function getColor(height) {
+      if (height < 0.5) return "dodgerblue";
+      if (height < 1.0) return "limegreen";
+      if (height < 1.5) return "greenyellow";
+      if (height < 2.0) return "gold";
+      if (height < 3.0) return "darkorange";
+      return "orangered";
+    }
+
+    function createCircleMarker(lat, lon, color, text) {
+      return L.circleMarker([lat, lon], {
+        radius: 8,
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.8,
+        weight: 1
+      }).bindTooltip(text, { permanent: false });
+    }
+
+    async function fetchXML(url) {
+      const res = await fetch(url);
+      const txt = await res.text();
+      return new DOMParser().parseFromString(txt, "application/xml");
+    }
+
+    async function fetchText(url) {
+      const res = await fetch(url);
+      return await res.text();
+    }
+
+    async function plotWaveData() {
+      const [setupXML, dataXML, shipText] = await Promise.all([
+        fetchXML(setupURL),
+        fetchXML(dataURL),
+        fetchText(shipURL)
+      ]);
+
+      const points = {};
+      for (const pt of setupXML.getElementsByTagName("point")) {
+        const code = pt.getAttribute("code");
+        points[code] = {
+          name: pt.getAttribute("name"),
+          lat: parseFloat(pt.getAttribute("lat")),
+          lon: parseFloat(pt.getAttribute("lon")),
+        };
+      }
+
+      // --- NOWPHAS ---
+      const mapdata = dataXML.getElementsByTagName("mapdata");
+      for (const md of mapdata) {
+        const code = md.getAttribute("code");
+        const yugihaEl = md.getElementsByTagName("yugiha")[0];
+        const yugiha = yugihaEl?.textContent;
+        if (yugiha && points[code]) {
+          const h = parseFloat(yugiha);
+          if (h >= 100) continue;
+          const color = getColor(h);
+          const { name, lat, lon } = points[code];
+          const text = `${name} (${h.toFixed(2)} m)`;
+          createCircleMarker(lat, lon, color, text).addTo(map);
+        }
+      }
+
+      // --- NOAA Ship Obs ---
+      const spanMatches = shipText.match(/<span>SHIP.*?<\/span>/g) || [];
+      for (const span of spanMatches) {
+        const textLine = span.replace(/<[^>]+>/g, "").trim();
+        const parts = textLine.split(/\s+/);
+        if (parts.length < 8) continue;
+        const lat = parseFloat(parts[2]);
+        const lon = parseFloat(parts[3]);
+        const wvft = parseFloat(parts[7]);
+        if (isNaN(lat) || isNaN(lon) || isNaN(wvft)) continue;
+        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
+
+        const h = wvft * 0.3048;
+        const color = getColor(h);
+        const text = `ShipObs (${h.toFixed(2)} m)`;
+        createCircleMarker(lat, lon, color, text).addTo(map);
+      }
+
+      // --- 凡例 ---
+      const legend = L.control({ position: "bottomright" });
+      legend.onAdd = function () {
+        const div = L.DomUtil.create("div", "legend");
+        const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
+        div.innerHTML += "<b>波高 (m)</b><br>";
+        for (let i = 0; i < grades.length; i++) {
+          const from = grades[i];
+          const to = grades[i + 1];
+          const color = getColor(from + 0.01);
+          div.innerHTML += `<i style="background:${color}"></i> ${from}` + (to ? `–${to}` : "+") + "<br>";
+        }
+        return div;
+      };
+      legend.addTo(map);
+    }
+
+    plotWaveData().catch(e => {
+      console.error("エラー:", e);
+      alert("データの取得に失敗しました");
+    });
+  </script>
+</body>
+</html>
