@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>可降水量＋湿球温度＋風向マップ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  body, html { margin:0; padding:0; height:100%; }
+  #map { width:100%; height:100%; }
+  #controls {
+    position: absolute;
+    top: 10px; left: 10px;
+    background:white; padding:8px 12px;
+    z-index:1000; border-radius:5px;
+    font-family:sans-serif;
+  }
+  #controls div:first-child { font-weight:bold; margin-bottom:6px; }
+  #selectedTime { margin-top:6px; font-weight:bold; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <div>アメダス&そらまめ&可降水量</div>
+  <label for="datetime">時刻選択:</label>
+  <select id="datetime"></select>
+  <div id="selectedTime"></div>
+</div>
+<div id="map"></div>
+<script>
+const proxy = "https://api.allorigins.win/raw?url=";
+const stationURL = proxy + encodeURIComponent("https://web.lhtc-pwv.com/web/pwv.station.csv");
+
+const map = L.map("map").setView([36, 140], 8);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution:"&copy; OpenStreetMap" }).addTo(map);
+
+let pwvLayerGroup = L.layerGroup().addTo(map);
+let windLayerGroup = L.layerGroup().addTo(map);
+
+function getColor(pwv){
+  return pwv>50?"#800026":pwv>40?"#BD0026":pwv>30?"#E31A1C":pwv>25?"#FC4E2A":
+         pwv>20?"#FD8D3C":pwv>15?"#FEB24C":pwv>10?"#FED976":"#FFEDA0";
+}
+
+// --- UTC基準の時刻選択用 ---
+function getRoundedHourUTC(){
+  const now=new Date();
+  const utc=new Date(now.getTime());
+  utc.setUTCMinutes(utc.getUTCMinutes()-40);
+  utc.setUTCHours(utc.getUTCHours()-9);
+  utc.setUTCMinutes(0,0,0);
+  return utc;
+}
+
+function populateDatetimeSelect(){
+  const select = document.getElementById("datetime");
+  const baseUTC = getRoundedHourUTC();
+  for(let i=0;i<=192;i++){
+    const dtUTC=new Date(baseUTC.getTime()-i*3600000);
+    const utcStr=formatDatetimeJMA(dtUTC);
+    const dtJST=new Date(dtUTC.getTime()+9*3600000);
+    const label=`${dtJST.getFullYear()}-${String(dtJST.getMonth()+1).padStart(2,"0")}-${String(dtJST.getDate()).padStart(2,"0")} ${String(dtJST.getHours()).padStart(2,"0")}:00 JST`;
+    const option=document.createElement("option"); option.value=utcStr; option.textContent=label;
+    if(i===0) option.selected=true; select.appendChild(option);
+  }
+}
+
+function formatDatetimeJMA(date){
+  const y=date.getUTCFullYear(), m=String(date.getUTCMonth()+1).padStart(2,"0");
+  const d=String(date.getUTCDate()).padStart(2,"0"), h=String(date.getUTCHours()).padStart(2,"0");
+  return `${y}${m}${d}${h}00`;
+}
+
+// --- 緯度経度取得 ---
+let amedasLocData=null;
+async function loadAmedasLocData(){
+  const url="https://www.jma.go.jp/bosai/amedas/const/amedastable.json";
+  const res=await fetch(url);
+  if(!res.ok) throw new Error("アメダス地点データ取得失敗");
+  amedasLocData=await res.json();
+}
+
+// --- 湿球計算 ---
+function calcWetBulb(T,RH){
+  return T*Math.atan(0.151977*Math.sqrt(RH+8.313659)) + Math.atan(T+RH) - Math.atan(RH-1.676331)
+         + 0.00391838*Math.pow(RH,1.5)*Math.atan(0.023101*RH) - 4.686035;
+}
+
+// --- 風向→角度 ---
+function windDirToAngle(idx){if(!idx) return 0; return (idx-1)*22.5+180;}
+function getWindColor(ws){if(ws==null) return "gray"; if(ws<3) return "skyblue"; if(ws<6) return "blue"; if(ws<10) return "yellow"; return "orange";}
+
+// --- 共通風向マーカー ---
+function addWindMarker(lat, lon, angle, color, labelHTML){
+  const icon=L.divIcon({
+    className:"custom-wind-icon",
+    html:`<svg width="20" height="20" viewBox="0 0 20 20" style="transform: rotate(${angle}deg);">
+            <line x1="10" y1="30" x2="10" y2="10" stroke="${color}" stroke-width="8"/>
+            <polygon points="4,10 16,10 10,0" fill="${color}"/>
+          </svg>`,
+    iconSize:[20,20], iconAnchor:[10,10]
+  });
+  L.marker([lat,lon],{icon}).addTo(windLayerGroup).bindPopup(labelHTML);
+}
+
+// --- そらまめ ---
+async function loadSoramameJST(datetimeStr){
+  const YYYY = datetimeStr.slice(0,4);
+  const MM   = datetimeStr.slice(4,6);
+  const DD   = datetimeStr.slice(6,8);
+  const HH   = datetimeStr.slice(8,10);
+  const metaUrl=`https://soramame.env.go.jp/data/map/kyokuNoudo/${YYYY}/${MM}/${DD}/01.csv`;
+  const obsUrl=`https://soramame.env.go.jp/data/sokutei/noudoAll/${YYYY}/${MM}/${DD}/${HH}.csv`;
+  const [meta,obs]=await Promise.all([fetchCSV(metaUrl),fetchCSV(obsUrl)]);
+  const windDirMap={'南':0,'南南西':22.5,'南西':45,'西南西':67.5,'西':90,'西北西':112.5,'北西':135,'北北西':157.5,'北':180,'北北東':202.5,'北東':225,'東北東':247.5,'東':270,'東南東':292.5,'南東':315,'南南東':337.5};
+  const metaMap=new Map();
+  meta.forEach(d=>{const code=d['測定局コード']; const lat=parseFloat(d['緯度']); const lon=parseFloat(d['経度']); if(!isNaN(lat)&&!isNaN(lon)) metaMap.set(code,{lat,lon,name:d['測定局名称']||''});});
+  obs.forEach(d=>{
+    const m=metaMap.get(d['測定局コード']); if(!m) return;
+    const T=parseFloat(d['TEMP']); const RH=parseFloat(d['HUM']); if(isNaN(T)||isNaN(RH)||RH<=0) return;
+    const wb=calcWetBulb(T,RH); const WD=d['WD']; const WS=parseFloat(d['WS']); if(isNaN(WS)) return;
+    const angle=windDirMap[WD]??0; const color=getWindColor(WS);
+    const labelHTML=`<strong>${m.name}（そらまめ）</strong><br>T=${T}℃ RH=${RH}%<br>風向:${WD||'–'} 風速:${WS||'–'}`;
+    addWindMarker(m.lat,m.lon,angle,color,labelHTML);
+  });
+}
+
+// --- アメダス ---
+async function loadAmedasJST(datetimeStr){
+  if(!amedasLocData) await loadAmedasLocData();
+  const YYYY = datetimeStr.slice(0,4);
+  const MM   = datetimeStr.slice(4,6);
+  const DD   = datetimeStr.slice(6,8);
+  const HH   = datetimeStr.slice(8,10);
+  const obsUrl=`https://www.jma.go.jp/bosai/amedas/data/map/${YYYY}${MM}${DD}${HH}0000.json`;
+  const res=await fetch(obsUrl); if(!res.ok) return;
+  const obs=await res.json();
+  const windDir=['','北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
+  for(const code in obs){
+    const st=obs[code]; const mt=amedasLocData[code]; if(!st||!mt) continue;
+    const lat=mt.lat[0]+mt.lat[1]/60; const lon=mt.lon[0]+mt.lon[1]/60;
+    const T=st.temp?.[0]; const RH=st.humidity?.[0]; if(T==null||RH==null) continue;
+    const WD_idx=st.windDirection?.[0]; const WD=windDir[WD_idx]; const WS=st.wind?.[0];
+    const angle=windDirToAngle(WD_idx); const color=getWindColor(WS);
+    const labelHTML=`<strong>${mt.kjName}（アメダス）</strong><br>T=${T}℃ RH=${RH}%<br>風向:${WD||'–'} 風速:${WS||'–'}`;
+    addWindMarker(lat,lon,angle,color,labelHTML);
+  }
+}
+
+// --- PWV表示 (UTC基準) ---
+async function loadPWVUTC(datetimeStr){
+  pwvLayerGroup.clearLayers();
+  const ymd=datetimeStr.substring(0,8), h=datetimeStr.substring(8,10);
+  const pwvURL=proxy+encodeURIComponent(`https://web.lhtc-pwv.com/web/${ymd}/pwvweb.${datetimeStr}.csv`);
+  try{
+    const [stationRes,pwvRes]=await Promise.all([fetch(stationURL),fetch(pwvURL)]);
+    if(!stationRes.ok||!pwvRes.ok) throw new Error("PWVデータ取得失敗");
+    const stationText=await stationRes.text(), pwvText=await pwvRes.text();
+    const stationData={};
+    stationText.trim().split("\n").forEach(line=>{
+      const [id,lat,lon,alt]=line.split(",");
+      stationData[id]={lat:parseFloat(lat), lon:parseFloat(lon), alt:parseFloat(alt)};
+    });
+    const pwvValuesById={};
+    pwvText.trim().split("\n").forEach(line=>{
+      const [id,pwvStr]=line.split(","); const pwv=parseFloat(pwvStr);
+      if(!isNaN(pwv)){ if(!pwvValuesById[id]) pwvValuesById[id]=[]; pwvValuesById[id].push(pwv);}
+    });
+    Object.entries(pwvValuesById).forEach(([id,pwvList])=>{
+      const info=stationData[id]; if(!info||pwvList.length===0) return;
+      const avgPWV=pwvList.reduce((s,v)=>s+v,0)/pwvList.length;
+      const roundedPWV=Math.round(avgPWV);
+      const color=getColor(avgPWV);
+      L.circleMarker([info.lat,info.lon],{radius:8,color,color,fillColor:color,fillOpacity:0.6,weight:1}).addTo(pwvLayerGroup);
+      const label=L.divIcon({className:"pwv-label",html:`<div style="color:black;font-size:12px;font-weight:bold;">${roundedPWV}</div>`,iconSize:[30,12],iconAnchor:[15,6]});
+      L.marker([info.lat,info.lon],{icon:label}).addTo(pwvLayerGroup);
+    });
+  }catch(err){console.error(err);}
+}
+
+// --- 更新 ---
+async function updateAll(){
+  const datetimeStr=document.getElementById("datetime").value;
+
+  // JST表示
+  const y=parseInt(datetimeStr.slice(0,4),10), m=parseInt(datetimeStr.slice(4,6),10),
+        d=parseInt(datetimeStr.slice(6,8),10), h=parseInt(datetimeStr.slice(8,10),10);
+  const jstDate=new Date(Date.UTC(y,m-1,d,h)+9*3600000);
+  document.getElementById("selectedTime").textContent=`表示時刻: ${jstDate.getFullYear()}-${String(jstDate.getMonth()+1).padStart(2,"0")}-${String(jstDate.getDate()).padStart(2,"0")} ${String(jstDate.getHours()).padStart(2,"0")}:00 JST`;
+
+  // レイヤークリア
+  pwvLayerGroup.clearLayers(); windLayerGroup.clearLayers();
+
+  // データ取得
+  await Promise.all([
+      loadPWVUTC(datetimeStr),
+      loadSoramameJST(datetimeStr),
+      loadAmedasJST(datetimeStr)
+  ]);
+}
+
+document.getElementById("datetime").addEventListener("change",updateAll);
+populateDatetimeSelect();
+updateAll();
+
+// --- CSV/JSON取得 ---
+function fetchJSON(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.json());}
+function fetchCSV(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.text()).then(t=>d3.csvParse(t));}
+</script>
+</body>
+</html>
