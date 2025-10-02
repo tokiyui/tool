@@ -39,7 +39,6 @@
 
     // --- Copernicus WMTS ---
     const datasetList = ['cfo','c2','h2b','h2c','j3','al','s3a','s3b','s6a','swon'];
-    // const datasetList = ['cfo','c2','j3','al','s3a','s3b','s6a'];
     
     // 現在時刻 UTC
     const now = new Date();
@@ -63,13 +62,6 @@ const tiles = [
   {tileMatrix: 4, row: 5, col: 14, bounds: [[40.979898069620155,135],[55.7765730186677,157.5]]}
 ];
 
-/* const tiles = [
-  {tileMatrix: 3, row: 6, col: 2, bounds: [[0,90],[40.979898069620155,135]]},
-  {tileMatrix: 3, row: 6, col: 3, bounds: [[40.979898069620155,90],[66.51326044311185,135]]},
-  {tileMatrix: 3, row: 7, col: 2, bounds: [[0,135],[40.979898069620155,180]]},
-  {tileMatrix: 3, row: 7, col: 3, bounds: [[40.979898069620155,135],[66.51326044311185,180]]}
-]; */
-
 // datasetListと時間変数 time は既に定義されている前提
 tiles.forEach(tile => {
   datasetList.forEach(datasetId => {
@@ -86,7 +78,6 @@ tiles.forEach(tile => {
     img.onload = () => {
       L.imageOverlay(wmtsUrl, tile.bounds, { opacity: 0.5 }).addTo(map);
     };
-    img.onerror = () => console.warn(`画像が存在しない: ${wmtsUrl}`);
     img.src = wmtsUrl;
   });
 });
