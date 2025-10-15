@@ -170,6 +170,35 @@ tiles.forEach(tile => {
         createCircleMarker(lat, lon, color, text).addTo(map);
       }
 
+  // --- SSVB 波高データ追加 ---
+  const ssvbURL = "https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json";
+
+  async function plotSSVBData() {
+    try {
+      const res = await fetch(ssvbURL);
+      const data = await res.json();
+
+      // 各地点の最新データだけ取得
+      for (const id in data) {
+        const times = Object.keys(data[id]).sort(); // 昇順
+        const latestTime = times[times.length - 1];
+        const latestData = data[id][latestTime];
+
+        const [lat, lon] = latestData.latlon;
+        const waveHeight = latestData.wave_height;
+
+        if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
+        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
+
+        const color = getColor(waveHeight);
+        const text = `SSVB ${id} (${waveHeight.toFixed(2)} m)`;
+        createCircleMarker(lat, lon, color, text).addTo(map);
+      }
+    } catch(e) {
+      console.error("SSVB取得エラー:", e);
+    }
+  }
+
       // --- 凡例 ---
       const legend = L.control({ position: "bottomright" });
       legend.onAdd = function () {
@@ -187,10 +216,11 @@ tiles.forEach(tile => {
       legend.addTo(map);
     }
 
-    plotWaveData().catch(e => {
-      console.error("エラー:", e);
-      alert("データの取得に失敗しました");
-    });
+    plotWaveData().then(() => {
+    plotSSVBData();
+  }).catch(e => {
+    console.error("plotWaveData エラー:", e);
+  });
   </script>
 </body>
 </html>
