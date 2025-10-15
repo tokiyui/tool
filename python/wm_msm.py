@@ -3,8 +3,8 @@ import csv
 from datetime import datetime, timedelta
  
 # 開始・終了日
-start_date = datetime(2024, 6, 1)
-end_date = datetime(2024, 9, 30)
+start_date = datetime(2025, 6, 1)
+end_date = datetime(2025, 9, 30)
  
 # 出力ファイル
 csv_file = "msmgpv_tmp_rh.csv"
