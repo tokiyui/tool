@@ -70,7 +70,7 @@
     const proxy = "https://api.allorigins.win/raw?url=";
     const setupURL = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml");
     const dataURL  = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/mapxml/DataMap.xml");
-    const shipURL  = proxy + encodeURIComponent("https://www.ndbc.noaa.gov/ship_obs.php?uom=E&time=1");
+    const shipURL  = proxy + encodeURIComponent("https://www.ndbc.noaa.gov/ship_obs.php?uom=E&time=2");
 
     function getColor(height) {
       if (height < 0.5) return "dodgerblue";
@@ -136,7 +136,7 @@
         const wvft = parseFloat(parts[7]);
         if (isNaN(lat)||isNaN(lon)||isNaN(wvft)) continue;
         if (lat<20||lat>50||lon<120||lon>150) continue;
-        createCircleMarker(lat, lon, getColor(wvft*0.3048), `ShipObs (${(wvft*0.3048).toFixed(2)} m)`);
+        createCircleMarker(lat, lon, getColor(wvft*0.3048), `Ship (${(wvft*0.3048).toFixed(2)} m)`);
       }
 
       // --- SSVB ---
@@ -153,7 +153,7 @@
         if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
         if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
 
-        createCircleMarker(lat, lon, getColor(waveHeight), `SSVB ${id} (${waveHeight.toFixed(2)} m)`);
+        createCircleMarker(lat, lon, getColor(waveHeight), `Buoy (${waveHeight.toFixed(2)} m)`);
       }
 
       // --- 凡例 ---
