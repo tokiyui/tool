@@ -139,12 +139,23 @@
         createCircleMarker(lat, lon, getColor(wvft*0.3048), `Ship (${(wvft*0.3048).toFixed(2)} m)`);
       }
 
-      // --- SSVB ---
+      // --- SSVB（直近6時間以内のみ）---
+      const nowUTC = new Date();
+      const sixHoursAgo = new Date(nowUTC.getTime() - 6 * 60 * 60 * 1000);
+
       for (const id in ssvbData) {
         const entries = ssvbData[id];
         if (!entries || Object.keys(entries).length === 0) continue;
-        const times = Object.keys(entries).sort();
-        const latestTime = times[times.length-1];
+
+        const times = Object.keys(entries)
+          .filter(t => {
+            const dt = new Date(t);
+            return dt >= sixHoursAgo && dt <= nowUTC;
+          })
+          .sort();
+
+        if (times.length === 0) continue;
+        const latestTime = times[times.length - 1];
         const latestData = entries[latestTime];
         if (!latestData || !latestData.latlon) continue;
 
@@ -153,7 +164,8 @@
         if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
         if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
 
-        createCircleMarker(lat, lon, getColor(waveHeight), `Buoy (${waveHeight.toFixed(2)} m)`);
+        createCircleMarker(lat, lon, getColor(waveHeight),
+          `Buoy (${waveHeight.toFixed(2)} m)<br>${latestTime.replace("T"," ").replace("Z"," UTC")}`);
       }
 
       // --- 凡例 ---
