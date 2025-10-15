@@ -216,7 +216,7 @@ tiles.forEach(tile => {
       legend.addTo(map);
     }
 
-    plotWaveData().then(() => {
+  plotWaveData().then(() => {
     plotSSVBData();
   }).catch(e => {
     console.error("plotWaveData エラー:", e);
