@@ -29,28 +29,25 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // --- マップ作成 ---
     const map = L.map("map", { crs: L.CRS.EPSG3857 }).setView([36, 138], 5);
 
-    // --- 背景 OSM ---
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
-    // --- Copernicus WMTS ---（省略: 元コード通り）
+    // --- Copernicus WMTS ---
     const datasetList = ['cfo','c2','h2b','h2c','j3','al','s3a','s3b','s6a','swon'];
     const now = new Date();
     now.setUTCHours(now.getUTCHours() - 3);
-    const hours = now.getUTCHours();
-    const flooredHours = Math.floor(hours / 6) * 6;
+    const flooredHours = Math.floor(now.getUTCHours() / 6) * 6;
     now.setUTCHours(flooredHours, 0, 0, 0);
     const time = now.toISOString();
 
     const tiles = [
-      {tileMatrix: 4, row: 6, col: 13, bounds: [[21.943045533438166,112.5],[40.979898069620155,135]]},
-      {tileMatrix: 4, row: 5, col: 13, bounds: [[40.979898069620155,112.5],[55.7765730186677,135]]},
-      {tileMatrix: 4, row: 6, col: 14, bounds: [[21.943045533438166,135],[40.979898069620155,157.5]]},
-      {tileMatrix: 4, row: 5, col: 14, bounds: [[40.979898069620155,135],[55.7765730186677,157.5]]}
+      {tileMatrix: 4, row: 6, col: 13, bounds: [[21.943,112.5],[40.979,135]]},
+      {tileMatrix: 4, row: 5, col: 13, bounds: [[40.979,112.5],[55.776,135]]},
+      {tileMatrix: 4, row: 6, col: 14, bounds: [[21.943,135],[40.979,157.5]]},
+      {tileMatrix: 4, row: 5, col: 14, bounds: [[40.979,135],[55.776,157.5]]}
     ];
 
     tiles.forEach(tile => {
@@ -65,14 +62,11 @@
           `&time=${time}&style=cmap:rainbow,range:0.0/3.0`;
 
         const img = new Image();
-        img.onload = () => {
-          L.imageOverlay(wmtsUrl, tile.bounds, { opacity: 0.5 }).addTo(map);
-        };
+        img.onload = () => L.imageOverlay(wmtsUrl, tile.bounds, { opacity: 0.5 }).addTo(map);
         img.src = wmtsUrl;
       });
     });
 
-    // --- NOWPHAS + NOAA Ship Obs ---
     const proxy = "https://api.allorigins.win/raw?url=";
     const setupURL = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml");
     const dataURL  = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/mapxml/DataMap.xml");
@@ -88,44 +82,37 @@
     }
 
     function createCircleMarker(lat, lon, color, text) {
-      return L.circleMarker([lat, lon], {
-        radius: 8,
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.8,
-        weight: 1
-      }).bindTooltip(text, { permanent: false });
+      return L.circleMarker([lat, lon], { radius: 8, color, fillColor: color, fillOpacity: 0.8, weight: 1 })
+        .bindTooltip(text, { permanent: false }).addTo(map);
     }
 
     async function fetchXML(url) {
-      const res = await fetch(url);
-      const txt = await res.text();
+      const res = await fetch(url); const txt = await res.text();
       return new DOMParser().parseFromString(txt, "application/xml");
     }
 
     async function fetchText(url) {
-      const res = await fetch(url);
-      return await res.text();
+      const res = await fetch(url); return await res.text();
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url); return await res.json();
     }
 
     async function plotWaveData() {
-      const [setupXML, dataXML, shipText] = await Promise.all([
+      const [setupXML, dataXML, shipText, ssvbData] = await Promise.all([
         fetchXML(setupURL),
         fetchXML(dataURL),
-        fetchText(shipURL)
+        fetchText(shipURL),
+        fetchJSON("https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json")
       ]);
 
       const points = {};
       for (const pt of setupXML.getElementsByTagName("point")) {
         const code = pt.getAttribute("code");
-        points[code] = {
-          name: pt.getAttribute("name"),
-          lat: parseFloat(pt.getAttribute("lat")),
-          lon: parseFloat(pt.getAttribute("lon")),
-        };
+        points[code] = { name: pt.getAttribute("name"), lat: parseFloat(pt.getAttribute("lat")), lon: parseFloat(pt.getAttribute("lon")) };
       }
 
-      // --- NOWPHAS ---
       const mapdata = dataXML.getElementsByTagName("mapdata");
       for (const md of mapdata) {
         const code = md.getAttribute("code");
@@ -134,14 +121,11 @@
         if (yugiha && points[code]) {
           const h = parseFloat(yugiha);
           if (h >= 100) continue;
-          const color = getColor(h);
           const { name, lat, lon } = points[code];
-          const text = `${name} (${h.toFixed(2)} m)`;
-          createCircleMarker(lat, lon, color, text).addTo(map);
+          createCircleMarker(lat, lon, getColor(h), `${name} (${h.toFixed(2)} m)`);
         }
       }
 
-      // --- NOAA Ship Obs ---
       const spanMatches = shipText.match(/<span>SHIP.*?<\/span>/g) || [];
       for (const span of spanMatches) {
         const textLine = span.replace(/<[^>]+>/g, "").trim();
@@ -150,17 +134,27 @@
         const lat = parseFloat(parts[2]);
         const lon = parseFloat(parts[3]);
         const wvft = parseFloat(parts[7]);
-        if (isNaN(lat) || isNaN(lon) || isNaN(wvft)) continue;
-        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
-
-        const h = wvft * 0.3048;
-        const color = getColor(h);
-        const text = `ShipObs (${h.toFixed(2)} m)`;
-        createCircleMarker(lat, lon, color, text).addTo(map);
+        if (isNaN(lat)||isNaN(lon)||isNaN(wvft)) continue;
+        if (lat<20||lat>50||lon<120||lon>150) continue;
+        createCircleMarker(lat, lon, getColor(wvft*0.3048), `ShipObs (${(wvft*0.3048).toFixed(2)} m)`);
       }
 
-      // --- SSVB 波高データ ---
-      await plotSSVBData();
+      // --- SSVB ---
+      for (const id in ssvbData) {
+        const entries = ssvbData[id];
+        if (!entries || Object.keys(entries).length === 0) continue;
+        const times = Object.keys(entries).sort();
+        const latestTime = times[times.length-1];
+        const latestData = entries[latestTime];
+        if (!latestData || !latestData.latlon) continue;
+
+        const [lat, lon] = latestData.latlon;
+        const waveHeight = latestData.wave_height;
+        if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
+        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
+
+        createCircleMarker(lat, lon, getColor(waveHeight), `SSVB ${id} (${waveHeight.toFixed(2)} m)`);
+      }
 
       // --- 凡例 ---
       const legend = L.control({ position: "bottomright" });
@@ -168,49 +162,16 @@
         const div = L.DomUtil.create("div", "legend");
         const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
         div.innerHTML += "<b>波高 (m)</b><br>";
-        for (let i = 0; i < grades.length; i++) {
-          const from = grades[i];
-          const to = grades[i + 1];
-          const color = getColor(from + 0.01);
-          div.innerHTML += `<i style="background:${color}"></i> ${from}` + (to ? `–${to}` : "+") + "<br>";
+        for (let i=0;i<grades.length;i++){
+          const from = grades[i]; const to = grades[i+1];
+          div.innerHTML += `<i style="background:${getColor(from+0.01)}"></i> ${from}` + (to?`–${to}`:"+") + "<br>";
         }
         return div;
       };
       legend.addTo(map);
     }
 
-    // --- SSVB データ取得関数 ---
-    const ssvbURL = "https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json";
-    async function plotSSVBData() {
-      try {
-        const res = await fetch(ssvbURL);
-        const data = await res.json();
-
-        for (const id in data) {
-          const times = Object.keys(data[id]).sort();
-          const latestTime = times[times.length - 1];
-          const latestData = data[id][latestTime];
-
-          const [lat, lon] = latestData.latlon;
-          const waveHeight = latestData.wave_height;
-
-          if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
-          if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
-
-          const color = getColor(waveHeight);
-          const text = `SSVB ${id} (${waveHeight.toFixed(2)} m)`;
-          createCircleMarker(lat, lon, color, text).addTo(map);
-        }
-      } catch(e) {
-        console.error("SSVB取得エラー:", e);
-      }
-    }
-
-    // --- 実行 ---
-    plotWaveData().catch(e => {
-      console.error("エラー:", e);
-      alert("データの取得に失敗しました");
-    });
+    plotWaveData().catch(e => { console.error("エラー:", e); alert("データの取得に失敗しました"); });
   </script>
 </body>
 </html>
