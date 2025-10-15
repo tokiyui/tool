@@ -163,9 +163,7 @@
         const waveHeight = latestData.wave_height;
         if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
         if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
-
-        createCircleMarker(lat, lon, getColor(waveHeight),
-          `Buoy (${waveHeight.toFixed(2)} m)<br>${latestTime.replace("T"," ").replace("Z"," UTC")}`);
+        createCircleMarker(lat, lon, getColor(waveHeight), `Buoy (${waveHeight.toFixed(2)} m)`);
       }
 
       // --- 凡例 ---
