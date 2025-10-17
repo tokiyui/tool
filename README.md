@@ -5,7 +5,7 @@
 - [ときめき♡ルーレット](https://tokiyui.github.io/tool/roulette/index.html): 超ときめき♡宣伝部の個人アー写が切り替わります。クリックで一時停止して遊ぶことができます。
 - [とき宣カレンダー](https://tokiyui.github.io/tool/toki_event.html): 超ときめき♡宣伝部の結成以降のイベント一覧をイベンターノートから取得。登録漏れのチェック&データベースができる日を夢見て・・・
 - [共演イベント検索](https://tokiyui.github.io/tool/common.html): イベンターノートから、指定した2組のアーティストが共演したイベントを抽出します。
-- 
+  
 # 気象関係
 - [ECMWF-AIFS初期値比較](https://tokiyui.github.io/tool/AIFS.html): AI気象モデルECMWF-AIFSの予想図を、米国の気象愛好家Ryan Maue氏が公開しているサイトから取得し、初期値比較ができるように表示しています。
 - [気象計算機](https://tokiyui.github.io/tool/metcalc.html): 露点・湿数・湿球温度・温位・相当温位・飽和相当温位を計算するツールです。
@@ -15,7 +15,7 @@
 - [鉛直時間断面図](https://tokiyui.github.io/Danmen/): GSM、MSM、GFS（NCEP）、IFS（ECMWF）、METFR（フランス）の東京付近の鉛直ー時間断面図
 - [寒気帳票](https://tokiyui.github.io/tool/coldair.html): 高層気象観測地点における各層の気温予想。ECMWF-AIFSによる総観場の予測精度のチェックを兼ねる。
 - [カラーFax天気図](https://tokiyui.github.io/FaxMap/): 色付きのFax天気図のようなもの。
-- [局地天気図]([https://tokiyui.github.io/FaxMap/](https://tokiyui.github.io/FaxMap/local.html)): 自動で局地解析。
+- [局地天気図]([https://tokiyui.github.io/FaxMap/](https://tokiyui.github.io/FaxMap/local.html)): 自動で局地解析天気図を作成。
   
 # 自分用 
 - [リンク集（暫定）](https://tokiyui.github.io/tool/index.html): ただのリンク集です。作成中。
