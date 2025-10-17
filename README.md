@@ -15,7 +15,7 @@
 - [鉛直時間断面図](https://tokiyui.github.io/Danmen/): GSM、MSM、GFS（NCEP）、IFS（ECMWF）、METFR（フランス）の東京付近の鉛直ー時間断面図
 - [寒気帳票](https://tokiyui.github.io/tool/coldair.html): 高層気象観測地点における各層の気温予想。ECMWF-AIFSによる総観場の予測精度のチェックを兼ねる。
 - [カラーFax天気図](https://tokiyui.github.io/FaxMap/): 色付きのFax天気図のようなもの。
-- [局地天気図]([https://tokiyui.github.io/FaxMap/](https://tokiyui.github.io/FaxMap/local.html)): 自動で局地解析天気図を作成。
+- [局地天気図](https://tokiyui.github.io/FaxMap/local.html): 自動で局地解析天気図を作成。
   
 # 自分用 
 - [リンク集（暫定）](https://tokiyui.github.io/tool/index.html): ただのリンク集です。作成中。
