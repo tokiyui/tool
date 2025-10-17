@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>気象モデル比較表</title>
+<style>
+  table { border-collapse: collapse; width: 100%; margin-bottom: 40px; }
+  th, td { border: 1px solid #999; padding: 5px; text-align: center; }
+  th { background-color: #eee; }
+  .green { background-color: #9f9; }
+  td { width: 4%; }
+</style>
+</head>
+<body>
+
+<h1>気象モデル比較表</h1>
+<div id="tables"></div>
+
+<script>
+// 対象モデル
+const models = ["ecmwf_ifs025", "gfs_global", "icon_global", "gem_global", "meteofrance_arpege_world", "ukmo_global_deterministic_10km", "jma_gsm"];
+const hPaLevels = ["400", "500", "700", "850", "925"];
+const latitude = 35.75;
+const longitude = 139.75;
+
+// 時刻ラベル（03, 06, 09 ... 00）
+const hours = Array.from({length: 24}, (_, i) => ((3 + i*3) % 24).toString().padStart(2,'0'));
+
+// 3時間降水量を計算
+function sumPrecipitation(hourIndex, precipitation) {
+  return precipitation.slice(hourIndex-2, hourIndex+1).reduce((a,b)=>a+b, 0);
+}
+
+// 天気判定
+function judgeWeather(rhValues, precipSum) {
+  if (precipSum >= 3) return "●";
+  const hasGreen = rhValues.some(v => v >= 80);
+  let mark = hasGreen ? "◎" : "〇";
+  if (precipSum > 0 && precipSum < 3) mark += "[●]";
+  return mark;
+}
+
+// データ取得＆表作成
+async function createTables() {
+  const container = document.getElementById("tables");
+
+  for (const model of models) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=precipitation,relative_humidity_925hPa,relative_humidity_850hPa,relative_humidity_700hPa,relative_humidity_500hPa,relative_humidity_400hPa&models=${model}&timezone=Asia%2FTokyo&forecast_days=3`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+    const hourly = data.hourly;
+
+    // 時刻を1時間進める
+    const time = hourly.time.map(t => {
+      const d = new Date(t);
+      d.setHours(d.getHours() + 1);
+      return d;
+    });
+
+    // 表作成
+    const table = document.createElement("table");
+    const title = document.createElement("h2");
+    title.textContent = model;
+    container.appendChild(title);
+    container.appendChild(table);
+
+    // ヘッダ
+    const thead = document.createElement("thead");
+    const tr = document.createElement("tr");
+    tr.appendChild(document.createElement("th")).textContent = "時刻";
+    hours.forEach(h => tr.appendChild(document.createElement("th")).textContent = h);
+    thead.appendChild(tr);
+    table.appendChild(thead);
+
+    // 各hPaレベル
+    const tbody = document.createElement("tbody");
+    for (const level of hPaLevels) {
+      const tr = document.createElement("tr");
+      tr.appendChild(document.createElement("td")).textContent = `${level}hPa`;
+      hours.forEach((h, i) => {
+        const hourIndex = i*3 + 2; // 3時間合計の最後の時刻インデックス
+        const rhArray = hourly[`relative_humidity_${level}hPa`];
+        const value = rhArray[hourIndex];
+        const td = document.createElement("td");
+        td.textContent = Math.round(value);
+        if (value >= 80) td.classList.add("green");
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+
+    // 3時間降水量
+    const trPrecip = document.createElement("tr");
+    trPrecip.appendChild(document.createElement("td")).textContent = "3時間降水量";
+    hours.forEach((h, i) => {
+      const hourIndex = i*3 + 2;
+      const sum = sumPrecipitation(hourIndex, hourly.precipitation);
+      const td = document.createElement("td");
+      td.textContent = sum.toFixed(1);
+      trPrecip.appendChild(td);
+    });
+    tbody.appendChild(trPrecip);
+
+    // 天気判定
+    const trWeather = document.createElement("tr");
+    trWeather.appendChild(document.createElement("td")).textContent = "天気判定";
+    hours.forEach((h, i) => {
+      const hourIndex = i*3 + 2;
+      const rhValues = hPaLevels.map(l => hourly[`relative_humidity_${l}hPa`][hourIndex]);
+      const precipSum = sumPrecipitation(hourIndex, hourly.precipitation);
+      const td = document.createElement("td");
+      td.textContent = judgeWeather(rhValues, precipSum);
+      trWeather.appendChild(td);
+    });
+    tbody.appendChild(trWeather);
+
+    table.appendChild(tbody);
+  }
+}
+
+// 実行
+createTables();
+</script>
+</body>
+</html>
