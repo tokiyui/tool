@@ -45,7 +45,7 @@ async function createTables() {
   const container = document.getElementById("tables");
 
   for (const model of models) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=precipitation,relative_humidity_925hPa,relative_humidity_850hPa,relative_humidity_700hPa,relative_humidity_500hPa,relative_humidity_400hPa&models=${model}&timezone=Asia%2FTokyo&forecast_days=3`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&cell_selection=nearest&hourly=precipitation,relative_humidity_925hPa,relative_humidity_850hPa,relative_humidity_700hPa,relative_humidity_500hPa,relative_humidity_400hPa&models=${model}&timezone=Asia%2FTokyo&forecast_days=3`;
 
     const res = await fetch(url);
     const data = await res.json();
