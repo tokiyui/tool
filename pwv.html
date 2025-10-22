@@ -180,56 +180,6 @@ async function loadPWVUTC(datetimeStr){
   }catch(err){console.error(err);}
 }
 
-  // --- 国交省道路気象観測データ（PRVS） ---
-async function loadPRVSWind() {
-  const basePage = "https://www.road-info-prvs.mlit.go.jp/roadinfo/pc/pcTop_00_0.html";
-  const baseHtml = await fetch(proxy + encodeURIComponent(basePage)).then(r => r.text());
-
-  // ../backup/20251022085000/4M9qteU0Jxhnq8Qp/ のようなパスを抽出
-  const match = baseHtml.match(/\.{2}\/backup\/([\d]{14}\/[A-Za-z0-9]+)\//);
-  if (!match) {
-    console.warn("PRVSバックアップパスが見つかりません");
-    return;
-  }
-  const backupPath = match[1];
-  console.log("PRVSバックアップパス:", backupPath);
-
-  // 81〜90 の地域JSONを並列取得
-  const regionCodes = Array.from({length:10},(_,i)=>81+i);
-  const urls = regionCodes.map(cd =>
-    `https://www.road-info-prvs.mlit.go.jp/roadinfo/backup/${backupPath}/Kisho/${cd}.json`
-  );
-
-  let allData = [];
-  for (const url of urls) {
-    try {
-      const data = await fetch(proxy + encodeURIComponent(url)).then(r => r.json());
-      if (Array.isArray(data)) allData.push(...data);
-    } catch (e) {
-      console.warn("PRVSデータ取得失敗:", url);
-    }
-  }
-
-  // 風データを地図に表示
-  const windDirMap = {
-    "北":180,"北北東":202.5,"北東":225,"東北東":247.5,"東":270,
-    "東南東":292.5,"南東":315,"南南東":337.5,"南":0,
-    "南南西":22.5,"南西":45,"西南西":67.5,"西":90,
-    "西北西":112.5,"北西":135,"北北西":157.5
-  };
-
-  allData.forEach(d => {
-    const { calculation_16_wind_directions: dir, average_wind_speed: wsStr, gis_point, kansoku_ichi_meisho_kanji_mojiretsu: name } = d;
-    if (!dir || !wsStr || !gis_point) return;
-    const ws = parseFloat(wsStr);
-    const coords = JSON.parse(gis_point).coordinates;
-    const angle = windDirMap[dir] ?? 0;
-    const color = getWindColor(ws);
-    const labelHTML = `<strong>${name}（道路気象）</strong><br>風向:${dir}<br>風速:${ws}m/s`;
-    addWindMarker(coords[1], coords[0], angle, color, labelHTML);
-  });
-}
-  
 // --- 更新 ---
 async function updateAll(){
   const datetimeStr=document.getElementById("datetime").value;
@@ -247,8 +197,7 @@ async function updateAll(){
   await Promise.all([
       loadPWVUTC(datetimeStr),
       loadSoramameJST(datetimeStr),
-      loadAmedasJST(datetimeStr),
-      loadPRVSWind()
+      loadAmedasJST(datetimeStr)
   ]);
 }
 
@@ -259,7 +208,6 @@ updateAll();
 // --- CSV/JSON取得 ---
 function fetchJSON(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.json());}
 function fetchCSV(url){return fetch(proxy+encodeURIComponent(url)).then(r=>r.text()).then(t=>d3.csvParse(t));}
-
 </script>
 </body>
 </html>
