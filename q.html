@@ -1,138 +1,48 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>波浪3モデル比較（GFS・ECMWF・GWAM）</title>
+<meta charset="UTF-8">
+<title>波浪モデル表示</title>
 <style>
-body {
-  margin: 0;
-  background: #0b1020;
-  color: #e6eef8;
-  font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
-  overflow-x: hidden;
-}
-.container {
-  display: flex;
-  align-items: stretch;
-  height: 100vh;
-}
-.timebar {
-  width: 10%;
-  background: #101830;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 1.4vw;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  padding: 1vw;
-  box-sizing: border-box;
-}
-.imgarea {
-  display: flex;
-  width: 90%;
-  justify-content: space-around;
-  align-items: center;
-  background: #000;
-}
-.model {
-  width: 30%;
-  text-align: center;
-}
-.model img {
-  width: 100%;
-  border-radius: 6px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.6);
-}
-.model-name {
-  margin-top: 0.5em;
-  font-size: 0.9em;
-  color: #a8c0ea;
-}
-.osm-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.15;
-  pointer-events: none;
-  object-fit: cover;
-}
+  body { background: #0b1020; color: #fff; font-family: sans-serif; text-align:center; }
+  img { max-width: 90%; margin: 1em; border-radius: 6px; }
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="timebar" id="timeLabel">Loading...</div>
-  <div class="imgarea" id="images">
-    <div class="model" id="ecmwf">
-      <img alt="ECMWF" />
-      <div class="model-name">ECMWF</div>
-    </div>
-    <div class="model" id="gfs">
-      <img alt="GFS" />
-      <div class="model-name">GFS</div>
-    </div>
-    <div class="model" id="gwam">
-      <img alt="GWAM" />
-      <div class="model-name">GWAM</div>
-    </div>
-  </div>
-</div>
+<h1>波浪モデル比較</h1>
+<img id="gfs" alt="GFS 波浪">
+<img id="ecmwf" alt="ECMWF 波浪">
+<img id="gwam" alt="GWAM 波浪">
 
 <script>
-const workerBase = "https://meteo.ryohorita105.workers.dev/?url=";
-function prox(url){ return workerBase + encodeURIComponent(url); }
+const proxy = "https://waveproxy.yourdomain.workers.dev/?url=";
 
-// --- 現在UTCを取得 ---
-const now = new Date();
-const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
-
-// --- 関数: 12時間単位切り捨て ---
-function floorTo12UTC(d, offsetHours) {
-  const base = new Date(d.getTime() - offsetHours*3600*1000);
-  const hh = base.getUTCHours();
-  const floored = hh >= 12 ? 12 : 0;
-  base.setUTCHours(floored, 0, 0, 0);
-  return base;
+// 例：現在時刻 UTC の 5時間前を 12時間単位切り捨て
+function floorTo12UTC(offsetHours){
+  const d = new Date(Date.now() + new Date().getTimezoneOffset()*60000 - offsetHours*3600*1000);
+  d.setUTCHours(d.getUTCHours()>=12?12:0,0,0,0);
+  return d;
 }
 
-// --- モデル初期時刻を算出 ---
-const tGFS = floorTo12UTC(utc, 5);
-const tGWAM = floorTo12UTC(utc, 5);
-const tECM = floorTo12UTC(utc, 8);
-
-// --- ftを決定 ---
-let ft = 3;
-if (tECM.getTime() !== tGFS.getTime()) ft = 15;
-
-// --- 時刻文字列 ---
-function fmt(d) {
-  const Y = d.getUTCFullYear();
-  const M = String(d.getUTCMonth()+1).padStart(2,'0');
-  const D = String(d.getUTCDate()).padStart(2,'0');
-  const H = String(d.getUTCHours()).padStart(2,'0');
-  return `${Y}${M}${D}${H}`;
+function fmt(d){
+  return d.getUTCFullYear() +
+    String(d.getUTCMonth()+1).padStart(2,'0') +
+    String(d.getUTCDate()).padStart(2,'0') +
+    String(d.getUTCHours()).padStart(2,'0');
 }
 
-// --- URL生成 ---
+const tGFS = floorTo12UTC(5);
+const ft = 3;
+
 const urls = {
-  ecmwf: `https://img5.meteologix.com/images/data/cache/wave/wave_modwaveecmwf_${fmt(tECM)}_${ft}_5731_297.png`,
-  gfs:   `https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_${fmt(tGFS)}_${ft}_5731_297.png`,
-  gwam:  `https://img5.meteologix.com/images/data/cache/wave/wave_modgwam_${fmt(tGWAM)}_${ft}_5731_297.png`
+  gfs:`https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_${fmt(tGFS)}_${ft}_5731_297.png`,
+  ecmwf:`https://img5.meteologix.com/images/data/cache/wave/wave_modwaveecmwf_${fmt(floorTo12UTC(8))}_${ft}_5731_297.png`,
+  gwam:`https://img5.meteologix.com/images/data/cache/wave/wave_modgwam_${fmt(tGFS)}_${ft}_5731_297.png`
 };
 
-// --- 各モデル画像を設定 ---
-document.querySelector("#ecmwf img").src = prox(urls.ecmwf);
-document.querySelector("#gfs img").src   = prox(urls.gfs);
-document.querySelector("#gwam img").src  = prox(urls.gwam);
-
-// --- 対象時刻（初期時刻 + ft 時間）を計算 ---
-const targetTime = new Date(tGFS.getTime() + ft*3600*1000);
-const targetLabel =
-  `${targetTime.getUTCFullYear()}-${String(targetTime.getUTCMonth()+1).padStart(2,'0')}-${String(targetTime.getUTCDate()).padStart(2,'0')} ${String(targetTime.getUTCHours()).padStart(2,'0')}Z`;
-document.getElementById("timeLabel").textContent = targetLabel;
+document.getElementById("gfs").src   = proxy + encodeURIComponent(urls.gfs);
+document.getElementById("ecmwf").src = proxy + encodeURIComponent(urls.ecmwf);
+document.getElementById("gwam").src  = proxy + encodeURIComponent(urls.gwam);
 </script>
 </body>
 </html>
