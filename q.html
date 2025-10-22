@@ -1,84 +1,138 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Wave image embed</title>
-  <style>
-    :root{--bg:#0b1020;--card:#0f1724;--accent:#60a5fa}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:var(--bg);color:#e6eef8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:1rem}
-    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;padding:18px;max-width:980px;width:100%;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
-    figure{margin:0}
-    .meta{display:flex;gap:10px;align-items:center;margin-bottom:8px}
-    .title{font-weight:600;font-size:1rem}
-    .sub{font-size:0.85rem;color:#a8c0ea}
-    .imgwrap{position:relative;border-radius:8px;overflow:hidden;background:#081224}
-    img{display:block;width:100%;height:auto;max-height:70vh;object-fit:contain}
-    .controls{display:flex;gap:8px;margin-top:10px}
-    button{background:transparent;border:1px solid rgba(255,255,255,0.08);color:inherit;padding:8px 10px;border-radius:8px;cursor:pointer}
-    button:hover{border-color:var(--accent)}
-    .download{display:inline-flex;gap:8px;align-items:center}
-    /* simple lightbox */
-    .lightbox{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,0.8);z-index:60}
-    .lightbox img{max-width:95%;max-height:95%;box-shadow:0 20px 50px rgba(2,6,23,0.7);border-radius:6px}
-    .caption{margin-top:8px;font-size:0.85rem;color:#bcd7ff}
-    .notice{font-size:0.8rem;color:#9fb0d9;margin-top:8px}
-    @media (max-width:640px){.card{padding:12px}}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>波浪3モデル比較（GFS・ECMWF・GWAM）</title>
+<style>
+body {
+  margin: 0;
+  background: #0b1020;
+  color: #e6eef8;
+  font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif;
+  overflow-x: hidden;
+}
+.container {
+  display: flex;
+  align-items: stretch;
+  height: 100vh;
+}
+.timebar {
+  width: 10%;
+  background: #101830;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.4vw;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 1vw;
+  box-sizing: border-box;
+}
+.imgarea {
+  display: flex;
+  width: 90%;
+  justify-content: space-around;
+  align-items: center;
+  background: #000;
+}
+.model {
+  width: 30%;
+  text-align: center;
+}
+.model img {
+  width: 100%;
+  border-radius: 6px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.6);
+}
+.model-name {
+  margin-top: 0.5em;
+  font-size: 0.9em;
+  color: #a8c0ea;
+}
+.osm-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.15;
+  pointer-events: none;
+  object-fit: cover;
+}
+</style>
 </head>
 <body>
-  <main class="card">
-    <figure>
-      <div class="meta">
-        <div class="title">GFS wave (embedded)</div>
-        <div class="sub">Source: meteologix — image file embedded via direct URL</div>
-      </div>
-
-      <div class="imgwrap">
-        <img id="waveImg" src="https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_2025102200_12_5731_296.png"
-             alt="GFS wave map 2025-10-22 00Z"
-             loading="lazy" decoding="async" />
-      </div>
-
-      <figcaption class="caption">ファイル名: <code>wave_modwavegfs_2025102200_9_5731_296.png</code></figcaption>
-
-      <div class="controls">
-        <button id="openLightbox">拡大表示</button>
-        <a id="downloadLink" class="download" href="https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_2025102200_9_5731_296.png" download>
-          <button type="button">ダウンロード</button>
-        </a>
-        <button id="copyUrl">画像URLをコピー</button>
-        <button id="openTab">新しいタブで開く</button>
-      </div>
-
-      <p class="notice">注意: 外部ホスティング先のポリシーにより表示されない場合があります。表示されない時は画像URLを新しいタブで開いてください。</p>
-    </figure>
-  </main>
-
-  <div id="lightbox" class="lightbox" role="dialog" aria-hidden="true">
-    <img id="lightboxImg" alt="GFS wave large view" />
+<div class="container">
+  <div class="timebar" id="timeLabel">Loading...</div>
+  <div class="imgarea" id="images">
+    <div class="model" id="ecmwf">
+      <img alt="ECMWF" />
+      <div class="model-name">ECMWF</div>
+    </div>
+    <div class="model" id="gfs">
+      <img alt="GFS" />
+      <div class="model-name">GFS</div>
+    </div>
+    <div class="model" id="gwam">
+      <img alt="GWAM" />
+      <div class="model-name">GWAM</div>
+    </div>
   </div>
+</div>
 
-  <script>
-    const imgSrc = document.getElementById('waveImg').src;
-    const lb = document.getElementById('lightbox');
-    const lbImg = document.getElementById('lightboxImg');
-    document.getElementById('openLightbox').addEventListener('click', ()=>{
-      lbImg.src = imgSrc; lb.style.display = 'flex'; lb.setAttribute('aria-hidden','false');
-    });
-    lb.addEventListener('click', ()=>{ lb.style.display = 'none'; lb.setAttribute('aria-hidden','true'); lbImg.src = '' });
+<script>
+const workerBase = "https://worker.ryohorita105.workers.dev/?url=";
+function prox(url){ return workerBase + encodeURIComponent(url); }
 
-    document.getElementById('copyUrl').addEventListener('click', async ()=>{
-      try{
-        await navigator.clipboard.writeText(imgSrc);
-        alert('画像URLをコピーしました');
-      }catch(e){
-        prompt('以下のURLをコピーしてください', imgSrc);
-      }
-    });
-    document.getElementById('openTab').addEventListener('click', ()=>{
-      window.open(imgSrc,'_blank');
-    });
-  </script>
+// --- 現在UTCを取得 ---
+const now = new Date();
+const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
+
+// --- 関数: 12時間単位切り捨て ---
+function floorTo12UTC(d, offsetHours) {
+  const base = new Date(d.getTime() - offsetHours*3600*1000);
+  const hh = base.getUTCHours();
+  const floored = hh >= 12 ? 12 : 0;
+  base.setUTCHours(floored, 0, 0, 0);
+  return base;
+}
+
+// --- モデル初期時刻を算出 ---
+const tGFS = floorTo12UTC(utc, 5);
+const tGWAM = floorTo12UTC(utc, 5);
+const tECM = floorTo12UTC(utc, 8);
+
+// --- ftを決定 ---
+let ft = 3;
+if (tECM.getTime() !== tGFS.getTime()) ft = 15;
+
+// --- 時刻文字列 ---
+function fmt(d) {
+  const Y = d.getUTCFullYear();
+  const M = String(d.getUTCMonth()+1).padStart(2,'0');
+  const D = String(d.getUTCDate()).padStart(2,'0');
+  const H = String(d.getUTCHours()).padStart(2,'0');
+  return `${Y}${M}${D}${H}`;
+}
+
+// --- URL生成 ---
+const urls = {
+  ecmwf: `https://img5.meteologix.com/images/data/cache/wave/wave_modwaveecmwf_${fmt(tECM)}_${ft}_5731_297.png`,
+  gfs:   `https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_${fmt(tGFS)}_${ft}_5731_297.png`,
+  gwam:  `https://img5.meteologix.com/images/data/cache/wave/wave_modwavegwam_${fmt(tGWAM)}_${ft}_5731_297.png`
+};
+
+// --- 各モデル画像を設定 ---
+document.querySelector("#ecmwf img").src = prox(urls.ecmwf);
+document.querySelector("#gfs img").src   = prox(urls.gfs);
+document.querySelector("#gwam img").src  = prox(urls.gwam);
+
+// --- 対象時刻（初期時刻 + ft 時間）を計算 ---
+const targetTime = new Date(tGFS.getTime() + ft*3600*1000);
+const targetLabel =
+  `${targetTime.getUTCFullYear()}-${String(targetTime.getUTCMonth()+1).padStart(2,'0')}-${String(targetTime.getUTCDate()).padStart(2,'0')} ${String(targetTime.getUTCHours()).padStart(2,'0')}Z`;
+document.getElementById("timeLabel").textContent = targetLabel;
+</script>
 </body>
 </html>
