@@ -5,11 +5,13 @@
 <title>波浪モデル表示</title>
 <style>
   body { background: #0b1020; color: #fff; font-family: sans-serif; text-align:center; }
-  img { max-width: 90%; margin: 1em; border-radius: 6px; }
+  img { max-width: 30%; margin: 0.5%; border-radius: 6px; vertical-align: top; }
+  .time { font-size: 1.2em; margin-bottom: 1em; }
 </style>
 </head>
 <body>
 <h1>波浪モデル比較</h1>
+<div class="time" id="model-time"></div>
 <img id="gfs" alt="GFS 波浪">
 <img id="ecmwf" alt="ECMWF 波浪">
 <img id="gwam" alt="GWAM 波浪">
@@ -17,7 +19,7 @@
 <script>
 const proxy = "https://meteo.ryohorita105.workers.dev/?url=";
 
-// 例：現在時刻 UTC の 5時間前を 12時間単位切り捨て
+// UTC の時間を 12時間単位で切り捨て
 function floorTo12UTC(offsetHours){
   const d = new Date(Date.now() + new Date().getTimezoneOffset()*60000 - offsetHours*3600*1000);
   d.setUTCHours(d.getUTCHours()>=12?12:0,0,0,0);
@@ -32,14 +34,21 @@ function fmt(d){
 }
 
 const tGFS = floorTo12UTC(5);
+const tECMWF = floorTo12UTC(8);
 const ft = 3;
 
+// 画像 URL
 const urls = {
-  gfs:`https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_${fmt(tGFS)}_${ft}_5731_297.png`,
-  ecmwf:`https://img5.meteologix.com/images/data/cache/wave/wave_modwaveecmwf_${fmt(floorTo12UTC(8))}_${ft}_5731_297.png`,
-  gwam:`https://img5.meteologix.com/images/data/cache/wave/wave_modgwam_${fmt(tGFS)}_${ft}_5731_297.png`
+  gfs: `https://img5.meteologix.com/images/data/cache/wave/wave_modwavegfs_${fmt(tGFS)}_${ft}_5731_297.png`,
+  ecmwf: `https://img5.meteologix.com/images/data/cache/wave/wave_modwaveecmwf_${fmt(tECMWF)}_${ft}_5731_297.png`,
+  gwam: `https://img5.meteologix.com/images/data/cache/wave/wave_modwavegwam_${fmt(tGFS)}_${ft}_5731_297.png`
 };
 
+// 時刻表示
+document.getElementById("model-time").textContent =
+  `表示時刻：${fmt(tGFS)} UTC (FT+${ft}h)`;
+
+// 画像を Worker 経由で表示
 document.getElementById("gfs").src   = proxy + encodeURIComponent(urls.gfs);
 document.getElementById("ecmwf").src = proxy + encodeURIComponent(urls.ecmwf);
 document.getElementById("gwam").src  = proxy + encodeURIComponent(urls.gwam);
