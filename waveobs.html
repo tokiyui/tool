@@ -231,3 +231,35 @@
 
         if (times.length === 0) continue;
         const latestTime = times[times.length - 1];
+        const latestData = entries[latestTime];
+        if (!latestData || !latestData.latlon) continue;
+
+        const [lat, lon] = latestData.latlon;
+        const waveHeight = latestData.wave_height;
+        if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
+        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
+        createCircleMarker(lat, lon, getColor(waveHeight), `Buoy (${waveHeight.toFixed(2)} m)`);
+      }
+
+      // --- 河川局（沿岸）をここで追加（onthwvHght != 0 のものだけ）---
+      await plotRiverCoastWaves();
+
+      // --- 凡例 ---
+      const legend = L.control({ position: "bottomright" });
+      legend.onAdd = function () {
+        const div = L.DomUtil.create("div", "legend");
+        const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
+        div.innerHTML += "<b>波高 (m)</b><br>";
+        for (let i=0;i<grades.length;i++){
+          const from = grades[i]; const to = grades[i+1];
+          div.innerHTML += `<i style="background:${getColor(from+0.01)}"></i> ${from}` + (to?`–${to}`:"+") + "<br>";
+        }
+        return div;
+      };
+      legend.addTo(map);
+    }
+
+    plotWaveData().catch(e => { console.error("エラー:", e); alert("データの取得に失敗しました"); });
+  </script>
+</body>
+</html>
