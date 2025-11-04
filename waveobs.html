@@ -99,6 +99,81 @@
       const res = await fetch(url); return await res.json();
     }
 
+    // ------------------ ここから河川局（沿岸）データ処理を追加 ------------------
+    // 表示条件: tm JSON の coast[].onthwvHght が 0 でなければ表示する
+    async function plotRiverCoastWaves() {
+      // 都道府県ファイルの4桁識別子リスト
+      // （実際の配列は必要に応じて調整してください）
+      const prefCodes = [
+        "0101","0201","0301","0401","0501","0601","0701","0801","0901","1001",
+        "1101","1201","1301","1401","1501","1601","1701","1801","1901","2001",
+        "2101","2201","2301","2401","2501","2601","2701","2801","2901","3001",
+        "3101","3201","3301","3401","3501","3601","3701","3801","3901","4001",
+        "4101","4201","4301","4401","4501","4601","4701"
+      ];
+
+      for (const code of prefCodes) {
+        const infoUrl = `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/obs/coast/${code}.json`;
+        const tmUrl   = `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/tm/coast/${code}.json`;
+
+        try {
+          const [infoJson, tmJson] = await Promise.all([
+            fetchJSON(proxy + encodeURIComponent(infoUrl)),
+            fetchJSON(proxy + encodeURIComponent(tmUrl))
+          ]);
+
+          if (!infoJson?.prefTwn || !tmJson?.prefTwn) continue;
+
+          // obsFcd -> {lat,lon,name}
+          const posMap = {};
+          infoJson.prefTwn.forEach(t => {
+            (t.coast || []).forEach(c => {
+              // 緯度経度が有効なら登録
+              if (c.lat != null && c.lon != null) {
+                posMap[c.obsFcd] = { lat: parseFloat(c.lat), lon: parseFloat(c.lon), name: c.obsNm || "" };
+              }
+            });
+          });
+
+          // tm 側のデータを走査して onthwvHght が 0 でなければ表示
+          tmJson.prefTwn.forEach(t => {
+            (t.coast || []).forEach(c => {
+              const pos = posMap[c.obsFcd];
+              if (!pos) return;
+
+              // 表示条件: onthwvHght が 0 でなければ表示
+              const h = c.onthwvHght;
+              if (h == null) return;
+              // 注意: 値が 0 または 0.0 の場合は表示しない（仕様）
+              if (Number(h) === 0) return;
+
+              // 範囲フィルタ（日本付近）
+              if (pos.lat < 20 || pos.lat > 50 || pos.lon < 120 || pos.lon > 150) return;
+
+              // ツールチップに観測時刻や平均風速等も載せる（存在する場合）
+              const time = c.obsTime ? ` ${c.obsTime}` : "";
+              const extra = [];
+              if (c.avewndSpd != null && !isNaN(c.avewndSpd)) extra.push(`wnd ${c.avewndSpd} m/s`);
+              if (c.tidlvl != null && !isNaN(c.tidlvl)) extra.push(`tid ${c.tidlvl}`);
+              const extraStr = extra.length ? ` — ${extra.join(", ")}` : "";
+
+              createCircleMarker(
+                pos.lat,
+                pos.lon,
+                getColor(Number(h)),
+                `${pos.name} (${Number(h).toFixed(2)} m)${time}${extraStr}`
+              );
+            });
+          });
+
+        } catch (e) {
+          // 個別県で失敗してもループ継続
+          console.warn("River coast fetch error for code:", code, e);
+        }
+      }
+    }
+    // ------------------ 河川局データ処理ここまで ------------------
+
     async function plotWaveData() {
       const [setupXML, dataXML, shipText, ssvbData] = await Promise.all([
         fetchXML(setupURL),
@@ -156,32 +231,3 @@
 
         if (times.length === 0) continue;
         const latestTime = times[times.length - 1];
-        const latestData = entries[latestTime];
-        if (!latestData || !latestData.latlon) continue;
-
-        const [lat, lon] = latestData.latlon;
-        const waveHeight = latestData.wave_height;
-        if (isNaN(lat) || isNaN(lon) || isNaN(waveHeight)) continue;
-        if (lat < 20 || lat > 50 || lon < 120 || lon > 150) continue;
-        createCircleMarker(lat, lon, getColor(waveHeight), `Buoy (${waveHeight.toFixed(2)} m)`);
-      }
-
-      // --- 凡例 ---
-      const legend = L.control({ position: "bottomright" });
-      legend.onAdd = function () {
-        const div = L.DomUtil.create("div", "legend");
-        const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
-        div.innerHTML += "<b>波高 (m)</b><br>";
-        for (let i=0;i<grades.length;i++){
-          const from = grades[i]; const to = grades[i+1];
-          div.innerHTML += `<i style="background:${getColor(from+0.01)}"></i> ${from}` + (to?`–${to}`:"+") + "<br>";
-        }
-        return div;
-      };
-      legend.addTo(map);
-    }
-
-    plotWaveData().catch(e => { console.error("エラー:", e); alert("データの取得に失敗しました"); });
-  </script>
-</body>
-</html>
