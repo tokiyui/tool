@@ -22,8 +22,8 @@
 </head>
 <body>
   <h2>衛星風データタイル</h2>
-  <label><input type="radio" name="region" value="066" checked> 東日本 (066)</label>
-  <label><input type="radio" name="region" value="057"> 西日本 (057)</label>
+  <label><input type="radio" name="region" value="066" checked>東日本</label>
+  <label><input type="radio" name="region" value="057">西日本</label>
   <div class="images" id="imageContainer"></div>
   <script>
     const satellites = [
@@ -40,7 +40,7 @@
       container.innerHTML = '';
       satellites.forEach(sat => {
         const img = document.createElement('img');
-        img.src = `https://data.dapiya.top/product/wind/TILES/${sat}(${region}).png`;
+        img.src = `https://data.dapiya.top/product/wind/TILES/${sat}${region}.png`;
         container.appendChild(img);
       });
     }
