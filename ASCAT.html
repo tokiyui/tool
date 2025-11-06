@@ -8,14 +8,9 @@
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;margin:20px}
     h1{font-size:1.1rem;margin-bottom:0.5rem}
     .controls{display:flex;gap:12px;align-items:center;margin-bottom:14px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-    .card{border:1px solid #ddd;border-radius:8px;padding:8px;background:#fafafa;display:flex;flex-direction:column;align-items:center}
-    .card img{max-width:100%;height:auto;border-radius:4px;background:#eee}
-    .label{font-size:0.9rem;margin-top:8px}
-    .small{font-size:0.8rem;color:#666}
     .radio{display:inline-flex;align-items:center;gap:6px}
+    .images img{display:block;margin:10px auto;max-width:100%;height:auto}
     footer{margin-top:12px;font-size:0.85rem;color:#444}
-    @media (max-width:520px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -29,17 +24,13 @@
       <input type="radio" id="west" name="region" value="057">
       <label for="west">西日本（057）</label>
     </div>
-    <div style="margin-left:auto" class="small">選択すると6枚の画像が切り替わります</div>
   </div>
 
-  <div class="grid" id="images">
-    <!-- cards will be injected here by JS -->
-  </div>
+  <div class="images" id="images"></div>
 
   <footer>画像URLのテンプレート: (XXX) の部分に 066 または 057 を入れて表示します。</footer>
 
   <script>
-    // 6 の画像テンプレート
     const templates = [
       'https://data.dapiya.top/product/wind/TILES/FY-3/fy3e_windrad_Ku_band_10km_tile(XXX).png',
       'https://data.dapiya.top/product/wind/TILES/HY-2/hy2b_hscat_tile(XXX).png',
@@ -50,69 +41,40 @@
     ];
 
     const labels = [
-      'FY-3 Ku-band (fy3e_windrad_Ku_band_10km_tile)',
-      'HY-2B hscat (hy2b_hscat_tile)',
-      'HY-2C hscat (hy2c_hscat_tile)',
-      'METOP-B ASCAT (metopb_ascat_tile)',
-      'METOP-C ASCAT (metopc_ascat_tile)',
-      'OSCAT (oceansat3_oscat_tile)'
+      'FY-3 Ku-band',
+      'HY-2B hscat',
+      'HY-2C hscat',
+      'METOP-B ASCAT',
+      'METOP-C ASCAT',
+      'OSCAT'
     ];
 
-    const imagesContainer = document.getElementById('images');
+    const container = document.getElementById('images');
 
-    // 初期カードを作る
-    function buildCards() {
-      imagesContainer.innerHTML = '';
+    function buildImages() {
+      container.innerHTML = '';
       templates.forEach((t, i) => {
-        const card = document.createElement('div');
-        card.className = 'card';
-
         const img = document.createElement('img');
+        img.src = t.replace('(XXX)', '066');
         img.alt = labels[i];
-        img.dataset.template = t; // テンプレートを保持
-        img.src = t.replace('(XXX)', '066'); // 初期は東日本
-        img.loading = 'lazy';
-
-        const label = document.createElement('div');
-        label.className = 'label';
-        label.textContent = labels[i];
-
-        const link = document.createElement('a');
-        link.href = img.src;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.className = 'small';
-        link.textContent = '新しいタブで開く';
-
-        card.appendChild(img);
-        card.appendChild(label);
-        card.appendChild(link);
-        imagesContainer.appendChild(card);
+        container.appendChild(img);
       });
     }
 
-    // ラジオ変更で画像を更新
     function updateImages(code){
-      const imgs = imagesContainer.querySelectorAll('img');
-      imgs.forEach(img => {
-        const tpl = img.dataset.template;
-        const newUrl = tpl.replace('(XXX)', code);
-        img.src = newUrl;
-        // カード内のリンクも更新
-        const link = img.parentElement.querySelector('a');
-        if (link) link.href = newUrl;
+      const imgs = container.querySelectorAll('img');
+      imgs.forEach((img, i) => {
+        img.src = templates[i].replace('(XXX)', code);
       });
     }
 
-    // ラジオにイベント
     document.querySelectorAll('input[name="region"]').forEach(r => {
-      r.addEventListener('change', (e) => {
+      r.addEventListener('change', e => {
         if (e.target.checked) updateImages(e.target.value);
       });
     });
 
-    // 初期描画
-    buildCards();
+    buildImages();
   </script>
 </body>
 </html>
