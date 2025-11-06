@@ -37,9 +37,9 @@
   <div id="calendar">読み込み中...</div>
 
   <script>
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-    threeMonthsAgo.setDate(1);
+    const months = new Date();
+    months.setMonth(months.getMonth());
+    months.setDate(1);
 
     const actors = [
       { id: 14046, name: "超ときめき♡宣伝部", color: "orange" },
@@ -80,7 +80,7 @@
 
         if (dateText && title && venue) {
           const eventDate = new Date(dateText);
-          if (eventDate >= threeMonthsAgo) {
+          if (eventDate >= months) {
             events.push({
               date: dateText,
               title,
