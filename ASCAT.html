@@ -14,26 +14,24 @@
       justify-content: flex-start;
     }
     .images img {
-      width: 33%;
-      height: 33%;
+      width: 32%;
+      height: 32%;
       object-fit: contain;
       margin: 5px;
     }
   </style>
 </head>
 <body>
-  <h2>衛星風データタイル</h2>
-  <label><input type="radio" name="region" value="066" checked>東日本</label>
-  <label><input type="radio" name="region" value="057">西日本</label>
+  <h2>衛星風データ  <label><input type="radio" name="region" value="066" checked>東日本</label><label><input type="radio" name="region" value="057">西日本</label></h2>
   <div class="images" id="imageContainer"></div>
   <script>
     const satellites = [
-      'FY-3/fy3e_windrad_Ku_band_10km_tile',
-      'HY-2/hy2b_hscat_tile',
-      'HY-2/hy2c_hscat_tile',
       'METOP/metopb_ascat_tile',
       'METOP/metopc_ascat_tile',
-      'OSCAT/oceansat3_oscat_tile'
+      'OSCAT/oceansat3_oscat_tile',
+      'HY-2/hy2b_hscat_tile',
+      'HY-2/hy2c_hscat_tile',
+      'FY-3/fy3e_windrad_Ku_band_10km_tile'
     ];
 
     function updateImages(region) {
