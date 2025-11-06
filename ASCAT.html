@@ -1,91 +1,55 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Wind Tiles - 東西選択</title>
+  <meta charset="UTF-8">
+  <title>風速タイル画像</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;margin:20px}
-    h1{font-size:1.1rem;margin-bottom:0.5rem}
-    .controls{display:flex;gap:12px;align-items:center;margin-bottom:14px}
-    .radio{display:inline-flex;align-items:center;gap:6px}
-    .images{
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-      gap:10px;
-      justify-items:center;
-      align-items:center;
+    body {
+      text-align: center;
+      font-family: sans-serif;
     }
-    .images img{
-      width:100%;
-      height:auto;
-      transform-origin:center;
+    .images {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
     }
-    footer{margin-top:12px;font-size:0.85rem;color:#444}
+    .images img {
+      transform: scale(0.5);
+      transform-origin: center;
+      margin: 5px;
+    }
   </style>
 </head>
 <body>
-  <h1>風情報タイル: 東日本 / 西日本</h1>
-  <div class="controls">
-    <div class="radio">
-      <input type="radio" id="east" name="region" value="066" checked>
-      <label for="east">東日本（066）</label>
-    </div>
-    <div class="radio">
-      <input type="radio" id="west" name="region" value="057">
-      <label for="west">西日本（057）</label>
-    </div>
-  </div>
-
-  <div class="images" id="images"></div>
-
-  <footer>画像URLのテンプレート: (XXX) の部分に 066 または 057 を入れて表示します。</footer>
-
+  <h2>衛星風データタイル</h2>
+  <label><input type="radio" name="region" value="066" checked> 東日本 (066)</label>
+  <label><input type="radio" name="region" value="057"> 西日本 (057)</label>
+  <div class="images" id="imageContainer"></div>
   <script>
-    const templates = [
-      'https://data.dapiya.top/product/wind/TILES/FY-3/fy3e_windrad_Ku_band_10km_tile(XXX).png',
-      'https://data.dapiya.top/product/wind/TILES/HY-2/hy2b_hscat_tile(XXX).png',
-      'https://data.dapiya.top/product/wind/TILES/HY-2/hy2c_hscat_tile(XXX).png',
-      'https://data.dapiya.top/product/wind/TILES/METOP/metopb_ascat_tile(XXX).png',
-      'https://data.dapiya.top/product/wind/TILES/METOP/metopc_ascat_tile(XXX).png',
-      'https://data.dapiya.top/product/wind/TILES/OSCAT/oceansat3_oscat_tile(XXX).png'
+    const satellites = [
+      'FY-3/fy3e_windrad_Ku_band_10km_tile',
+      'HY-2/hy2b_hscat_tile',
+      'HY-2/hy2c_hscat_tile',
+      'METOP/metopb_ascat_tile',
+      'METOP/metopc_ascat_tile',
+      'OSCAT/oceansat3_oscat_tile'
     ];
 
-    const labels = [
-      'FY-3 Ku-band',
-      'HY-2B hscat',
-      'HY-2C hscat',
-      'METOP-B ASCAT',
-      'METOP-C ASCAT',
-      'OSCAT'
-    ];
-
-    const container = document.getElementById('images');
-
-    function buildImages() {
+    function updateImages(region) {
+      const container = document.getElementById('imageContainer');
       container.innerHTML = '';
-      templates.forEach((t, i) => {
+      satellites.forEach(sat => {
         const img = document.createElement('img');
-        img.src = t.replace('(XXX)', '066');
-        img.alt = labels[i];
+        img.src = `https://data.dapiya.top/product/wind/TILES/${sat}(${region}).png`;
         container.appendChild(img);
       });
     }
 
-    function updateImages(code){
-      const imgs = container.querySelectorAll('img');
-      imgs.forEach((img, i) => {
-        img.src = templates[i].replace('(XXX)', code);
-      });
-    }
-
-    document.querySelectorAll('input[name="region"]').forEach(r => {
-      r.addEventListener('change', e => {
-        if (e.target.checked) updateImages(e.target.value);
-      });
+    document.querySelectorAll('input[name="region"]').forEach(radio => {
+      radio.addEventListener('change', e => updateImages(e.target.value));
     });
 
-    buildImages();
+    updateImages('066');
   </script>
 </body>
 </html>
