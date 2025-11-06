@@ -9,9 +9,16 @@
     h1{font-size:1.1rem;margin-bottom:0.5rem}
     .controls{display:flex;gap:12px;align-items:center;margin-bottom:14px}
     .radio{display:inline-flex;align-items:center;gap:6px}
+    .images{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+      gap:10px;
+      justify-items:center;
+      align-items:center;
+    }
     .images img{
-      display:block;
-      margin:10px auto;
+      width:100%;
+      height:auto;
       transform:scale(0.5);
       transform-origin:center;
     }
