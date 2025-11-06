@@ -1,89 +1,118 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>ASCAT画像の重ね合わせ</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wind Tiles - 東西選択</title>
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: sans-serif;
-    }
-    .row {
-      display: flex;
-      justify-content: center;
-      gap: 0px;
-      margin: 20px 0;
-    }
-    .container {
-      position: relative;
-      width: 800px;
-      height: 800px;
-      border: none;
-      overflow: hidden;
-    }
-    .layered-image {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-    }
-    /* 各画像ごとにレイヤー分け */
-    .oscat {
-      z-index: 1;
-    }
-    .metb {
-      z-index: 2;
-      mix-blend-mode: multiply;
-    }
-    .metc {
-      z-index: 3;
-      mix-blend-mode: multiply;
-    }
-    h1 {
-      text-align: center;
-      margin-top: 20px;
-    }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;margin:20px}
+    h1{font-size:1.1rem;margin-bottom:0.5rem}
+    .controls{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    .card{border:1px solid #ddd;border-radius:8px;padding:8px;background:#fafafa;display:flex;flex-direction:column;align-items:center}
+    .card img{max-width:100%;height:auto;border-radius:4px;background:#eee}
+    .label{font-size:0.9rem;margin-top:8px}
+    .small{font-size:0.8rem;color:#666}
+    .radio{display:inline-flex;align-items:center;gap:6px}
+    footer{margin-top:12px;font-size:0.85rem;color:#444}
+    @media (max-width:520px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <h1>ASCAT 画像の重ね合わせ</h1>
-
-  <!-- 上段：as画像 -->
-  <div class="row">
-    <div>
-      <div class="container">
-        <img src="https://manati.star.nesdis.noaa.gov/oscat3_images/noaa_cur_125VHSL/zooms/WMBas242.png" class="layered-image oscat" alt="oscat as242">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METB/zooms/WMBas242.png" class="layered-image metb" alt="ascatB as242">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METC/zooms/WMBas242.png" class="layered-image metc" alt="ascatC as242">
-      </div>
+  <h1>風情報タイル: 東日本 / 西日本</h1>
+  <div class="controls">
+    <div class="radio">
+      <input type="radio" id="east" name="region" value="066" checked>
+      <label for="east">東日本（066）</label>
     </div>
-    <div>
-      <div class="container">
-        <img src="https://manati.star.nesdis.noaa.gov/oscat3_images/noaa_cur_125VHSL/zooms/WMBas254.png" class="layered-image oscat" alt="oscat as254">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METB/zooms/WMBas254.png" class="layered-image metb" alt="ascatB as254">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METC/zooms/WMBas254.png" class="layered-image metc" alt="ascatC as254">
-      </div>
+    <div class="radio">
+      <input type="radio" id="west" name="region" value="057">
+      <label for="west">西日本（057）</label>
     </div>
+    <div style="margin-left:auto" class="small">選択すると6枚の画像が切り替わります</div>
   </div>
 
-  <!-- 下段：ds画像 -->
-  <div class="row">
-    <div>
-      <div class="container">
-        <img src="https://manati.star.nesdis.noaa.gov/oscat3_images/noaa_cur_125VHSL/zooms/WMBds242.png" class="layered-image oscat" alt="oscat ds242">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METB/zooms/WMBds242.png" class="layered-image metb" alt="ascatB ds242">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METC/zooms/WMBds242.png" class="layered-image metc" alt="ascatC ds242">
-      </div>
-    </div>
-    <div>
-      <div class="container">
-        <img src="https://manati.star.nesdis.noaa.gov/oscat3_images/noaa_cur_125VHSL/zooms/WMBds254.png" class="layered-image oscat" alt="oscat ds254">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METB/zooms/WMBds254.png" class="layered-image metb" alt="ascatB ds254">
-        <img src="https://manati.star.nesdis.noaa.gov/ascat_images/cur_25km_METC/zooms/WMBds254.png" class="layered-image metc" alt="ascatC ds254">
-      </div>
-    </div>
+  <div class="grid" id="images">
+    <!-- cards will be injected here by JS -->
   </div>
+
+  <footer>画像URLのテンプレート: (XXX) の部分に 066 または 057 を入れて表示します。</footer>
+
+  <script>
+    // 6 の画像テンプレート
+    const templates = [
+      'https://data.dapiya.top/product/wind/TILES/FY-3/fy3e_windrad_Ku_band_10km_tile(XXX).png',
+      'https://data.dapiya.top/product/wind/TILES/HY-2/hy2b_hscat_tile(XXX).png',
+      'https://data.dapiya.top/product/wind/TILES/HY-2/hy2c_hscat_tile(XXX).png',
+      'https://data.dapiya.top/product/wind/TILES/METOP/metopb_ascat_tile(XXX).png',
+      'https://data.dapiya.top/product/wind/TILES/METOP/metopc_ascat_tile(XXX).png',
+      'https://data.dapiya.top/product/wind/TILES/OSCAT/oceansat3_oscat_tile(XXX).png'
+    ];
+
+    const labels = [
+      'FY-3 Ku-band (fy3e_windrad_Ku_band_10km_tile)',
+      'HY-2B hscat (hy2b_hscat_tile)',
+      'HY-2C hscat (hy2c_hscat_tile)',
+      'METOP-B ASCAT (metopb_ascat_tile)',
+      'METOP-C ASCAT (metopc_ascat_tile)',
+      'OSCAT (oceansat3_oscat_tile)'
+    ];
+
+    const imagesContainer = document.getElementById('images');
+
+    // 初期カードを作る
+    function buildCards() {
+      imagesContainer.innerHTML = '';
+      templates.forEach((t, i) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const img = document.createElement('img');
+        img.alt = labels[i];
+        img.dataset.template = t; // テンプレートを保持
+        img.src = t.replace('(XXX)', '066'); // 初期は東日本
+        img.loading = 'lazy';
+
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.textContent = labels[i];
+
+        const link = document.createElement('a');
+        link.href = img.src;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'small';
+        link.textContent = '新しいタブで開く';
+
+        card.appendChild(img);
+        card.appendChild(label);
+        card.appendChild(link);
+        imagesContainer.appendChild(card);
+      });
+    }
+
+    // ラジオ変更で画像を更新
+    function updateImages(code){
+      const imgs = imagesContainer.querySelectorAll('img');
+      imgs.forEach(img => {
+        const tpl = img.dataset.template;
+        const newUrl = tpl.replace('(XXX)', code);
+        img.src = newUrl;
+        // カード内のリンクも更新
+        const link = img.parentElement.querySelector('a');
+        if (link) link.href = newUrl;
+      });
+    }
+
+    // ラジオにイベント
+    document.querySelectorAll('input[name="region"]').forEach(r => {
+      r.addEventListener('change', (e) => {
+        if (e.target.checked) updateImages(e.target.value);
+      });
+    });
+
+    // 初期描画
+    buildCards();
+  </script>
 </body>
 </html>
