@@ -141,7 +141,7 @@ async function run(){
       }
 
       const visText = data.vis==null ? '視程不明' : `${data.vis}m`;
-      const timeText = data.time ? formatJST(data.time) : '(時刻不明)';
+      const timeText = data.time ? formatJST(data.time) : '時刻不明';
 
       div.textContent = `${airport.name} ${visText}（${timeText}）`;
 
