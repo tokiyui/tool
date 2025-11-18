@@ -34,8 +34,8 @@ const AMEDAS_POINTS = {
 function parseMetarText(text){ const lines=text.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean); return lines.length<2?null:lines[1]; }
 function hasPrecip(metar){ if(!metar) return false; return /\+RA|-RA|\bRA\b|SHRA|FZRA|RASN|DZ|TSRA|SHSN|SHRASN/i.test(metar); }
 function parseVisibility(metar){ if(!metar) return null; const m=metar.match(/\b(\d{4})\b/); if(!m) return null; const v=parseInt(m[1],10); return v===9999?10000:v; }
-function parseObsTime(metar){ const m=metar.match(/\b(\d{6})Z\b/); if(!m) return null; const dd=+m[1].slice(0,2), hh=+m[1].slice(2,4), mm=+m[1].slice(4,6); const now=new Date(); const dtUTC=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dd, hh, mm)); return new Date(dtUTC.getTime()+9*3600*1000); }
-function formatJST(dt){ const d=String(dt.getDate()).padStart(2,'0'); const h=String(dt.getHours()).padStart(2,'0'); const m=String(dt.getMinutes()).padStart(2,'0'); return `${d}日${h}:${m}（時刻はJST）`; }
+function parseObsTime(metar){ const m=metar.match(/\b(\d{6})Z\b/); if(!m) return null; const dd=+m[1].slice(0,2), hh=+m[1].slice(2,4), mm=+m[1].slice(4,6); const now=new Date(); const dtUTC=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dd, hh, mm)); return new Date(dtUTC.getTime()); }
+function formatJST(dt){ const d=String(dt.getDate()).padStart(2,'0'); const h=String(dt.getHours()).padStart(2,'0'); const m=String(dt.getMinutes()).padStart(2,'0'); return `${d}日${h}:${m}JST`; }
 async function fetchViaProxy(url){ const r=await fetch(CORS_PROXY+encodeURIComponent(url)); if(!r.ok) throw new Error(r.status); return await r.text(); }
 async function fetchMETAR(icao){ try{ const txt=await fetchViaProxy(`https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`); const metar=parseMetarText(txt); if(!metar) return {error:true}; return {metar, vis:parseVisibility(metar), precip:hasPrecip(metar), time:parseObsTime(metar)}; }catch{ return {error:true}; } }
 async function fetchAmedas(dateStr){ const r=await fetch(`${CORS_PROXY}https://www.jma.go.jp/bosai/amedas/data/map/${dateStr}.json`); return await r.json(); }
