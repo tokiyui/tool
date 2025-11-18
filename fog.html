@@ -46,6 +46,7 @@ async function run(){
   const now=new Date();
   const YYYY=(''+now.getFullYear()).padStart(4,'0'), MM=(''+(now.getMonth()+1)).padStart(2,'0'), DD=(''+now.getDate()).padStart(2,'0'), hh=(''+now.getHours()).padStart(2,'0'), mm=(''+now.getMinutes()).padStart(2,'0');
   const dateStr=`${YYYY}${MM}${DD}${hh}${mm}00`;
+  console.log(dateStr);
   const amedasJson=await fetchAmedas(dateStr);
 
   for(const areaName in AREAS){
