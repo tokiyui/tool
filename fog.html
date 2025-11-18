@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>空港一覧（視程・感雨ハイライト）</title>
+<title>空港・特別地域気象観測所 視程一覧</title>
 <style>
   body{font-family:system-ui, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; background:#fff; color:#111; margin:0; padding:20px}
   h2{margin-top:24px; border-left:6px solid #444; padding-left:8px}
@@ -14,144 +14,77 @@
 </style>
 </head>
 <body>
-<h1>関東甲信 / 北陸 / 東海 — 空港視程一覧</h1>
+<h1>関東甲信 / 北陸 / 東海 — 空港・アメダス視程一覧</h1>
 <div id="out"></div>
-
 <script>
 const CORS_PROXY = 'https://worker.ryohorita105.workers.dev/?url=';
 
-// 地方ごとの固定 ICAO リスト
 const AREAS = {
-  '北陸': [
-    {icao:'RJSN', name:'新潟空港'},
-    // {icao:'RJSD', name:'佐渡空港'},
-    {icao:'RJNT', name:'富山空港'},
-    {icao:'RJNW', name:'能登空港'},
-    {icao:'RJNK', name:'小松空港'},
-    {icao:'RJNF', name:'福井空港'}
-  ],
-  '関東甲信': [
-    {icao:'RJTT', name:'羽田空港'},
-    {icao:'RJAA', name:'成田空港'},
-    {icao:'RJAF', name:'松本空港'},
-    {icao:'RJAH', name:'茨城空港'},
-    // {icao:'RJTS', name:'相馬原飛行場'}, {icao:'RJTU', name:'宇都宮飛行場'}, {icao:'RJAK', name:'霞ヶ浦飛行場'},
-    // {icao:'RJTL', name:'下総飛行場'}, {icao:'RJTJ', name:'入間飛行場'}, {icao:'RJTY', name:'横田基地'},
-    {icao:'RJTI', name:'東京ヘリポート'},
-    {icao:'RJTC', name:'立川飛行場'},
-    {icao:'RJTF', name:'調布飛行場'},
-    // {icao:'RJAI', name:'市ヶ谷場外離着陸場'}, {icao:'RJTA', name:'厚木海軍飛行場'},
-    // {icao:'RJTR', name:'キャンプ座間'}, {icao:'RJTK', name:'木更津飛行場'}, {icao:'RJTE', name:'館山飛行場'},
-    {icao:'RJTQ', name:'三宅島空港'},
-    {icao:'RJAZ', name:'神津島空港'},
-    {icao:'RJTO', name:'大島空港'},
-    {icao:'RJAN', name:'新島空港'},
-    {icao:'RJTH', name:'八丈島空港'}
-  ],
-  '東海': [
-    {icao:'RJGG', name:'中部国際空港'},
-    {icao:'RJNA', name:'名古屋飛行場'},
-    {icao:'RJNG', name:'岐阜飛行場'},
-    {icao:'RJNY', name:'静浜飛行場'},
-    // {icao:'RJAT', name:'滝ヶ原飛行場'}, {icao:'RJNH', name:'浜松飛行場'}, {icao:'RJOE', name:'明野飛行場'},
-    {icao:'RJNS', name:'静岡空港'}
-  ]
+  '北陸':[ {icao:'RJSN', name:'新潟空港'}, {icao:'RJNT', name:'富山空港'}, {icao:'RJNW', name:'能登空港'}, {icao:'RJNK', name:'小松空港'}, {icao:'RJNF', name:'福井空港'}],
+  '関東甲信':[ {icao:'RJTT', name:'羽田空港'}, {icao:'RJAA', name:'成田空港'}, {icao:'RJAF', name:'松本空港'}, {icao:'RJAH', name:'茨城空港'}, {icao:'RJTI', name:'東京ヘリポート'}, {icao:'RJTC', name:'立川飛行場'}, {icao:'RJTF', name:'調布飛行場'}, {icao:'RJTQ', name:'三宅島空港'}, {icao:'RJAZ', name:'神津島空港'}, {icao:'RJTO', name:'大島空港'}, {icao:'RJAN', name:'新島空港'}, {icao:'RJTH', name:'八丈島空港'}],
+  '東海':[ {icao:'RJGG', name:'中部国際空港'}, {icao:'RJNA', name:'名古屋飛行場'}, {icao:'RJNG', name:'岐阜飛行場'}, {icao:'RJNY', name:'静浜飛行場'}, {icao:'RJNS', name:'静岡空港'}]
 };
 
-function parseMetarText(text){
-  const lines = text.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  return lines.length < 2 ? null : lines[1];
-}
+const AMEDAS_POINTS = {
+  '北陸':[ {id:'57066', name:'新潟'}, {id:'47643', name:'富山'}, {id:'47647', name:'小松'}],
+  '関東甲信':[ {id:'47662', name:'東京'}, {id:'47665', name:'松本'}, {id:'47663', name:'茨城'}],
+  '東海':[ {id:'47669', name:'名古屋'}, {id:'47667', name:'静岡'}]
+};
 
-function hasPrecip(metar){
-  if(!metar) return false;
-  const re = /\+RA|-RA|\bRA\b|SHRA|FZRA|RASN|DZ|TSRA|SHSN|SHRASN/i;
-  return re.test(metar);
-}
-
-function parseVisibility(metar){
-  if(!metar) return null;
-  const m = metar.match(/\b(\d{4})\b/);
-  if(!m) return null;
-  const v = parseInt(m[1],10);
-  return v===9999 ? 10000 : v;
-}
-
-function parseObsTime(metar){
-  const m = metar.match(/\b(\d{6})Z\b/);
-  if(!m) return null;
-  const dd = +m[1].slice(0,2);
-  const hh = +m[1].slice(2,4);
-  const mm = +m[1].slice(4,6);
-  const now = new Date();
-  const dtUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dd, hh, mm));
-  return new Date(dtUTC.getTime());
-}
-
-function formatJST(dt){
-  const d = String(dt.getDate()).padStart(2,'0');
-  const h = String(dt.getHours()).padStart(2,'0');
-  const m = String(dt.getMinutes()).padStart(2,'0');
-  return `${d}日${h}:${m}JST`;
-}
-
-async function fetchViaProxy(url){
-  const r = await fetch(CORS_PROXY + encodeURIComponent(url));
-  if(!r.ok) throw new Error(r.status);
-  return await r.text();
-}
-
-async function fetchMETAR(icao){
-  const url = `https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`;
-  try{
-    const txt = await fetchViaProxy(url);
-    const metar = parseMetarText(txt);
-    if(!metar) return {error:true};
-    return {
-      metar,
-      vis: parseVisibility(metar),
-      precip: hasPrecip(metar),
-      time: parseObsTime(metar)
-    };
-  }catch{
-    return {error:true};
-  }
-}
+function parseMetarText(text){ const lines=text.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean); return lines.length<2?null:lines[1]; }
+function hasPrecip(metar){ if(!metar) return false; const re=/\+RA|-RA|\bRA\b|SHRA|FZRA|RASN|DZ|TSRA|SHSN|SHRASN/i; return re.test(metar); }
+function parseVisibility(metar){ if(!metar) return null; const m=metar.match(/\b(\d{4})\b/); if(!m) return null; const v=parseInt(m[1],10); return v===9999?10000:v; }
+function parseObsTime(metar){ const m=metar.match(/\b(\d{6})Z\b/); if(!m) return null; const dd=+m[1].slice(0,2); const hh=+m[1].slice(2,4); const mm=+m[1].slice(4,6); const now=new Date(); const dtUTC=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dd, hh, mm)); return new Date(dtUTC.getTime()+9*3600*1000); }
+function formatJST(dt){ const d=String(dt.getDate()).padStart(2,'0'); const h=String(dt.getHours()).padStart(2,'0'); const m=String(dt.getMinutes()).padStart(2,'0'); return `${d}日${h}:${m}（時刻はJST）`; }
+async function fetchViaProxy(url){ const r=await fetch(CORS_PROXY+encodeURIComponent(url)); if(!r.ok) throw new Error(r.status); return await r.text(); }
+async function fetchMETAR(icao){ const url=`https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`; try{ const txt=await fetchViaProxy(url); const metar=parseMetarText(txt); if(!metar) return {error:true}; return { metar, vis:parseVisibility(metar), precip:hasPrecip(metar), time:parseObsTime(metar) }; }catch{ return {error:true}; } }
+async function fetchAmedas(dateStr){ const url=`https://worker.ryohorita105.workers.dev/?url=https://www.jma.go.jp/bosai/amedas/data/map/${dateStr}.json`; const r=await fetch(url); return await r.json(); }
+function amedasHasPrecip(weatherCode){ return weatherCode>=5 && weatherCode<=16; }
 
 async function run(){
-  const out = document.getElementById('out');
-  out.innerHTML = '';
+  const out=document.getElementById('out');
+  out.innerHTML='';
+
+  // YYYYMMDDHHMM00 形式（現在UTC時間ベース）
+  const now=new Date();
+  const YYYY=now.getFullYear();
+  const MM=String(now.getMonth()+1).padStart(2,'0');
+  const DD=String(now.getDate()).padStart(2,'0');
+  const hh=String(now.getHours()).padStart(2,'0');
+  const mm=String(now.getMinutes()).padStart(2,'0');
+  const dateStr=`${YYYY}${MM}${DD}${hh}${mm}00`;
+  const amedasJson=await fetchAmedas(dateStr);
 
   for(const areaName in AREAS){
-    const h2 = document.createElement('h2');
-    h2.textContent = areaName;
-    out.appendChild(h2);
+    const h2=document.createElement('h2'); h2.textContent=areaName; out.appendChild(h2);
 
+    // METAR 空港
     for(const airport of AREAS[areaName]){
-      const div = document.createElement('div');
-      div.className = 'item';
+      const data=await fetchMETAR(airport.icao);
+      const div=document.createElement('div'); div.className='item';
+      if(data.error){ div.textContent=`${airport.name} 取得失敗`; out.appendChild(div); continue; }
+      const visText=data.vis==null?'視程不明':`${data.vis}m`;
+      const timeText=data.time?formatJST(data.time):'時刻不明';
+      div.textContent=`${airport.name} ${visText}（${timeText}）`;
+      if(data.precip) div.classList.add('cyan'); else if(data.vis!=null&&data.vis<=5000) div.classList.add('yellow');
+      out.appendChild(div);
+    }
 
-      const data = await fetchMETAR(airport.icao);
-      if(data.error){
-        div.textContent = `${airport.name} 取得失敗`;
-        out.appendChild(div);
-        continue;
-      }
-
-      const visText = data.vis==null ? '視程不明' : `${data.vis}m`;
-      const timeText = data.time ? formatJST(data.time) : '時刻不明';
-
-      div.textContent = `${airport.name} ${visText}（${timeText}）`;
-
-      if(data.precip) div.classList.add('cyan');
-      else if(data.vis!=null && data.vis<=5000) div.classList.add('yellow');
-
+    // アメダス観測所
+    for(const obs of AMEDAS_POINTS[areaName]){
+      const amedasData=amedasJson[obs.id];
+      if(!amedasData) continue;
+      const vis=amedasData.visibility[0];
+      const precip=amedasHasPrecip(amedasData.weather[0]);
+      const div=document.createElement('div'); div.className='item';
+      div.textContent=`${obs.name} ${vis}m（${formatJST(now)}）`;
+      if(precip) div.classList.add('cyan'); else if(vis<=5000) div.classList.add('yellow');
       out.appendChild(div);
     }
   }
 }
 
-window.addEventListener('load', ()=>{ run(); });
+window.addEventListener('load',()=>{ run(); });
 </script>
 </body>
 </html>
