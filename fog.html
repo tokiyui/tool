@@ -43,7 +43,7 @@ function amedasHasPrecip(code){ return code>=5 && code<=16; }
 
 async function run(){
   const out=document.getElementById('out'); out.innerHTML='';
-  const now = new Date(Math.floor((Date.now()-10*60*1000)/(10*60*1000)) * 10*60*1000);
+  const now = new Date(Math.floor((Date.now()-10*60*1000)/(60*60*1000)) * 60*60*1000);
   const YYYY=(''+now.getFullYear()).padStart(4,'0'), MM=(''+(now.getMonth()+1)).padStart(2,'0'), DD=(''+now.getDate()).padStart(2,'0'), hh=(''+now.getHours()).padStart(2,'0'), mm=(''+now.getMinutes()).padStart(2,'0');
   const dateStr=`${YYYY}${MM}${DD}${hh}${mm}00`;
   console.log(dateStr);
