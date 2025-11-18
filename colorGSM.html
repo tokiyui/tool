@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GSM Map Viewer (FT12→FT72)</title>
+  <style>
+    :root{--bg:#0b1220;--card:#0f1724;--accent:#3b82f6;color-scheme:dark}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;background:var(--bg);color:#e6eef8}
+    .app{display:grid;grid-template-columns:1fr 320px;gap:16px;height:100vh;padding:16px;box-sizing:border-box}
+    .viewer{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .map-wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+    img.map{max-width:100%;max-height:80vh;border-radius:8px;box-shadow:0 8px 24px rgba(2,6,23,0.6)}
+    .controls{display:flex;gap:8px;align-items:center;margin-top:12px}
+    button{background:var(--card);border:1px solid rgba(255,255,255,0.04);color:inherit;padding:8px 10px;border-radius:8px;cursor:pointer}
+    button:active{transform:translateY(1px)}
+    .side{width:320px;padding:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px}
+    .label{font-weight:600;margin-bottom:8px}
+    .meta{font-size:14px;opacity:0.85;margin-bottom:12px}
+    .btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .footer{margin-top:12px;font-size:13px;opacity:0.9}
+    .play{display:inline-flex;align-items:center;gap:8px}
+    .thumbs{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+    .thumb{display:flex;gap:8px;align-items:center}
+    .thumb img{width:70px;height:40px;object-fit:cover;border-radius:4px}
+    .kbd{display:inline-block;padding:4px 8px;border-radius:6px;background:#061226;font-weight:600;border:1px solid rgba(255,255,255,0.03);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="viewer">
+      <div style="width:100%" class="map-wrap">
+        <img id="mapImg" class="map" alt="map image" src="" />
+      </div>
+      <div class="controls" aria-hidden>
+        <button id="prevMap">⟵ マップ</button>
+        <button id="nextMap">マップ ⟶</button>
+        <div style="flex:1"></div>
+        <button id="prevTime">⟸ FT-12</button>
+        <button id="nextTime">FT+12 ⟹</button>
+      </div>
+      <div style="margin-top:10px;font-size:13px;opacity:0.9">キーボード：<span class="kbd">←</span>/<span class="kbd">→</span> 時間移動、<span class="kbd">↑</span>/<span class="kbd">↓</span> マップ切替、<span class="kbd">Space</span> 再生/停止</div>
+    </div>
+
+    <aside class="side">
+      <div class="label">GSM Map Viewer</div>
+      <div class="meta">FT: <strong id="ftLabel">FT12</strong> &nbsp;｜&nbsp; Map: <strong id="mapLabel">GSM500</strong></div>
+
+      <div class="btn-grid">
+        <button id="playBtn">▶ 再生</button>
+        <button id="stopBtn">■ 停止</button>
+        <button id="firstBtn">|&lt; FT12</button>
+        <button id="lastBtn">FT72 &gt;|</button>
+      </div>
+
+      <div class="footer">
+        使用方法：提供された4つのベース画像をFT12,24,36,48,60,72まで切り替えます。画像ファイル名は元の URL の "FT12" 部分を置換して構築します。
+      </div>
+
+      <div class="thumbs" id="thumbs"></div>
+    </aside>
+  </div>
+
+  <script>
+    // 元の4つのURL（ユーザー提供）
+    const baseUrls = [
+      'https://meteorology-data-pool.com/WeatherMap/GSM_img/GSM500_FT12.png',
+      'https://meteorology-data-pool.com/WeatherMap/GSM_img/GSMSurf_FT12.png',
+      'https://meteorology-data-pool.com/WeatherMap/GSM_img/GSM57_FT12.png',
+      'https://meteorology-data-pool.com/WeatherMap/GSM_img/GSM78_FT12.png'
+    ];
+
+    // FT のリスト（12刻みで12〜72）
+    const fts = [12,24,36,48,60,72];
+    let ftIndex = 0; // fts index (0 => FT12)
+    let mapIndex = 0; // which baseUrls index
+
+    const imgEl = document.getElementById('mapImg');
+    const ftLabel = document.getElementById('ftLabel');
+    const mapLabel = document.getElementById('mapLabel');
+    const thumbs = document.getElementById('thumbs');
+
+    // build URL by replacing the first occurrence of FT12 with FT{n}
+    function buildUrl(base, ft){
+      // try to replace 'FT12' (case-sensitive). If not found, attempt to replace 'FT' + number pattern.
+      if(base.includes('FT12')) return base.replace('FT12', 'FT' + ft);
+      // fallback: replace FT followed by digits with FT{ft}
+      return base.replace(/FT\d+/i, 'FT' + ft);
+    }
+
+    function update(){
+      const ft = fts[ftIndex];
+      const url = buildUrl(baseUrls[mapIndex], ft);
+      imgEl.src = url;
+      ftLabel.textContent = 'FT' + ft;
+      // map label: take filename part before _FT
+      const parts = baseUrls[mapIndex].split('/').pop().split('_FT');
+      mapLabel.textContent = parts[0] || baseUrls[mapIndex];
+      highlightThumbs();
+    }
+
+    // Preload images for smoother navigation (non-blocking)
+    const cache = {};
+    function preloadAll(){
+      baseUrls.forEach((b, mi)=>{
+        fts.forEach((ft)=>{
+          const u = buildUrl(b, ft);
+          const img = new Image(); img.src = u; // start loading
+          cache[u] = img;
+        });
+      });
+    }
+    preloadAll();
+
+    // Buttons
+    document.getElementById('prevMap').addEventListener('click', ()=>{ mapIndex = (mapIndex - 1 + baseUrls.length) % baseUrls.length; update(); });
+    document.getElementById('nextMap').addEventListener('click', ()=>{ mapIndex = (mapIndex + 1) % baseUrls.length; update(); });
+    document.getElementById('prevTime').addEventListener('click', ()=>{ ftIndex = Math.max(0, ftIndex - 1); update(); });
+    document.getElementById('nextTime').addEventListener('click', ()=>{ ftIndex = Math.min(fts.length-1, ftIndex + 1); update(); });
+    document.getElementById('firstBtn').addEventListener('click', ()=>{ ftIndex = 0; update(); });
+    document.getElementById('lastBtn').addEventListener('click', ()=>{ ftIndex = fts.length-1; update(); });
+    document.getElementById('playBtn').addEventListener('click', startPlay);
+    document.getElementById('stopBtn').addEventListener('click', stopPlay);
+
+    // Keyboard handling: arrow keys + space
+    window.addEventListener('keydown', (e)=>{
+      if(e.key === 'ArrowLeft'){ ftIndex = Math.max(0, ftIndex - 1); update(); e.preventDefault(); }
+      else if(e.key === 'ArrowRight'){ ftIndex = Math.min(fts.length-1, ftIndex + 1); update(); e.preventDefault(); }
+      else if(e.key === 'ArrowUp'){ mapIndex = (mapIndex - 1 + baseUrls.length) % baseUrls.length; update(); e.preventDefault(); }
+      else if(e.key === 'ArrowDown'){ mapIndex = (mapIndex + 1) % baseUrls.length; update(); e.preventDefault(); }
+      else if(e.code === 'Space'){ togglePlay(); e.preventDefault(); }
+    });
+
+    // Playback (cycle FT every 1s)
+    let playTimer = null;
+    function startPlay(){ if(playTimer) return; playTimer = setInterval(()=>{ ftIndex = (ftIndex + 1) % fts.length; update(); }, 1000); document.getElementById('playBtn').textContent = '⏸ 再生中'; }
+    function stopPlay(){ if(playTimer) { clearInterval(playTimer); playTimer = null; } document.getElementById('playBtn').textContent = '▶ 再生'; }
+    function togglePlay(){ if(playTimer) stopPlay(); else startPlay(); }
+
+    // thumbnails (small previews for the 4 maps at current FT)
+    function renderThumbs(){
+      thumbs.innerHTML = '';
+      baseUrls.forEach((b, i)=>{
+        const div = document.createElement('div'); div.className = 'thumb';
+        const img = document.createElement('img'); img.src = buildUrl(b, fts[ftIndex]);
+        const span = document.createElement('div'); span.textContent = b.split('/').pop().split('_FT')[0] || 'map'+i;
+        div.appendChild(img); div.appendChild(span);
+        div.addEventListener('click', ()=>{ mapIndex = i; update(); });
+        thumbs.appendChild(div);
+      });
+      highlightThumbs();
+    }
+
+    function highlightThumbs(){
+      const nodes = thumbs.querySelectorAll('.thumb');
+      nodes.forEach((n, i)=>{ n.style.opacity = (i===mapIndex ? '1':'0.55'); n.style.border = (i===mapIndex? '1px solid rgba(255,255,255,0.06)':'none'); });
+    }
+
+    // initial render
+    renderThumbs(); update();
+  </script>
+</body>
+</html>
