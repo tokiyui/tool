@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>空港一覧（感雨/視程ハイライト）</title>
+<style>
+  body{font-family:system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; background:#fff; color:#111; margin:0; padding:16px}
+  h1{font-size:18px;margin:0 0 8px}
+  .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+  textarea{width:480px;height:140px;font-family:monospace; font-size:13px}
+  button{padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#f7f7f7;cursor:pointer}
+  #out{margin-top:16px}
+  .item{padding:8px;border-radius:6px;margin-bottom:6px;border:1px solid #eee}
+  .meta{font-size:13px;color:#444}
+  .label{font-weight:700}
+  .yellow{background:#ffeb99}
+  .cyan{background:#cfefff}
+  .loading{opacity:0.6}
+  .note{font-size:13px;color:#666;margin-top:8px}
+</style>
+</head>
+<body>
+  <h1>関東甲信 / 北陸 / 東海 — 空港・飛行場一覧（感雨・視程ハイライト）</h1>
+
+  <div class="row">
+    <div>
+      <div style="font-weight:600;margin-bottom:6px">① ICAOリスト（1行 = ICAO,表示名） — 編集可</div>
+      <textarea id="icaoList">
+// --- 関東甲信（例：主要） ---
+RJTT,東京/羽田
+RJAA,成田/成田
+RJAH,百里（茨城/百里）
+RJAF,松本（信州まつもと）
+RJTO,大島
+RJTH,八丈島
+RJAN,新島
+RJAZ,神津島
+RJSK,秋田
+
+// --- 北陸 ---
+RJSN,新潟
+RJNT,富山
+RJNK,小松
+RJNF,福井
+RJNW,能登
+
+// --- 東海 ---
+RJGG,中部/セントレア
+RJNA,小牧/名古屋
+RJNS,静岡
+RJNS,静岡
+RJOW,三河湾（必要なら追加）
+      </textarea>
+    </div>
+
+    <div style="min-width:180px">
+      <div style="font-weight:600;margin-bottom:6px">操作</div>
+      <button id="runBtn">更新して取得</button>
+      <button id="clearBtn">結果クリア</button>
+      <div style="height:8px"></div>
+      <div class="note">
+        取得元: NOAA（tgftp.nws.noaa.gov）。ブラウザが直接アクセスします。<br>
+        METAR未提供のステーションは「取得失敗」と表示されます。ICAOリストは自由に編集してください。
+      </div>
+    </div>
+  </div>
+
+  <div id="out"></div>
+
+<script>
+/*
+動作方針
+- textarea にある ICAO,表示名 のリストを読み取る
+- 各 ICAO について https://tgftp.nws.noaa.gov/data/observations/metar/stations/{ICAO}.TXT を fetch
+- TXT の 2行目が METAR（例: RJCC 180000Z ... ）
+- METAR から「現在天気（RA,SHRA,FZRA,RASN など）」の有無判定、視程（9999 / 数値）を抽出
+- 表示は「表示名 視程m（日付 時刻（JST））」のフォーマット
+- 色ルール:
+    - 天気コードあり（感雨あり） -> 水色
+    - 天気コードなし かつ 視程 <= 5000m -> 黄色
+    - それ以外 -> 透明
+*/
+
+const runBtn = document.getElementById('runBtn');
+const clearBtn = document.getElementById('clearBtn');
+const out = document.getElementById('out');
+
+function parseMetarText(text){
+  // NOAA の .TXT 形式は先頭行が取得時刻、2行目が METAR
+  const lines = text.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(lines.length < 2) return null;
+  const metar = lines[1]; // 例: "RJCC 180000Z 04005KT 020V080 9999 FEW020 00/M07 Q1008 RMK..."
+  return metar;
+}
+
+function hasPrecip(metar){
+  if(!metar) return false;
+  // 降水を示すコード群（RA, SHRA, FZRA, RASN, DZ, -RA, +RA など）
+  // 注意: SHRA は "SHRA"、軽度は "-RA"、強度は "+RA"
+  const precipPatterns = ['\\bRA\\b','\\b-RA\\b','\\b\\+RA\\b','SHRA','FZRA','RASN','RASN','DZ','TSRA','SHSN','SHRASN','SHRASN'];
+  const re = new RegExp(precipPatterns.join('|'));
+  return re.test(metar);
+}
+
+function parseVisibility(metar){
+  if(!metar) return null;
+  // METAR 中の視程は通常 "9999" (10km以上) または 数字（メートル）で現れる。
+  // 一部は "0450" のように 450m など。
+  const m = metar.match(/\b(\d{4})\b/);
+  if(!m) return null;
+  const val = parseInt(m[1],10);
+  // 9999 -> 10000m (表現上 10km 以上)
+  return val===9999 ? 10000 : val;
+}
+
+function parseObsTime(metar){
+  // METAR の時刻は 2文字目のトークンに "DDHHMMZ" 形式で入ることが多い
+  // 例: RJCC 180000Z ...
+  if(!metar) return null;
+  const m = metar.match(/\b(\d{6})Z\b/);
+  if(!m) return null;
+  const d = m[1].slice(0,2); // 日
+  const hh = m[1].slice(2,4);
+  const mm = m[1].slice(4,6);
+  // Note: 月は不明。表示では「日付（JST）」のみ求められているので、JSTに変換するために現在の年/月を利用する。
+  const now = new Date();
+  // construct UTC date: use current year & month; careful around month boundaries — we accept potential 1-day mismatch in rare edge cases.
+  const utcYear = now.getUTCFullYear();
+  const utcMonth = now.getUTCMonth(); // 0-index
+  let dayNum = parseInt(d,10);
+  // create UTC date at hh:mm (UTC)
+  const dtUTC = new Date(Date.UTC(utcYear, utcMonth, dayNum, parseInt(hh,10), parseInt(mm,10)));
+  // convert to JST
+  const dtJST = new Date(dtUTC.getTime() + 9*60*60*1000);
+  return dtJST;
+}
+
+async function fetchMETAR(icao){
+  const url = `https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`;
+  try{
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('fetch failed');
+    const txt = await r.text();
+    const metar = parseMetarText(txt);
+    return {raw:txt, metar};
+  }catch(e){
+    return {error: e.toString()};
+  }
+}
+
+function formatJST(dt){
+  if(!dt) return '';
+  const day = String(dt.getDate()).padStart(2,'0');
+  const hh = String(dt.getHours()).padStart(2,'0');
+  const mm = String(dt.getMinutes()).padStart(2,'0');
+  return `${day}日${hh}:${mm}（時刻はJST）`;
+}
+
+async function run(){
+  out.innerHTML = '';
+  out.classList.add('loading');
+  const lines = document.getElementById('icaoList').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const list = [];
+  for(const l of lines){
+    if(l.startsWith('//')) continue;
+    // allow CSV: ICAO,表示名
+    const parts = l.split(',').map(s=>s.trim()).filter(Boolean);
+    if(parts.length===0) continue;
+    const icao = parts[0].toUpperCase();
+    const name = parts[1] || icao;
+    list.push({icao,name});
+  }
+
+  const promises = list.map(async (entry)=>{
+    const res = await fetchMETAR(entry.icao);
+    if(res.error) return {entry, error:res.error};
+    const metar = res.metar;
+    if(!metar) return {entry, error:'METAR not found'};
+    const precip = hasPrecip(metar);
+    const vis = parseVisibility(metar); // in m
+    const dtJST = parseObsTime(metar);
+    return {entry, metar, precip, vis, dtJST};
+  });
+
+  const results = await Promise.all(promises);
+  out.classList.remove('loading');
+
+  // render
+  results.forEach(r=>{
+    const el = document.createElement('div');
+    el.className = 'item';
+    if(r.error){
+      el.innerHTML = `<div class="label">${r.entry.name} (${r.entry.icao})</div><div class="meta">取得失敗: ${r.error}</div>`;
+      out.appendChild(el);
+      return;
+    }
+    // format: 新潟空港 8000m（18日09:00（時刻はJST））
+    const visText = (r.vis==null) ? '視程不明' : `${r.vis}m`;
+    const timeText = r.dtJST ? formatJST(r.dtJST) : '(時刻不明)';
+    el.innerHTML = `<div class="label">${r.entry.name} ${visText}（${timeText}）</div><div class="meta">METAR: ${r.metar}</div>`;
+    // coloring rules
+    if(r.precip){
+      el.classList.add('cyan');
+    } else if((r.vis!=null) && (r.vis <= 5000)){
+      el.classList.add('yellow');
+    }
+    out.appendChild(el);
+  });
+}
+
+runBtn.addEventListener('click', run);
+clearBtn.addEventListener('click', ()=>{ out.innerHTML=''; });
+</script>
+</body>
+</html>
