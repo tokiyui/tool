@@ -26,9 +26,9 @@ const AREAS = {
 };
 
 const AMEDAS_POINTS = {
-  '北陸':[ {id:'57066', name:'新潟'}, {id:'47643', name:'富山'}, {id:'47647', name:'小松'}],
-  '関東甲信':[ {id:'47662', name:'東京'}, {id:'47665', name:'松本'}, {id:'47663', name:'茨城'}],
-  '東海':[ {id:'47669', name:'名古屋'}, {id:'47667', name:'静岡'}]
+  '北陸':[ {id:'54232', name:'新潟'}, {id:'54157', name:'相川'}, {id:'54651', name:'高田'}, {id:'55102', name:'富山'}, {id:'55091', name:'伏木'}, {id:'56052', name:'輪島'}, {id:'56227', name:'金沢'}, {id:'57066', name:'福井'}, {id:'57248', name:'敦賀'}],
+  '関東甲信':[ {id:'47662', name:'東京'}],
+  '東海':[ {id:'51106', name:'名古屋'}, {id:'50331', name:'静岡'}]
 };
 
 function parseMetarText(text){ const lines=text.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean); return lines.length<2?null:lines[1]; }
