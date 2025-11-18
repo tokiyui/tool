@@ -42,6 +42,9 @@ const AREAS = {
     {icao:'RJTY', name:'横田基地'},
     {icao:'RJTC', name:'立川飛行場'},
     {icao:'RJTF', name:'調布飛行場'},
+    {icao:'RJTA', name:'厚木海軍飛行場'},
+    {icao:'RJTK', name:'木更津飛行場'},
+    {icao:'RJTE', name:'館山飛行場'},
     {icao:'RJTQ', name:'三宅島空港'},
     {icao:'RJAZ', name:'神津島空港'},
     {icao:'RJTO', name:'大島空港'},
@@ -86,7 +89,7 @@ function parseObsTime(metar){
   const mm = +m[1].slice(4,6);
   const now = new Date();
   const dtUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), dd, hh, mm));
-  return new Date(dtUTC.getTime() + 9*3600*1000);
+  return new Date(dtUTC.getTime());
 }
 
 function formatJST(dt){
