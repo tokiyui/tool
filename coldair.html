@@ -103,7 +103,7 @@
           header.innerHTML = `<th>時刻(JST)</th>` + levels.map(l => `<th>${l}</th>`).join("");
           thead.appendChild(header);
 
-          for (let i = 0; i < timeUTC.length; i += 6) {
+          for (let i = 0; i < timeUTC.length; i += 3) {
             const date = new Date(timeUTC[i]);
             date.setHours(date.getHours() + 9);  // JST変換
             const timeStr = `${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}時`;
