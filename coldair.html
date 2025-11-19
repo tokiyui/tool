@@ -67,7 +67,7 @@
 
     function loadData() {
       const [lat, lon] = locationSelect.value.split(",");
-      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&cell_selection=nearest` +
         `&hourly=temperature_300hPa,temperature_500hPa,temperature_700hPa,temperature_850hPa,temperature_925hPa` +
         `&models=ecmwf_aifs025_single&forecast_days=14&timezone=UTC&cell_selection=nearest`;
 
