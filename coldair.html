@@ -105,19 +105,9 @@
 
           // 現在UTC時刻
           const nowUTC = new Date().getUTCHours();
-
-          // ループ開始位置
           let startIndex = 0;
-
           if (nowUTC >= 12) {
-            // timeUTC の中で最初の "UTC12時以上" のデータを探す
-            for (let j = 0; j < timeUTC.length; j++) {
-              const d = new Date(timeUTC[j]);
-              if (d.getUTCHours() >= 12) {
-                startIndex = j;
-                break;
-              }
-            }
+              startIndex = 4;
           }
 
           for (let i = startIndex; i < timeUTC.length; i += 3) {
