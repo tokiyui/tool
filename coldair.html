@@ -103,14 +103,31 @@
           header.innerHTML = `<th>時刻(JST)</th>` + levels.map(l => `<th>${l}</th>`).join("");
           thead.appendChild(header);
 
-          for (let i = 0; i < timeUTC.length; i += 3) {
+          // 現在UTC時刻
+          const nowUTC = new Date().getUTCHours();
+
+          // ループ開始位置
+          let startIndex = 0;
+
+          if (nowUTC >= 12) {
+            // timeUTC の中で最初の "UTC12時以上" のデータを探す
+            for (let j = 0; j < timeUTC.length; j++) {
+              const d = new Date(timeUTC[j]);
+              if (d.getUTCHours() >= 12) {
+                startIndex = j;
+                break;
+              }
+            }
+          }
+
+          for (let i = startIndex; i < timeUTC.length; i += 3) {
             const date = new Date(timeUTC[i]);
-            date.setHours(date.getHours() + 9);  // JST変換
+            date.setHours(date.getHours() + 9); // JST変換
             const timeStr = `${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}時`;
 
             const row = document.createElement("tr");
             let rowHTML = `<td>${timeStr}</td>`;
-
+          
             levels.forEach(lvl => {
               const val = temps[lvl][i];
               const avg = fixedAverages[lvl];
