@@ -57,7 +57,7 @@ def get_daily_precip(year, month, day):
         return f"{year},{month},{day},{total_precip:.1f}"
  
  
-# ループ設定：2008-09-07 ～ 2025-06-30
+# ループ設定
 start_date = datetime(2001, 1, 1)
 end_date = datetime(2025, 6, 30)
  
