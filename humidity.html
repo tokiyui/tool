@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>実効湿度</title>
+<style>
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 5px 10px; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>実効湿度</h1>
+<div id="output">取得中...</div>
+
+<script>
+const output = document.getElementById('output');
+const today = new Date();
+const NUM_DAYS = 15;
+
+// --- 対象地点 ---
+const stations = {
+  "関東1": { "東京": {prec:44, block:47662}, "熊谷": {prec:43, block:47626}, "秩父": {prec:43, block:47641}, "横浜": {prec:46, block:47670}, "甲府": {prec:49, block:47638}, "河口湖": {prec:49, block:47640} },
+  "関東2": { "水戸": {prec:40, block:47629}, "つくば": {prec:40, block:47646}, "銚子": {prec:45, block:47648}, "千葉": {prec:45, block:47682}, "勝浦": {prec:45, block:47674}, "館山": {prec:45, block:47672} },
+  "関東3": { "前橋": {prec:42, block:47624}, "宇都宮": {prec:41, block:47615}, "日光": {prec:41, block:47690}, "長野": {prec:48, block:47610}, "松本": {prec:48, block:47618}, "軽井沢": {prec:48, block:47622}, "諏訪": {prec:48, block:47620}, "飯田": {prec:48, block:47637} },
+  // "東海": { "静岡": {prec:50, block:47656}, "浜松": {prec:50, block:47654}, "御前崎": {prec:50, block:47655}, "三島": {prec:50, block:47657}, "網代": {prec:50, block:47668}, "石廊崎": {prec:50, block:47666}, "名古屋": {prec:51, block:47636}, "伊良湖": {prec:51, block:47653} },
+  // "東海": { "岐阜": {prec:52, block:47632}, "高山": {prec:52, block:47617}, "津": {prec:53, block:47651}, "四日市": {prec:53, block:47684}, "上野": {prec:53, block:47649}, "尾鷲": {prec:53, block:47663} },
+  // "北陸": { "新潟": {prec:54, block:47604}, "高田": {prec:54, block:47612}, "相川": {prec:54, block:47602}, "富山": {prec:55, block:47607}, "伏木": {prec:55, block:47606}, "輪島": {prec:56, block:47600}, "金沢": {prec:56, block:47605}, "福井": {prec:57, block:47616}, "敦賀": {prec:57, block:47631} }
+};
+
+// --- 過去15日間の配列（古い順） ---
+let targetDates = [];
+for(let i=NUM_DAYS; i>=1; i--){
+    const d = new Date(today);
+    d.setDate(today.getDate()-i);
+    targetDates.push({ year: d.getFullYear(), month: d.getMonth()+1, day: d.getDate() });
+}
+
+// --- 平均湿度抽出 ---
+function extractAverageHumidityFromTable(table, days){
+    const rows = table.querySelectorAll('tr.mtx');
+    let results = {};
+    rows.forEach(row=>{
+        const dayCell = row.querySelector('td');
+        if(!dayCell) return;
+        const dayNum = parseInt(dayCell.textContent.trim(),10);
+        if(!days.includes(dayNum)) return;
+        const cells = row.querySelectorAll('td.data_0_0');
+        let avgHumidity = cells[8] ? parseFloat(cells[8].textContent.trim()) : null;
+        results[dayNum] = avgHumidity;
+    });
+    return results;
+}
+
+// --- 1地点の平均湿度取得（月単位URL） ---
+async function fetchAverageHumidityMonthly(station, year, month, days){
+    const url = `https://www.data.jma.go.jp/stats/etrn/view/daily_s1.php?prec_no=${station.prec}&block_no=${station.block}&year=${year}&month=${month}&view=p1`;
+    try{
+        const res = await fetch(url);
+        const html = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html,"text/html");
+        const table = doc.getElementById('tablefix1');
+        if(!table) return days.map(d=>null);
+        const dailyAvg = extractAverageHumidityFromTable(table, days);
+        return days.map(d=>dailyAvg[d] ?? null);
+    }catch(err){
+        console.error("取得エラー:", url, err);
+        return days.map(d=>null);
+    }
+}
+
+// --- 実効湿度計算 ---
+function calculateEffectiveHumidity(avgHumidities){
+    let prevEH = avgHumidities[0]; // 初日のEHは平均湿度
+    for(let i=1;i<avgHumidities.length;i++){
+        prevEH = 0.3 * avgHumidities[i] + 0.7 * prevEH;
+    }
+    return Math.round(prevEH);
+}
+
+// --- メイン処理 ---
+(async ()=>{
+    let results = {};
+    for(let region in stations){
+        results[region] = {};
+        for(let name in stations[region]){
+            const station = stations[region][name];
+            // --- 過去15日間の月ごとにまとめて取得 ---
+            const datesByMonth = {};
+            targetDates.forEach(d=>{
+                const key = `${d.year}-${d.month}`;
+                if(!datesByMonth[key]) datesByMonth[key]=[];
+                datesByMonth[key].push(d.day);
+            });
+            let avgHumidities = [];
+            for(let key in datesByMonth){
+                const [year,month] = key.split('-').map(Number);
+                const days = datesByMonth[key];
+                const monthlyData = await fetchAverageHumidityMonthly(station, year, month, days);
+                avgHumidities = avgHumidities.concat(monthlyData);
+            }
+            const eh = calculateEffectiveHumidity(avgHumidities);
+            results[region][name] = eh;
+        }
+    }
+
+    // --- 地方ごとに最大行数 ---
+    const maxRows = Math.max(...Object.values(stations).map(s=>Object.keys(s).length));
+
+    // --- 表作成 ---
+    let tableHTML = '<table><tr>';
+    tableHTML += '</tr>';
+
+    for(let i=0;i<maxRows;i++){
+        tableHTML += '<tr>';
+        for(let region of ["関東1","関東2","関東3"]){
+            const names = Object.keys(stations[region]);
+            if(i<names.length){
+                const name = names[i];
+                tableHTML += `${name}: ${results[region][name]}<br>`;
+            }
+        }
+        tableHTML += '</tr>';
+    }
+
+    tableHTML += '</table>';
+    output.innerHTML = tableHTML;
+})();
+</script>
+</body>
+</html>
