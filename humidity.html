@@ -79,27 +79,24 @@ function calculateEffectiveHumidity(avgHumidities){
 // --- メイン処理 ---
 (async ()=>{
     let results = {};
-    for(let region in stations){
-        results[region] = {};
-        for(let name in stations[region]){
-            const station = stations[region][name];
-            // --- 過去15日間の月ごとにまとめて取得 ---
-            const datesByMonth = {};
-            targetDates.forEach(d=>{
-                const key = `${d.year}-${d.month}`;
-                if(!datesByMonth[key]) datesByMonth[key]=[];
-                datesByMonth[key].push(d.day);
-            });
-            let avgHumidities = [];
-            for(let key in datesByMonth){
-                const [year,month] = key.split('-').map(Number);
-                const days = datesByMonth[key];
-                const monthlyData = await fetchAverageHumidityMonthly(station, year, month, days);
-                avgHumidities = avgHumidities.concat(monthlyData);
-            }
-            const eh = calculateEffectiveHumidity(avgHumidities);
-            results[region][name] = eh;
+    for(let name in stations){
+        const station = stations[name];
+        // --- 過去15日間の月ごとにまとめて取得 ---
+        const datesByMonth = {};
+        targetDates.forEach(d=>{
+            const key = `${d.year}-${d.month}`;
+            if(!datesByMonth[key]) datesByMonth[key]=[];
+            datesByMonth[key].push(d.day);
+        });
+        let avgHumidities = [];
+        for(let key in datesByMonth){
+            const [year,month] = key.split('-').map(Number);
+            const days = datesByMonth[key];
+            const monthlyData = await fetchAverageHumidityMonthly(station, year, month, days);
+            avgHumidities = avgHumidities.concat(monthlyData);
         }
+        const eh = calculateEffectiveHumidity(avgHumidities);
+        results[name] = eh;
     }
 
     // --- 表作成 ---
