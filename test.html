@@ -3,7 +3,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>高層気温 観測値と平年値</title>
+<title>高層気温 観測値と平年値（UTC/JST対応）</title>
 <style>
 body { font-family: sans-serif; }
 table { border-collapse: collapse; margin-top: 1em; }
@@ -13,10 +13,10 @@ caption { text-align: left; font-weight: bold; }
 </style>
 </head>
 <body>
-<h2>高層気温：観測値（Wyoming） vs 平年値（気象庁）</h2>
+<h2>高層気温：観測値（Wyoming, UTC） vs 平年値（気象庁, JST）</h2>
 
 <div>
-  日時 (UTC): <input id="datetime" value="2023-01-24 12:00" readonly>
+  日時 (UTC): <input id="datetime" value="2023-01-24 21:00" readonly>
   地点番号: <input id="stn" value="47646" readonly>
   <button onclick="loadData()">取得</button>
 </div>
@@ -24,7 +24,12 @@ caption { text-align: left; font-weight: bold; }
 <table id="result">
 <caption>300 / 500 / 700 / 850 / 925 hPa</caption>
 <thead>
-<tr><th>気圧(hPa)</th><th>観測値(℃)</th><th>平年値(℃)</th></tr>
+<tr>
+  <th>気圧(hPa)</th>
+  <th>観測値(℃)<br>(UTC)</th>
+  <th>平年値(℃)<br>(JST)</th>
+  <th>差<br>(観測−平年)</th>
+</tr>
 </thead>
 <tbody></tbody>
 </table>
@@ -42,12 +47,17 @@ async function loadData() {
   const dd = dt.slice(8,10);
   const hh = dt.slice(11,13);
 
+  // ---- 平年値は JST 基準（UTC+9） ----
+  const jstDate = new Date(Date.UTC(yyyy, mm-1, dd, hh));
+  jstDate.setUTCHours(jstDate.getUTCHours() + 9);
+  const jstMonth = jstDate.getUTCMonth() + 1;
+  const jstHour  = jstDate.getUTCHours();
+
   const obsUrlRaw = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${mm}-${dd}%20${hh}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
-  const nmlUrlRaw = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${parseInt(mm)}&hour=${parseInt(hh)}&point=${stn}`;
+  const nmlUrlRaw = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${jstMonth}&hour=${jstHour}&point=${stn}`;
 
   const obsUrl = proxy + encodeURIComponent(obsUrlRaw);
   const nmlUrl = proxy + encodeURIComponent(nmlUrlRaw);
-  
 
   const [obsText, nmlText] = await Promise.all([
     fetch(obsUrl).then(r=>r.text()),
@@ -61,10 +71,15 @@ async function loadData() {
   tbody.innerHTML = '';
 
   for (const p of TARGET_LEVELS) {
+    const obsV = obs[p];
+    const nmlV = nml[p];
+    const diff = (obsV != null && nmlV != null) ? (obsV - nmlV).toFixed(1) : '';
+
     const tr = document.createElement('tr');
     tr.innerHTML = `<th>${p}</th>`+
-      `<td>${obs[p] ?? ''}</td>`+
-      `<td>${nml[p] ?? ''}</td>`;
+      `<td>${obsV ?? ''}</td>`+
+      `<td>${nmlV ?? ''}</td>`+
+      `<td>${diff}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -91,16 +106,22 @@ function parseJMA(html, day) {
   const table = doc.querySelector('#tablefix1');
   if (!table) return map;
 
-  const headers = Array.from(table.querySelectorAll('tr')[1].querySelectorAll('th')).map(th=>th.textContent);
-  const dayRow = Array.from(table.querySelectorAll('tr')).find(tr=>tr.firstElementChild?.textContent.trim()===String(parseInt(day)));
+  const headerRow = table.querySelectorAll('tr')[1];
+  const headers = Array.from(headerRow.querySelectorAll('th')).map(th=>th.textContent);
+  const dayRow = Array.from(table.querySelectorAll('tr'))
+    .find(tr => tr.firstElementChild?.textContent.trim() === String(parseInt(day)));
+
   if (!dayRow) return map;
 
   const tds = dayRow.querySelectorAll('td');
   headers.forEach((h, i)=>{
     const m = h.match(/(\d+)hPa/);
-    if (m && TARGET_LEVELS.includes(parseInt(m[1]))) {
-      const v = tds[i-1]?.textContent.trim();
-      if (v && v !== '///') map[parseInt(m[1])] = parseFloat(v);
+    if (m) {
+      const p = parseInt(m[1]);
+      if (TARGET_LEVELS.includes(p)) {
+        const v = tds[i-1]?.textContent.trim();
+        if (v && v !== '///') map[p] = parseFloat(v);
+      }
     }
   });
   return map;
