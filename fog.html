@@ -15,8 +15,9 @@ h2{margin:0 0 8px;border-left:6px solid #444;padding-left:8px;font-size:18px}
 .item{padding:6px 4px;margin:4px 0;font-size:15px;border-radius:4px}
 .yellow{background:#ffeb99}
 .cyan{background:#cfefff}
+.gray{background:#eee;color:#666}
 
-/* === 3列レイアウト === */
+/* 3列 */
 #out{
   display:grid;
   grid-template-columns:repeat(3,1fr);
@@ -29,7 +30,7 @@ h2{margin:0 0 8px;border-left:6px solid #444;padding-left:8px;font-size:18px}
   background:#fafafa;
 }
 
-/* スマホは縦 */
+/* スマホ */
 @media(max-width:900px){
   #out{grid-template-columns:1fr}
 }
@@ -37,12 +38,13 @@ h2{margin:0 0 8px;border-left:6px solid #444;padding-left:8px;font-size:18px}
 </head>
 
 <body>
-<h1>関東甲信 / 北陸 / 東海 — 空港・アメダス視程一覧</h1>
+<h1>北陸・関東甲信・東海 — 空港・アメダス視程一覧</h1>
 <div id="out"></div>
 
 <script>
 const CORS_PROXY='https://worker.ryohorita105.workers.dev/?url=';
 
+/* ===== 地点定義 ===== */
 const AREAS={
   '北陸':[
     {icao:'RJSN',name:'新潟空港'},{icao:'RJNT',name:'富山空港'},
@@ -90,11 +92,14 @@ const AMEDAS_POINTS={
   ]
 };
 
+/* ===== METAR ===== */
 function parseMetarText(t){
   const l=t.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   return l.length<2?null:l[1];
 }
-function hasPrecip(m){return m?/\+RA|-RA|\bRA\b|SHRA|FZRA|RASN|DZ|TSRA|SHSN|SHRASN/i.test(m):false}
+function hasPrecip(m){
+  return m?/\+RA|-RA|\bRA\b|SHRA|FZRA|RASN|DZ|TSRA|SHSN|SHRASN/i.test(m):false;
+}
 function parseVisibility(m){
   if(!m)return null;
   const r=m.match(/\b(\d{4})\b/);
@@ -105,56 +110,98 @@ function parseVisibility(m){
 function parseObsTime(m){
   const r=m.match(/\b(\d{6})Z\b/); if(!r)return null;
   const now=new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),
-    +r[1].slice(0,2),+r[1].slice(2,4),+r[1].slice(4,6)));
+  return new Date(Date.UTC(
+    now.getUTCFullYear(),now.getUTCMonth(),
+    +r[1].slice(0,2),+r[1].slice(2,4),+r[1].slice(4,6)
+  ));
 }
 function formatJST(d){
   return `${String(d.getDate()).padStart(2,'0')}日${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}JST`;
 }
 async function fetchViaProxy(u){
   const r=await fetch(CORS_PROXY+encodeURIComponent(u));
-  if(!r.ok)throw 0; return await r.text();
+  if(!r.ok)throw 0;
+  return await r.text();
 }
 async function fetchMETAR(icao){
   try{
-    const t=await fetchViaProxy(`https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`);
+    const t=await fetchViaProxy(
+      `https://tgftp.nws.noaa.gov/data/observations/metar/stations/${icao}.TXT`
+    );
     const m=parseMetarText(t);
     if(!m)return{error:true};
-    return{metar:m,vis:parseVisibility(m),precip:hasPrecip(m),time:parseObsTime(m)};
-  }catch{return{error:true}}
+    return{
+      vis:parseVisibility(m),
+      precip:hasPrecip(m),
+      time:parseObsTime(m)
+    };
+  }catch{
+    return{error:true};
+  }
 }
+
+/* ===== AMeDAS ===== */
 async function fetchAmedas(ds){
-  const r=await fetch(`${CORS_PROXY}https://www.jma.go.jp/bosai/amedas/data/map/${ds}.json`);
+  const r=await fetch(
+    `${CORS_PROXY}https://www.jma.go.jp/bosai/amedas/data/map/${ds}.json`
+  );
   return await r.json();
 }
-function amedasHasPrecip(c){return c>=5&&c<=16}
+function amedasHasPrecip(c){
+  return c>=5 && c<=16;
+}
 
+/* ===== main ===== */
 async function run(){
-  const out=document.getElementById('out'); out.innerHTML='';
+  const out=document.getElementById('out');
+  out.innerHTML='';
+
   const now=new Date(Math.floor((Date.now()-10*60000)/3600000)*3600000);
   const ds=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}0000`;
   const amedas=await fetchAmedas(ds);
 
-  for(const area in AREAS){
-    const areaDiv=document.createElement('div'); areaDiv.className='area';
-    const h2=document.createElement('h2'); h2.textContent=area; areaDiv.appendChild(h2);
+  for(const area of ['北陸','関東甲信','東海']){
+    const areaDiv=document.createElement('div');
+    areaDiv.className='area';
+    const h2=document.createElement('h2');
+    h2.textContent=area;
+    areaDiv.appendChild(h2);
 
+    /* 空港 */
     for(const a of AREAS[area]){
       const d=await fetchMETAR(a.icao);
-      const div=document.createElement('div'); div.className='item';
-      if(d.error){div.textContent=`${a.name} 取得失敗`; areaDiv.appendChild(div); continue;}
-      div.textContent=`${a.name} ${d.vis??'不明'}m（${d.time?formatJST(d.time):'時刻不明'}）`;
-      if(d.precip)div.classList.add('cyan'); else if(d.vis!=null&&d.vis<=5000)div.classList.add('yellow');
+      const div=document.createElement('div');
+      div.className='item';
+
+      if(d.error){
+        div.textContent=`${a.name} 取得失敗`;
+        div.classList.add('gray');
+      }else{
+        div.textContent=
+          `${a.name} ${d.vis!=null?d.vis+'m':'視程不明'}（${d.time?formatJST(d.time):'時刻不明'}）`;
+        if(d.precip)div.classList.add('cyan');
+        else if(d.vis!=null && d.vis<=5000)div.classList.add('yellow');
+      }
       areaDiv.appendChild(div);
     }
 
+    /* アメダス */
     for(const p of AMEDAS_POINTS[area]){
-      const a=amedas[p.id]; if(!a)continue;
-      const div=document.createElement('div'); div.className='item';
-      const vis=a.visibility[0];
-      div.textContent=`${p.name} ${vis}m（${formatJST(now)}）`;
-      if(amedasHasPrecip(a.weather[0]))div.classList.add('cyan');
-      else if(vis<=5000)div.classList.add('yellow');
+      const a=amedas[p.id];
+      if(!a)continue;
+
+      const vis=(a.visibility&&a.visibility.length)?a.visibility[0]:null;
+      const weather=(a.weather&&a.weather.length)?a.weather[0]:null;
+
+      const div=document.createElement('div');
+      div.className='item';
+      div.textContent=
+        `${p.name} ${vis!=null?vis+'m':'視程欠測'}（${formatJST(now)}）`;
+
+      if(weather!=null && amedasHasPrecip(weather))div.classList.add('cyan');
+      else if(vis!=null && vis<=5000)div.classList.add('yellow');
+      else if(vis==null)div.classList.add('gray');
+
       areaDiv.appendChild(div);
     }
 
