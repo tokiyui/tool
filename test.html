@@ -16,8 +16,8 @@ caption { text-align: left; font-weight: bold; }
 <h2>高層気温：観測値（Wyoming） vs 平年値（気象庁）</h2>
 
 <div>
-  日時 (UTC): <input id="datetime" value="2025-10-23 12:00">
-  地点番号: <input id="stn" value="47678">
+  日時 (UTC): <input id="datetime" value="2023-01-24 21:00" readonly>
+  地点番号: <input id="stn" value="47646" readonly>
   <button onclick="loadData()">取得</button>
 </div>
 
@@ -31,6 +31,7 @@ caption { text-align: left; font-weight: bold; }
 
 <script>
 const TARGET_LEVELS = [300, 500, 700, 850, 925];
+const proxy = "https://worker.ryohorita105.workers.dev/?url=";
 
 async function loadData() {
   const dt = document.getElementById('datetime').value;
@@ -41,8 +42,12 @@ async function loadData() {
   const dd = dt.slice(8,10);
   const hh = dt.slice(11,13);
 
-  const obsUrl = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${mm}-${dd}%20${hh}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
-  const nmlUrl = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${parseInt(mm)}&hour=${parseInt(hh)}&point=${stn}`;
+  const obsUrlRaw = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${mm}-${dd}%20${hh}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
+  const nmlUrlRaw = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${parseInt(mm)}&hour=${parseInt(hh)}&point=${stn}`;
+
+  const obsUrl = proxy + encodeURIComponent(obsUrlRaw);
+  const nmlUrl = proxy + encodeURIComponent(nmlUrlRaw);
+  
 
   const [obsText, nmlText] = await Promise.all([
     fetch(obsUrl).then(r=>r.text()),
