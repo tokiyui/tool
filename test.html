@@ -64,7 +64,7 @@ async function loadData() {
 
   const obsUrlRaw = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}%20${String(hh).padStart(2,'0')}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
 
-  const nmlUrlRaw = `https://www.data.jma.go.jp/obd/stats/etrn/view/nml_snd_d.php?year=&month=${jstMonth}&day=&hour=${jstHour}&point=${stn}&atm=&view=s`;
+  const nmlUrlRaw = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?year=&month=${jstMonth}&day=&hour=${jstHour}&point=${stn}&atm=&view=s`;
 
   const [obsText, nmlHTML] = await Promise.all([
     fetch(proxy + encodeURIComponent(obsUrlRaw)).then(r=>r.text()),
