@@ -161,7 +161,7 @@ async function run(){
   const ds=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}0000`;
   const amedas=await fetchAmedas(ds);
 
-  for(const area of ['北陸','関東甲信','東海']){
+  for(const area of ['北陸','関東沿岸','関東内陸','東海']){
     const areaDiv=document.createElement('div');
     areaDiv.className='area';
     const h2=document.createElement('h2');
