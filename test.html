@@ -68,7 +68,7 @@ async function loadData() {
 
   const [obsText, nmlHTML] = await Promise.all([
     fetch(proxy + encodeURIComponent(obsUrlRaw)).then(r=>r.text()),
-    fetch(proxy + encodeURIComponent(nmlUrlRaw)).then(r=>r.text())
+    fetch(encodeURIComponent(nmlUrlRaw)).then(r=>r.text())
   ]);
 
   const obs = parseWyoming(obsText);
