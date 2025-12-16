@@ -1,132 +1,120 @@
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>高層気温 観測値と平年値（UTC/JST対応）</title>
+<title>Upper-air Obs vs Normal</title>
 <style>
-body { font-family: sans-serif; }
-table { border-collapse: collapse; margin-top: 1em; }
-th, td { border: 1px solid #666; padding: 4px 8px; text-align: right; }
+table { border-collapse: collapse; margin-top: 10px; }
+th, td { border: 1px solid #666; padding: 4px 6px; text-align: right; }
 th { background: #eee; }
-caption { text-align: left; font-weight: bold; }
+caption { text-align: left; font-weight: bold; margin-bottom: 6px; }
 </style>
 </head>
 <body>
-<h2>高層気温：観測値（Wyoming, UTC） vs 平年値（気象庁, JST）</h2>
 
-<div>
-  日時 (UTC): <input id="datetime" value="2023-01-24 12:00" readonly>
-  地点番号: <input id="stn" value="47646" readonly>
-  <button onclick="loadData()">取得</button>
-</div>
-
-<table id="result">
-<caption>300 / 500 / 700 / 850 / 925 hPa</caption>
-<thead>
-<tr>
-  <th>気圧(hPa)</th>
-  <th>観測値(℃)<br>(UTC)</th>
-  <th>平年値(℃)<br>(JST)</th>
-  <th>差<br>(観測−平年)</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
+<h2>高層観測 平年差表示</h2>
+<pre id="info"></pre>
+<div id="result"></div>
 
 <script>
-const TARGET_LEVELS = [300, 500, 700, 850, 925];
 const proxy = "https://worker.ryohorita105.workers.dev/?url=";
 
-async function loadData() {
-  const dt = document.getElementById('datetime').value;
-  const stn = document.getElementById('stn').value;
+// ---- 入力条件（UTC） ----
+const point = 47646;
+const utcDate = new Date(Date.UTC(2023, 0, 24, 12)); // 2023/1/24 21UTC
 
-  const yyyy = dt.slice(0,4);
-  const mm = dt.slice(5,7);
-  const dd = dt.slice(8,10);
-  const hh = dt.slice(11,13);
+// ---- 時刻整理 ----
+const utcY = utcDate.getUTCFullYear();
+const utcM = utcDate.getUTCMonth() + 1;
+const utcD = utcDate.getUTCDate();
+const utcH = utcDate.getUTCHours();
 
-  // ---- 平年値は JST 基準（UTC+9） ----
-  const jstDate = new Date(Date.UTC(yyyy, mm-1, dd, hh));
-  jstDate.setUTCHours(jstDate.getUTCHours() + 9);
-  const jstMonth = jstDate.getUTCMonth() + 1;
-  const jstHour  = jstDate.getUTCHours();
+// JST（平年値用）
+const jstDate = new Date(utcDate.getTime() + 9 * 3600 * 1000);
+const jstM = jstDate.getMonth() + 1;
+const jstD = jstDate.getDate();
+const jstH = jstDate.getHours();
 
-  const obsUrlRaw = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${mm}-${dd}%20${hh}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
-  const nmlUrlRaw = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${jstMonth}&hour=${jstHour}&point=${stn}`;
+// ---- 表示情報 ----
+document.getElementById("info").textContent =
+`地点: ${point}
+観測: ${utcY}/${utcM}/${utcD} ${utcH}UTC
+平年: ${jstM}月${jstD}日 ${jstH}JST`;
 
-  const obsUrl = proxy + encodeURIComponent(obsUrlRaw);
-  const nmlUrl = proxy + encodeURIComponent(nmlUrlRaw);
+// ---- URL ----
+const obsUrl =
+`${proxy}https://www.data.jma.go.jp/obd/stats/etrn/upper/view/daily_snd.php?year=${utcY}&month=${utcM}&day=${utcD}&hour=${utcH}&point=${point}`;
 
-  const [obsText, nmlText] = await Promise.all([
-    fetch(obsUrl).then(r=>r.text()),
-    fetch(nmlUrl).then(r=>r.text())
-  ]);
+const nmlUrl =
+`${proxy}https://www.data.jma.go.jp/obd/stats/etrn/upper/view/nml_snd_d.php?month=${jstM}&hour=${jstH}&point=${point}`;
 
-  const obs = parseWyoming(obsText);
-  const nml = parseJMA(nmlText, dd);
+// ---- 気圧面 ----
+const levels = [
+  1000,925,900,850,800,700,600,500,400,350,
+  300,250,200,175,150,125,100,70,50,40,
+  30,20,15,10,5
+];
 
-  const tbody = document.querySelector('#result tbody');
-  tbody.innerHTML = '';
+(async () => {
 
-  for (const p of TARGET_LEVELS) {
-    const obsV = obs[p];
-    const nmlV = nml[p];
-    const diff = (obsV != null && nmlV != null) ? (obsV - nmlV).toFixed(1) : '';
+  // ========= 観測値 =========
+  const obsHtml = await (await fetch(obsUrl)).text();
+  const obsDoc = new DOMParser().parseFromString(obsHtml, "text/html");
 
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<th>${p}</th>`+
-      `<td>${obsV ?? ''}</td>`+
-      `<td>${nmlV ?? ''}</td>`+
-      `<td>${diff}</td>`;
-    tbody.appendChild(tr);
-  }
-}
-
-function parseWyoming(text) {
-  const map = {};
-  const lines = text.split('\n');
-  for (const line of lines) {
-    if (/^\s*\d+\.\d/.test(line)) {
-      const cols = line.trim().split(/\s+/);
-      const p = Math.round(parseFloat(cols[0]));
-      const t = parseFloat(cols[2]);
-      if (TARGET_LEVELS.includes(p) && !isNaN(t)) {
-        map[p] = t;
-      }
-    }
-  }
-  return map;
-}
-
-function parseJMA(html, day) {
-  const map = {};
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const table = doc.querySelector('#tablefix1');
-  if (!table) return map;
-
-  const headerRow = table.querySelectorAll('tr')[1];
-  const headers = Array.from(headerRow.querySelectorAll('th')).map(th=>th.textContent);
-  const dayRow = Array.from(table.querySelectorAll('tr'))
-    .find(tr => tr.firstElementChild?.textContent.trim() === String(parseInt(day)));
-
-  if (!dayRow) return map;
-
-  const tds = dayRow.querySelectorAll('td');
-  headers.forEach((h, i)=>{
-    const m = h.match(/(\d+)hPa/);
-    if (m) {
-      const p = parseInt(m[1]);
-      if (TARGET_LEVELS.includes(p)) {
-        const v = tds[i-1]?.textContent.trim();
-        if (v && v !== '///') map[p] = parseFloat(v);
-      }
+  const obsTemps = {};
+  obsDoc.querySelectorAll("tr").forEach(tr => {
+    const tds = tr.querySelectorAll("td");
+    if (tds.length >= 2) {
+      const p = parseFloat(tds[0].textContent);
+      const t = parseFloat(tds[1].textContent);
+      if (!isNaN(p) && !isNaN(t)) obsTemps[p] = t;
     }
   });
-  return map;
-}
-</script>
 
+  // ========= 平年値（1か月表から当日抽出） =========
+  const nmlHtml = await (await fetch(nmlUrl)).text();
+  const nmlDoc = new DOMParser().parseFromString(nmlHtml, "text/html");
+
+  const nmlTemps = {};
+  const table = nmlDoc.querySelector("#tablefix1");
+
+  if (table) {
+    const rows = Array.from(table.querySelectorAll("tr"));
+    const dayRow = rows.find(r => {
+      const th = r.querySelector("th");
+      return th && th.textContent.trim() === `${jstD}日`;
+    });
+
+    if (dayRow) {
+      const cells = dayRow.querySelectorAll("td");
+      levels.forEach((p, i) => {
+        const v = cells[i]?.textContent.trim();
+        nmlTemps[p] = (!v || v === "///") ? null : parseFloat(v);
+      });
+    }
+  }
+
+  // ========= 表示 =========
+  let html = `<table>
+  <caption>気温（℃） 観測 − 平年</caption>
+  <tr><th>hPa</th><th>観測</th><th>平年</th><th>偏差</th></tr>`;
+
+  levels.forEach(p => {
+    const o = obsTemps[p];
+    const n = nmlTemps[p];
+    const d = (o != null && n != null) ? (o - n).toFixed(1) : "";
+    html += `<tr>
+      <th>${p}</th>
+      <td>${o ?? ""}</td>
+      <td>${n ?? ""}</td>
+      <td>${d}</td>
+    </tr>`;
+  });
+
+  html += "</table>";
+  document.getElementById("result").innerHTML = html;
+
+})();
+</script>
 </body>
 </html>
