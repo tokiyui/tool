@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>高層気温 観測値と平年値</title>
+<style>
+body { font-family: sans-serif; }
+table { border-collapse: collapse; margin-top: 1em; }
+th, td { border: 1px solid #666; padding: 4px 8px; text-align: right; }
+th { background: #eee; }
+caption { text-align: left; font-weight: bold; }
+</style>
+</head>
+<body>
+<h2>高層気温：観測値（Wyoming） vs 平年値（気象庁）</h2>
+
+<div>
+  日時 (UTC): <input id="datetime" value="2025-10-23 12:00">
+  地点番号: <input id="stn" value="47678">
+  <button onclick="loadData()">取得</button>
+</div>
+
+<table id="result">
+<caption>300 / 500 / 700 / 850 / 925 hPa</caption>
+<thead>
+<tr><th>気圧(hPa)</th><th>観測値(℃)</th><th>平年値(℃)</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+const TARGET_LEVELS = [300, 500, 700, 850, 925];
+
+async function loadData() {
+  const dt = document.getElementById('datetime').value;
+  const stn = document.getElementById('stn').value;
+
+  const yyyy = dt.slice(0,4);
+  const mm = dt.slice(5,7);
+  const dd = dt.slice(8,10);
+  const hh = dt.slice(11,13);
+
+  const obsUrl = `https://weather.uwyo.edu/wsgi/sounding?datetime=${yyyy}-${mm}-${dd}%20${hh}:00:00&id=${stn}&src=FM35&type=TEXT:LIST`;
+  const nmlUrl = `https://www.data.jma.go.jp/stats/etrn/upper/view/nml_snd_d.php?month=${parseInt(mm)}&hour=${parseInt(hh)}&point=${stn}`;
+
+  const [obsText, nmlText] = await Promise.all([
+    fetch(obsUrl).then(r=>r.text()),
+    fetch(nmlUrl).then(r=>r.text())
+  ]);
+
+  const obs = parseWyoming(obsText);
+  const nml = parseJMA(nmlText, dd);
+
+  const tbody = document.querySelector('#result tbody');
+  tbody.innerHTML = '';
+
+  for (const p of TARGET_LEVELS) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<th>${p}</th>`+
+      `<td>${obs[p] ?? ''}</td>`+
+      `<td>${nml[p] ?? ''}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function parseWyoming(text) {
+  const map = {};
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (/^\s*\d+\.\d/.test(line)) {
+      const cols = line.trim().split(/\s+/);
+      const p = Math.round(parseFloat(cols[0]));
+      const t = parseFloat(cols[2]);
+      if (TARGET_LEVELS.includes(p) && !isNaN(t)) {
+        map[p] = t;
+      }
+    }
+  }
+  return map;
+}
+
+function parseJMA(html, day) {
+  const map = {};
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const table = doc.querySelector('#tablefix1');
+  if (!table) return map;
+
+  const headers = Array.from(table.querySelectorAll('tr')[1].querySelectorAll('th')).map(th=>th.textContent);
+  const dayRow = Array.from(table.querySelectorAll('tr')).find(tr=>tr.firstElementChild?.textContent.trim()===String(parseInt(day)));
+  if (!dayRow) return map;
+
+  const tds = dayRow.querySelectorAll('td');
+  headers.forEach((h, i)=>{
+    const m = h.match(/(\d+)hPa/);
+    if (m && TARGET_LEVELS.includes(parseInt(m[1]))) {
+      const v = tds[i-1]?.textContent.trim();
+      if (v && v !== '///') map[parseInt(m[1])] = parseFloat(v);
+    }
+  });
+  return map;
+}
+</script>
+
+</body>
+</html>
