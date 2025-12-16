@@ -20,7 +20,7 @@ h2{margin:0 0 8px;border-left:6px solid #444;padding-left:8px;font-size:18px}
 /* 3列 */
 #out{
   display:grid;
-  grid-template-columns:repeat(3,1fr);
+  grid-template-columns:repeat(4,1fr);
   gap:16px;
 }
 .area{
@@ -51,13 +51,15 @@ const AREAS={
     {icao:'RJNW',name:'能登空港'},{icao:'RJNK',name:'小松空港'},
     {icao:'RJNF',name:'福井空港'}
   ],
-  '関東甲信':[
+  '関東沿岸':[
     {icao:'RJTT',name:'羽田空港'},{icao:'RJAA',name:'成田空港'},
-    {icao:'RJAF',name:'松本空港'},{icao:'RJAH',name:'茨城空港'},
-    {icao:'RJTI',name:'東京ヘリポート'},{icao:'RJTC',name:'立川飛行場'},
+    {icao:'RJAH',name:'茨城空港'},{icao:'RJTI',name:'東京ヘリポート'},{icao:'RJTC',name:'立川飛行場'}, /* 立川あまり入電しない */
     {icao:'RJTF',name:'調布飛行場'},{icao:'RJTQ',name:'三宅島空港'},
     {icao:'RJAZ',name:'神津島空港'},{icao:'RJTO',name:'大島空港'},
     {icao:'RJAN',name:'新島空港'},{icao:'RJTH',name:'八丈島空港'}
+  ],
+  '関東内陸':[
+    {icao:'RJAF',name:'松本空港'}
   ],
   '東海':[
     {icao:'RJGG',name:'中部国際空港'},{icao:'RJNA',name:'名古屋飛行場'},
@@ -72,23 +74,22 @@ const AMEDAS_POINTS={
     {id:'55102',name:'富山'},{id:'55091',name:'伏木'},{id:'56052',name:'輪島'},
     {id:'56227',name:'金沢'},{id:'57066',name:'福井'},{id:'57248',name:'敦賀'}
   ],
-  '関東甲信':[
-    {id:'43056',name:'熊谷'},{id:'43156',name:'秩父'},{id:'47662',name:'東京'},
-    {id:'46106',name:'横浜'},{id:'49142',name:'甲府'},{id:'49251',name:'河口湖'},
-    {id:'40201',name:'水戸'},{id:'40336',name:'つくば'},{id:'45148',name:'銚子'},
-    {id:'45212',name:'千葉'},{id:'45371',name:'勝浦'},{id:'45401',name:'館山'},
-    {id:'42251',name:'前橋'},{id:'41277',name:'宇都宮'},{id:'41166',name:'奥日光'},
-    {id:'48156',name:'長野'},{id:'48361',name:'松本'},{id:'48331',name:'軽井沢'},
-    {id:'48491',name:'諏訪'},{id:'48767',name:'飯田'},
+  '関東沿岸':[
+    {id:'47662',name:'東京'},{id:'46106',name:'横浜'},{id:'40201',name:'水戸'},{id:'40336',name:'つくば'},
+    {id:'45148',name:'銚子'},{id:'45212',name:'千葉'},{id:'45371',name:'勝浦'},{id:'45401',name:'館山'},
     {id:'44172',name:'大島'},{id:'44226',name:'三宅島'},{id:'44263',name:'八丈島'}
+  ],
+   '関東内陸':[
+    {id:'43056',name:'熊谷'},{id:'43156',name:'秩父'},{id:'49142',name:'甲府'},
+    {id:'49251',name:'河口湖'},{id:'42251',name:'前橋'},{id:'41277',name:'宇都宮'},
+    {id:'41166',name:'奥日光'},{id:'48156',name:'長野'},{id:'48361',name:'松本'},
+    {id:'48331',name:'軽井沢'},{id:'48491',name:'諏訪'},{id:'48767',name:'飯田'}
   ],
   '東海':[
     {id:'50331',name:'静岡'},{id:'50206',name:'三島'},{id:'50281',name:'網代'},
     {id:'50456',name:'浜松'},{id:'50551',name:'御前崎'},{id:'50561',name:'石廊崎'},
-    {id:'51106',name:'名古屋'},{id:'51346',name:'伊良湖'},
-    {id:'52586',name:'岐阜'},{id:'52146',name:'高山'},
-    {id:'53133',name:'津'},{id:'53061',name:'四日市'},
-    {id:'53112',name:'上野'},{id:'53378',name:'尾鷲'}
+    {id:'51106',name:'名古屋'},{id:'51346',name:'伊良湖'},{id:'52586',name:'岐阜'},{id:'52146',name:'高山'},
+    {id:'53133',name:'津'},{id:'53061',name:'四日市'},{id:'53112',name:'上野'},{id:'53378',name:'尾鷲'}
   ]
 };
 
