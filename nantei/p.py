@@ -159,7 +159,6 @@ for t in times:
             zorder=4
         )
 
-
         ax.clabel(cs, fmt="%.0f", fontsize=8)
 
         ax.set_title(f"{t:%Y-%m-%d %HZ} {lev}hPa")
