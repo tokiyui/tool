@@ -134,8 +134,8 @@ def generate(year):
                 ast_s = (earth + observer).at(t).observe(sun).apparent()
                 ast_m = (earth + observer).at(t).observe(moon).apparent()
 
-                lon_s, lat_s, dist_s = ast_s.ecliptic_latlon()
-                lon_m, lat_m, dist_m = ast_m.ecliptic_latlon()
+                lat_s, lon_s, dist_s = ast_s.ecliptic_latlon()
+                lat_m, lon_m, dist_m = ast_m.ecliptic_latlon()
 
                 ra_s, dec_s, _ = ast_s.radec()
                 ra_m, dec_m, _ = ast_m.radec()
@@ -159,7 +159,7 @@ def generate(year):
 
                 for p in planets:
                     ast = (earth + observer).at(t).observe(p).apparent()
-                    lon, _, _ = ast.ecliptic_latlon()
+                    _, lon, _ = ast.ecliptic_latlon()
                     ra, dec, _ = ast.radec()
                     lon_p.append(lon.degrees)
                     ra_p.append(ra.hours * 15)
