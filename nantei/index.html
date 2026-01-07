@@ -14,12 +14,12 @@
 
 <h2>事例選択</h2>
 <select id="caseSelect">
-  <option value1="2014020712" value2="20140208">20140208</option>
-  <option value1="2014021312" value2="20140214">20140214</option>
-  <option value1="2018012112" value2="20180122">20180122</option>
-  <option value1="2022010512" value2="20220106">20220106</option>
-  <option value1="2023020912" value2="20230210">20230210</option>
-  <option value1="2024020412" value2="20240205">20240205</option>
+  <option value="2014020712|20140208">20140208</option>
+  <option value="2014021312|20140214">20140214</option>
+  <option value="2018012112|20180122">20180122</option>
+  <option value="2022010512|20220106">20220106</option>
+  <option value="2023020912|20230210">20230210</option>
+  <option value="2024020412|20240205">20240205</option>
 </select>
 
 <h3>天気図（12時間ごと5枚）</h3>
@@ -34,21 +34,24 @@
 const analysisTypes = ["850","925","950","975","pres","surf"];
 
 // 天気図表示関数
-function showTenkizu(init,case) {
-  const date = init.slice(0,8);
+function showTenkizu(init, caseDate) {
   const hour = parseInt(init.slice(8,10));
   const container = document.getElementById("tenkizu");
   container.innerHTML = "";
   for(let i=0; i<5; i++){
     let h = (hour + i*12) % 24;
-    let d = new Date(date.slice(0,4), parseInt(date.slice(4,6))-1, date.slice(6,8));
-    // 24時超え対応
+    let d = new Date(
+      parseInt(init.slice(0,4)),
+      parseInt(init.slice(4,6))-1,
+      parseInt(init.slice(6,8))
+    );
+    // 日跨ぎ補正
     d.setDate(d.getDate() + Math.floor((hour + i*12)/24));
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth()+1).padStart(2,"0");
     const dd = String(d.getDate()).padStart(2,"0");
     const hh = String(h).padStart(2,"0");
-    const imgPath = `./tenkizu/${date}/${yyyy}${mm}${dd}${hh}.jpg`;
+    const imgPath = `./tenkizu/${caseDate}/${yyyy}${mm}${dd}${hh}.jpg`;
     const img = document.createElement("img");
     img.src = imgPath;
     container.appendChild(img);
@@ -56,7 +59,7 @@ function showTenkizu(init,case) {
 }
 
 // 解析図プルダウン作成
-function createAnalysisTime(init,case){
+function createAnalysisTime(init){
   const container = document.getElementById("analysisTime");
   container.innerHTML = "";
   const initDate = new Date(
@@ -80,11 +83,9 @@ function createAnalysisTime(init,case){
 }
 
 // 解析図表示
-function showAnalysis(time,case){
+function showAnalysis(time, caseDate){
   const container = document.getElementById("analysis");
   container.innerHTML = "";
-  const caseDate = document.getElementById("caseSelect").value;
-  console.log(caseDate);
   analysisTypes.forEach(type=>{
     const img = document.createElement("img");
     img.src = `./analysis/${caseDate}/${time}_${type}.png`;
@@ -94,15 +95,16 @@ function showAnalysis(time,case){
 
 // 事例変更時
 document.getElementById("caseSelect").addEventListener("change", e=>{
-  const init = e.target.value1;
-  showTenkizu(init);
+  const [init, caseDate] = e.target.value.split("|");
+  showTenkizu(init, caseDate);
   createAnalysisTime(init);
-  showAnalysis(init);
+  showAnalysis(init, caseDate);
 });
 
 // 解析図時刻変更
 document.getElementById("analysisTime").addEventListener("change", e=>{
-  showAnalysis(e.target.value2);
+  const caseDate = document.getElementById("caseSelect").value.split("|")[1];
+  showAnalysis(e.target.value, caseDate);
 });
 
 // 十字キーで解析図操作
@@ -111,19 +113,20 @@ document.addEventListener("keydown", e=>{
   let idx = sel.selectedIndex;
   if(e.key === "ArrowRight" && idx < sel.options.length-1){
     sel.selectedIndex = idx+1;
-    showAnalysis(sel.value);
+    const caseDate = document.getElementById("caseSelect").value.split("|")[1];
+    showAnalysis(sel.value, caseDate);
   } else if(e.key === "ArrowLeft" && idx>0){
     sel.selectedIndex = idx-1;
-    showAnalysis(sel.value);
+    const caseDate = document.getElementById("caseSelect").value.split("|")[1];
+    showAnalysis(sel.value, caseDate);
   }
 });
 
 // 初期表示
-const init = document.getElementById("caseSelect").value1;
-const case = document.getElementById("caseSelect").value2;
-showTenkizu(init,case);
-createAnalysisTime(init,case);
-showAnalysis(init,case);
+const [init, caseDate] = document.getElementById("caseSelect").value.split("|");
+showTenkizu(init, caseDate);
+createAnalysisTime(init);
+showAnalysis(init, caseDate);
 
 </script>
 </body>
