@@ -4,10 +4,15 @@
 <meta charset="UTF-8">
 <title>南岸低気圧事例</title>
 <style>
-  body { font-family: sans-serif; padding: 20px; }
+  body { font-family: sans-serif; padding: 0px; }
   select, img { margin: 5px; }
   .tenkizu img { width: 180px; margin-right: 5px; }
-  .analysis img { width: 300px; display: block; margin-bottom: 5px; }
+  .analysis {
+    display: flex;
+    flex-wrap: wrap;  
+    gap: 5px;     
+  }
+  .analysis img { width: 200px; } 
 </style>
 </head>
 <body>
@@ -25,10 +30,11 @@
 
 <div class="tenkizu" id="tenkizu"></div>
 
-<h3>解析図</h3>
+<h3>解析図：
 <select id="analysisTime"></select>
 <div class="analysis" id="analysis"></div>
-
+</h3>
+  
 <script>
 // 解析図タイプ
 const analysisTypes = ["850","925","950","975","pres","surf"];
