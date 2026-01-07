@@ -14,12 +14,12 @@
 
 <h2>事例選択</h2>
 <select id="caseSelect">
-  <option value="2014020712">20140208</option>
-  <option value="2014021412">20140214</option>
-  <option value="2018012212">20180122</option>
-  <option value="2022010612">20220106</option>
-  <option value="2023021012">20230210</option>
-  <option value="2024020512">20240205</option>
+  <option value1="2014020712" value2="20140208">20140208</option>
+  <option value1="2014021312" value2="20140214">20140214</option>
+  <option value1="2018012112" value2="20180122">20180122</option>
+  <option value1="2022010512" value2="20220106">20220106</option>
+  <option value1="2023020912" value2="20230210">20230210</option>
+  <option value1="2024020412" value2="20240205">20240205</option>
 </select>
 
 <h3>天気図（12時間ごと5枚）</h3>
@@ -83,7 +83,7 @@ function createAnalysisTime(init){
 function showAnalysis(time){
   const container = document.getElementById("analysis");
   container.innerHTML = "";
-  const caseDate = document.getElementById("caseSelect").value.slice(0,8);
+  const caseDate = document.getElementById("caseSelect").value2;
   analysisTypes.forEach(type=>{
     const img = document.createElement("img");
     img.src = `./analysis/${caseDate}/${time}_${type}.png`;
@@ -93,7 +93,7 @@ function showAnalysis(time){
 
 // 事例変更時
 document.getElementById("caseSelect").addEventListener("change", e=>{
-  const init = e.target.value;
+  const init = e.target.value1;
   showTenkizu(init);
   createAnalysisTime(init);
   showAnalysis(init);
@@ -101,7 +101,7 @@ document.getElementById("caseSelect").addEventListener("change", e=>{
 
 // 解析図時刻変更
 document.getElementById("analysisTime").addEventListener("change", e=>{
-  showAnalysis(e.target.value);
+  showAnalysis(e.target.value2);
 });
 
 // 十字キーで解析図操作
