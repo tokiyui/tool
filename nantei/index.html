@@ -34,7 +34,7 @@
 const analysisTypes = ["850","925","950","975","pres","surf"];
 
 // 天気図表示関数
-function showTenkizu(init) {
+function showTenkizu(init,case) {
   const date = init.slice(0,8);
   const hour = parseInt(init.slice(8,10));
   const container = document.getElementById("tenkizu");
@@ -56,7 +56,7 @@ function showTenkizu(init) {
 }
 
 // 解析図プルダウン作成
-function createAnalysisTime(init){
+function createAnalysisTime(init,case){
   const container = document.getElementById("analysisTime");
   container.innerHTML = "";
   const initDate = new Date(
@@ -80,10 +80,11 @@ function createAnalysisTime(init){
 }
 
 // 解析図表示
-function showAnalysis(time){
+function showAnalysis(time,case){
   const container = document.getElementById("analysis");
   container.innerHTML = "";
-  const caseDate = document.getElementById("caseSelect").value2;
+  const caseDate = document.getElementById("caseSelect").value;
+  console.log(caseDate);
   analysisTypes.forEach(type=>{
     const img = document.createElement("img");
     img.src = `./analysis/${caseDate}/${time}_${type}.png`;
@@ -118,10 +119,11 @@ document.addEventListener("keydown", e=>{
 });
 
 // 初期表示
-const init = document.getElementById("caseSelect").value;
-showTenkizu(init);
-createAnalysisTime(init);
-showAnalysis(init);
+const init = document.getElementById("caseSelect").value1;
+const case = document.getElementById("caseSelect").value2;
+showTenkizu(init,case);
+createAnalysisTime(init,case);
+showAnalysis(init,case);
 
 </script>
 </body>
