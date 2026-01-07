@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>南岸低気圧事例</title>
+<style>
+  body { font-family: sans-serif; padding: 20px; }
+  select, img { margin: 5px; }
+  .tenkizu img { width: 180px; margin-right: 5px; }
+  .analysis img { width: 300px; display: block; margin-bottom: 5px; }
+</style>
+</head>
+<body>
+
+<h2>事例選択</h2>
+<select id="caseSelect">
+  <option value="2014020712">20140208</option>
+  <option value="2014021412">20140214</option>
+  <option value="2018012212">20180122</option>
+  <option value="2022010612">20220106</option>
+  <option value="2023021012">20230210</option>
+  <option value="2024020512">20240205</option>
+</select>
+
+<h3>天気図（12時間ごと5枚）</h3>
+<div class="tenkizu" id="tenkizu"></div>
+
+<h3>解析図</h3>
+<select id="analysisTime"></select>
+<div class="analysis" id="analysis"></div>
+
+<script>
+// 解析図タイプ
+const analysisTypes = ["850","925","950","975","pres","surf"];
+
+// 天気図表示関数
+function showTenkizu(init) {
+  const date = init.slice(0,8);
+  const hour = parseInt(init.slice(8,10));
+  const container = document.getElementById("tenkizu");
+  container.innerHTML = "";
+  for(let i=0; i<5; i++){
+    let h = (hour + i*12) % 24;
+    let d = new Date(date.slice(0,4), parseInt(date.slice(4,6))-1, date.slice(6,8));
+    // 24時超え対応
+    d.setDate(d.getDate() + Math.floor((hour + i*12)/24));
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,"0");
+    const dd = String(d.getDate()).padStart(2,"0");
+    const hh = String(h).padStart(2,"0");
+    const imgPath = `./tenkizu/${date}/${yyyy}${mm}${dd}${hh}.jpg`;
+    const img = document.createElement("img");
+    img.src = imgPath;
+    container.appendChild(img);
+  }
+}
+
+// 解析図プルダウン作成
+function createAnalysisTime(init){
+  const container = document.getElementById("analysisTime");
+  container.innerHTML = "";
+  const initDate = new Date(
+    parseInt(init.slice(0,4)),
+    parseInt(init.slice(4,6))-1,
+    parseInt(init.slice(6,8)),
+    parseInt(init.slice(8,10))
+  );
+  for(let i=0; i<=16; i++){ // 3h刻み48h分
+    const d = new Date(initDate.getTime() + i*3*3600*1000);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,"0");
+    const dd = String(d.getDate()).padStart(2,"0");
+    const hh = String(d.getHours()).padStart(2,"0");
+    const value = `${yyyy}${mm}${dd}${hh}`;
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = `${yyyy}${mm}${dd} ${hh}Z`;
+    container.appendChild(option);
+  }
+}
+
+// 解析図表示
+function showAnalysis(time){
+  const container = document.getElementById("analysis");
+  container.innerHTML = "";
+  const caseDate = document.getElementById("caseSelect").value.slice(0,8);
+  analysisTypes.forEach(type=>{
+    const img = document.createElement("img");
+    img.src = `./analysis/${caseDate}/${time}_${type}.png`;
+    container.appendChild(img);
+  });
+}
+
+// 事例変更時
+document.getElementById("caseSelect").addEventListener("change", e=>{
+  const init = e.target.value;
+  showTenkizu(init);
+  createAnalysisTime(init);
+  showAnalysis(init);
+});
+
+// 解析図時刻変更
+document.getElementById("analysisTime").addEventListener("change", e=>{
+  showAnalysis(e.target.value);
+});
+
+// 十字キーで解析図操作
+document.addEventListener("keydown", e=>{
+  const sel = document.getElementById("analysisTime");
+  let idx = sel.selectedIndex;
+  if(e.key === "ArrowRight" && idx < sel.options.length-1){
+    sel.selectedIndex = idx+1;
+    showAnalysis(sel.value);
+  } else if(e.key === "ArrowLeft" && idx>0){
+    sel.selectedIndex = idx-1;
+    showAnalysis(sel.value);
+  }
+});
+
+// 初期表示
+const init = document.getElementById("caseSelect").value;
+showTenkizu(init);
+createAnalysisTime(init);
+showAnalysis(init);
+
+</script>
+</body>
+</html>
