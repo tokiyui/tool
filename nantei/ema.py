@@ -40,7 +40,7 @@ def plot_sounding(station_id, station_name, dt):
     ax.plot(Tw, p, color='blue', label='Wet-bulb Temperature')
 
     # ========= 風の矢羽根（左端） =========
-    x_barb = np.full_like(p.magnitude, -16.0)  # 左端に固定
+    x_barb = np.full_like(p.magnitude, -18.0)  # 左端に固定
     ax.barbs(
         x_barb,
         p,
@@ -60,20 +60,20 @@ def plot_sounding(station_id, station_name, dt):
     ax.invert_yaxis()
     ax.set_yscale('log')
 
-    yticks = np.arange(1000, 849, -25)
-    ax.set_ylim(1020, 825)
+    yticks = np.arange(1000, 699, -25)
+    ax.set_ylim(1020, 680)
     ax.yaxis.set_major_locator(FixedLocator(yticks))
     ax.yaxis.set_minor_locator(NullLocator())
     ax.yaxis.set_major_formatter(ScalarFormatter())
 
-    ax.set_xlim(-17, 10)
-    ax.set_xticks(np.arange(-15, 11, 1))
+    ax.set_xlim(-10, 10)
+    ax.set_xticks(np.arange(-20, 11, 1))
     ax.minorticks_off()
 
     ax.grid(True, which='both', linestyle=':')
     ax.legend(loc='best')
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=[0, 0, 1, 1])
 
     # --- 出力 ---
     output_dir = "Data"
@@ -83,7 +83,7 @@ def plot_sounding(station_id, station_name, dt):
     out_path = os.path.join(output_dir, fname)
     plt.savefig(out_path, dpi=150)
     plt.close()
-    time.sleep(30)
+    #time.sleep(30)
 
     print(f"Saved to {out_path}")
 
