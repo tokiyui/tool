@@ -6,7 +6,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-
+import matplotlib.colors as mcolors
 from metpy.units import units
 import metpy.calc as mpcalc
 
@@ -62,7 +62,7 @@ ds = xr.open_mfdataset(files, combine="by_coords")
 # ========================
 # 描画設定
 # ========================
-temp_levels = np.arange(-3, 4, 1)
+temp_levels = np.array([-6, -3, -2, -1, 0, 1, 2, 3])
 proj = ccrs.PlateCarree()
 
 pref = cfeature.NaturalEarthFeature(
@@ -115,10 +115,17 @@ for t in times:
         ax.coastlines(resolution="10m", linewidth=0.8, zorder=5)
 
         # --- 気温 ---
+        norm = mcolors.TwoSlopeNorm(
+            vmin=min(temp_levels),
+            vcenter=0.0,
+            vmax=max(temp_levels)
+        )
+
         cf = ax.contourf(
             da.lon, da.lat, T_C,
             levels=temp_levels,
             cmap="coolwarm",
+            norm=norm,
             extend="both",
             transform=proj,
             zorder=1
@@ -135,21 +142,8 @@ for t in times:
             zorder=4
         )
 
-        '''
-        # --- 湿球温度（実線） ---
-        cs = ax.contour(
-            da.lon, da.lat, Tw_C,
-            levels=np.arange(-30, 31, 1),
-            colors="black",
-            linewidths=0.7,
-            linestyles="solid",
-            transform=proj,
-            zorder=3
-        )
-        '''
-
         # +1℃ 太線
-        ax.contour(
+        cs = ax.contour(
             da.lon, da.lat, Tw_C,
             levels=[1],
             colors="yellow",
