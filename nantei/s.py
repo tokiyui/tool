@@ -89,6 +89,7 @@ ds_r1h = xr.open_mfdataset(
 # ========================
 # 描画設定
 # ========================
+temp_levels = np.array([-6, -3, -2, -1, 0, 1, 2, 3])
 proj = ccrs.PlateCarree()
 pref = cfeature.NaturalEarthFeature(
     "cultural", "admin_1_states_provinces_lines", "10m", facecolor="none"
@@ -130,12 +131,21 @@ for t in times:
     ax.set_extent(EXTENT)
     ax.add_feature(pref, linewidth=0.6)
     ax.coastlines("10m", linewidth=0.8)
- 
+
+    norm = mcolors.TwoSlopeNorm(
+        vmin=min(temp_levels),
+        vcenter=0.0,
+        vmax=max(temp_levels)
+    )
+
     cf = ax.contourf(
         da.lon, da.lat, T_C,
-        levels=np.arange(-3, 4, 1),
+        levels=temp_levels,
         cmap="coolwarm",
-        extend="both"
+        norm=norm,
+        extend="both",
+        transform=proj,
+        zorder=1
     )
  
     ax.contour(
@@ -202,5 +212,3 @@ for t in times:
     plt.close()
  
     print("saved:", t)
- 
- 
