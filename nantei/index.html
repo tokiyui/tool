@@ -34,7 +34,8 @@
 </h2>
 
 <div class="tenkizu" id="tenkizu"></div>
-
+<div class="emagram" id="emagram"></div>
+  
 <h3>MSM各層解析値（黄色は湿球温度0度）：
 <select id="analysisTime"></select>
 <div class="analysis" id="analysis"></div>
@@ -69,7 +70,7 @@ function showTenkizu(init, caseDate) {
   }
 }
 
-// 天気図表示関数
+// エマグラム表示関数
 function showEmagram(init, caseDate) {
   const hour = parseInt(init.slice(8,10));
   const container = document.getElementById("emagram");
@@ -133,6 +134,7 @@ function showAnalysis(time, caseDate){
 document.getElementById("caseSelect").addEventListener("change", e=>{
   const [init, caseDate] = e.target.value.split("|");
   showTenkizu(init, caseDate);
+  showEmagram(init, caseDate);
   createAnalysisTime(init);
   showAnalysis(init, caseDate);
 });
