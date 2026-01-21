@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>AMeDAS 関東 固定表示 + 雨雲</title>
+<title>AMeDAS 関東 + 雨雲（操作可）</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -42,31 +42,20 @@ html,body { margin:0; height:100%; }
 
 <script>
 // ==========================
-// 固定領域（関東）
+// 関東範囲（表示・抽出用）
 // ==========================
-const KANTO_BOUNDS = L.latLngBounds(
-  [33, 138],
-  [38, 142]
-);
+const KANTO = {
+  latMin:34.5, latMax:37.5,
+  lonMin:138.5, lonMax:141.5
+};
 
 let DispElem = "temp";
 let rainLayer = null;
 
 // ==========================
-// 地図（完全固定）
+// 地図（操作可）
 // ==========================
-const map = L.map("map",{
-  zoomControl:false,
-  dragging:false,
-  scrollWheelZoom:false,
-  doubleClickZoom:false,
-  boxZoom:false,
-  keyboard:false
-});
-map.fitBounds(KANTO_BOUNDS);
-map.setMaxBounds(KANTO_BOUNDS.pad(0));
-map.options.minZoom = map.getZoom();
-map.options.maxZoom = map.getZoom();
+const map = L.map("map").setView([36.1,139.8],7);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 const layer = L.layerGroup().addTo(map);
@@ -94,9 +83,9 @@ function calcTw(T,RH){
 // 色
 // ==========================
 function tempColor(v){
-  if(v >= 2) return "#ffb6c1"; // ピンク
-  if(v >= 0) return "#ffffff"; // 白
-  return "#add8e6";            // 水色
+  if(v >= 2) return "#ffb6c1";
+  if(v >= 0) return "#ffffff";
+  return "#add8e6";
 }
 
 function windColor(ws){
@@ -111,7 +100,7 @@ function windColor(ws){
 // AMeDAS 時刻探索
 // ==========================
 async function getLatestAMeDAS(){
-  let d = new Date();
+  let d=new Date();
   d.setSeconds(0); d.setMilliseconds(0);
   d.setMinutes(Math.floor(d.getMinutes()/10)*10);
 
@@ -124,7 +113,7 @@ async function getLatestAMeDAS(){
       d.getMinutes().toString().padStart(2,"0")+"00";
 
     try{
-      const r = await fetch(
+      const r=await fetch(
         `https://www.jma.go.jp/bosai/amedas/data/map/${ts}.json`
       );
       if(r.ok) return await r.json();
@@ -139,21 +128,22 @@ async function getLatestAMeDAS(){
 // ==========================
 async function updateRainLayer(){
   try{
-    const r = await fetch(
+    const r=await fetch(
       "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json"
     );
     if(!r.ok) return;
-    const arr = await r.json();
-    if(!arr || arr.length===0) return;
 
-    const t = arr[0];
-    const url =
+    const arr=await r.json();
+    if(!arr||arr.length===0) return;
+
+    const t=arr[0];
+    const url=
       `https://www.jma.go.jp/bosai/jmatile/data/nowc/`+
       `${t.basetime}/none/${t.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
 
     if(rainLayer) map.removeLayer(rainLayer);
 
-    rainLayer = L.tileLayer(url,{
+    rainLayer=L.tileLayer(url,{
       opacity:0.5,
       maxZoom:16
     }).addTo(map);
@@ -167,35 +157,39 @@ async function updateRainLayer(){
 async function draw(){
   layer.clearLayers();
 
-  const table = await fetch(
+  const table=await fetch(
     "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
   ).then(r=>r.json());
 
-  const obs = await getLatestAMeDAS();
+  const obs=await getLatestAMeDAS();
   if(!obs) return;
 
   for(const id in obs){
     if(!table[id]) continue;
 
-    const lat = table[id].lat[0] + table[id].lat[1]/60;
-    const lon = table[id].lon[0] + table[id].lon[1]/60;
-    if(!KANTO_BOUNDS.contains([lat,lon])) continue;
+    const lat=table[id].lat[0]+table[id].lat[1]/60;
+    const lon=table[id].lon[0]+table[id].lon[1]/60;
 
-    const d = obs[id];
-    const T  =(d.temp&&d.temp[1]==0)?d.temp[0]:NaN;
-    const RH =(d.humidity&&d.humidity[1]==0)?d.humidity[0]:NaN;
-    const Wd =(d.windDirection&&d.windDirection[1]==0)?d.windDirection[0]:NaN;
-    const Ws =(d.wind&&d.wind[1]==0)?d.wind[0]:NaN;
+    if(lat<KANTO.latMin||lat>KANTO.latMax||
+       lon<KANTO.lonMin||lon>KANTO.lonMax) continue;
 
-    let val=T, unit="℃", disp="";
+    const d=obs[id];
+    const T =(d.temp&&d.temp[1]==0)?d.temp[0]:NaN;
+    const RH=(d.humidity&&d.humidity[1]==0)?d.humidity[0]:NaN;
+    const Wd=(d.windDirection&&d.windDirection[1]==0)?d.windDirection[0]:NaN;
+    const Ws=(d.wind&&d.wind[1]==0)?d.wind[0]:NaN;
+
+    let val=T, text="", bg="#fff";
     if(DispElem==="tw") val=calcTw(T,RH);
     if(DispElem==="td") val=calcTd(T,RH);
-    if(DispElem==="rh"){ disp = Math.round(RH) + "%"; }
+    if(DispElem==="rh"){
+      text = Math.round(RH) + "%";
+    }else{
+      text = val.toFixed(1) + "℃";
+      bg = tempColor(val);
+    }
 
     if(!isNaN(val) || DispElem==="rh"){
-      const text = DispElem==="rh" ? disp : val.toFixed(1)+"℃";
-      const bg   = DispElem==="rh" ? "#ffffff" : tempColor(val);
-
       L.marker([lat,lon],{
         icon:L.divIcon({
           html:`<span class="valbox" style="background:${bg}">${text}</span>`,
