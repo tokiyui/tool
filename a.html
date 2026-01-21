@@ -173,4 +173,30 @@ async function loadData() {
       const arrow = L.divIcon({
         className:"",
         html:`<div class="wind-arrow"
-          style="border-bottom-color:${w
+          style="border-bottom-color:${windColor(v.wind[0])};
+          transform:rotate(${v.windDirection[0]*22.5}deg)"></div>`
+      });
+      L.marker([lat,lon],{icon:arrow}).addTo(stationLayer);
+    }
+  });
+
+  if (radarLayer) map.removeLayer(radarLayer);
+  const utc = toUTC(res.time);
+  const u = utc.getUTCFullYear()
+    + String(utc.getUTCMonth()+1).padStart(2,"0")
+    + String(utc.getUTCDate()).padStart(2,"0")
+    + String(utc.getUTCHours()).padStart(2,"0")
+    + String(utc.getUTCMinutes()).padStart(2,"0");
+
+  radarLayer = L.tileLayer(
+    `https://www.jma.go.jp/bosai/jmatile/data/nowc/${u}00/none/${u}00/surf/hrpns/{z}/{x}/{y}.png`,
+    {opacity:0.6}
+  ).addTo(map);
+}
+
+document.querySelectorAll("input[name=elem]").forEach(e=>{
+  e.onchange = loadData;
+});
+</script>
+</body>
+</html>
