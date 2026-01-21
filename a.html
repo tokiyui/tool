@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>AMeDAS 関東 気温・Tw・露点・風</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+html,body {margin:0; height:100%;}
+#map {width:100%; height:100%;}
+
+.ctrl {
+  position:absolute;
+  top:10px; left:10px;
+  z-index:1000;
+  background:#fff;
+  padding:8px;
+  font-size:14px;
+  line-height:1.6;
+}
+
+.label {
+  font-weight:bold;
+  text-shadow:1px 1px 2px #fff;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="ctrl">
+<label><input type="radio" name="elem" value="temp" checked> 気温</label><br>
+<label><input type="radio" name="elem" value="rh"> 湿度</label><br>
+<label><input type="radio" name="elem" value="td"> 露点温度</label><br>
+<label><input type="radio" name="elem" value="tw"> 湿球温度</label>
+</div>
+
+<script>
+// ==========================
+// 設定
+// ==========================
+const KANTO_LAT_MIN = 34.5;
+const KANTO_LAT_MAX = 37.5;
+const KANTO_LON_MIN = 138.5;
+const KANTO_LON_MAX = 141.5;
+
+let DispElem = "temp";
+
+// ==========================
+// 地図
+// ==========================
+const map = L.map("map").setView([36.1, 139.8], 7);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
+}).addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+
+// ==========================
+// 計算関数
+// ==========================
+function calcTd(T, RH){
+  if(isNaN(T) || isNaN(RH)) return NaN;
+  const a = 17.27, b = 237.7;
+  const alpha = (a*T)/(b+T) + Math.log(RH/100);
+  return (b*alpha)/(a-alpha);
+}
+
+function calcTw(T, RH){
+  if(isNaN(T) || isNaN(RH)) return NaN;
+  return T*Math.atan(0.151977*Math.sqrt(RH+8.313659))
+       + Math.atan(T+RH)
+       - Math.atan(RH-1.676331)
+       + 0.00391838*Math.pow(RH,1.5)*Math.atan(0.023101*RH)
+       - 4.686035;
+}
+
+// ==========================
+// 色分け
+// ==========================
+function valColor(v){
+  if(isNaN(v)) return "#888";
+  if(v <= -5) return "#0041ff";
+  if(v <= 0) return "#00a0ff";
+  if(v <= 5) return "#00ff90";
+  if(v <= 10) return "#ffff00";
+  if(v <= 15) return "#ffb000";
+  if(v <= 20) return "#ff6000";
+  return "#ff0000";
+}
+
+// ==========================
+// 時刻探索（10分遡り）
+// ==========================
+async function findLatestAMeDAS(){
+  let dt = new Date();
+  dt.setSeconds(0); dt.setMilliseconds(0);
+  dt.setMinutes(Math.floor(dt.getMinutes()/10)*10);
+
+  for(let i=0; i<12; i++){
+    const ts =
+      dt.getFullYear().toString().padStart(4,"0") +
+      (dt.getMonth()+1).toString().padStart(2,"0") +
+      dt.getDate().toString().padStart(2,"0") +
+      dt.getHours().toString().padStart(2,"0") +
+      dt.getMinutes().toString().padStart(2,"0") +
+      "00";
+
+    const url = `https://www.jma.go.jp/bosai/amedas/data/map/${ts}.json`;
+    try{
+      const r = await fetch(url);
+      if(r.ok) return {ts, data: await r.json()};
+    }catch(e){}
+    dt.setMinutes(dt.getMinutes()-10);
+  }
+  return null;
+}
+
+// ==========================
+// メイン描画
+// ==========================
+async function drawAMeDAS(){
+  layer.clearLayers();
+
+  const table = await fetch(
+    "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
+  ).then(r=>r.json());
+
+  const result = await findLatestAMeDAS();
+  if(!result) return;
+  const obs = result.data;
+
+  for(const code in obs){
+    if(!table[code]) continue;
+
+    const lat = table[code].lat[0] + table[code].lat[1]/60;
+    const lon = table[code].lon[0] + table[code].lon[1]/60;
+
+    if(lat < KANTO_LAT_MIN || lat > KANTO_LAT_MAX ||
+       lon < KANTO_LON_MIN || lon > KANTO_LON_MAX) continue;
+
+    const d = obs[code];
+
+    const T  = (d.temp && d.temp[1]==0) ? d.temp[0] : NaN;
+    const RH = (d.humidity && d.humidity[1]==0) ? d.humidity[0] : NaN;
+    const Wd = (d.windDirection && d.windDirection[1]==0) ? d.windDirection[0] : NaN;
+    const Ws = (d.wind && d.wind[1]==0) ? d.wind[0] : NaN;
+
+    let val = NaN, unit = "℃";
+    if(DispElem==="temp") val=T;
+    if(DispElem==="rh"){ val=RH; unit="%"; }
+    if(DispElem==="td") val=calcTd(T,RH);
+    if(DispElem==="tw") val=calcTw(T,RH);
+
+    if(isNaN(val)) continue;
+
+    const m = L.circleMarker([lat,lon],{
+      radius:5,
+      color:"#000",
+      weight:0.5,
+      fillColor:valColor(val),
+      fillOpacity:1
+    }).addTo(layer);
+
+    m.bindTooltip(
+      `<span class="label">${val.toFixed(1)}${unit}</span>`,
+      {permanent:true, direction:"center"}
+    );
+
+    // 風向矢印
+    if(!isNaN(Wd) && !isNaN(Ws)){
+      L.polyline([
+        [lat,lon],
+        [
+          lat + 0.15*Math.cos((Wd*22.5-90)*Math.PI/180),
+          lon + 0.15*Math.sin((Wd*22.5-90)*Math.PI/180)
+        ]
+      ],{color:"#000"}).addTo(layer);
+    }
+  }
+}
+
+// ==========================
+// UI
+// ==========================
+document.querySelectorAll('input[name="elem"]').forEach(el=>{
+  el.onchange = ()=>{
+    DispElem = el.value;
+    drawAMeDAS();
+  };
+});
+
+// 初期表示・更新
+drawAMeDAS();
+setInterval(drawAMeDAS, 600000);
+</script>
+
+</body>
+</html>
