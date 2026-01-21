@@ -33,6 +33,7 @@ html, body { margin:0; height:100%; }
 .temp-mid  { background:#ffffff; }
 .temp-cold { background:#add8e6; }
 
+/* 風矢印（白でも黒縁が必ず出る） */
 .wind-arrow {
   width:0;
   height:0;
@@ -40,6 +41,11 @@ html, body { margin:0; height:100%; }
   border-right:6px solid transparent;
   border-bottom:16px solid black;
   transform-origin:50% 75%;
+  filter:
+    drop-shadow(1px 0 0 black)
+    drop-shadow(-1px 0 0 black)
+    drop-shadow(0 1px 0 black)
+    drop-shadow(0 -1px 0 black);
 }
 </style>
 </head>
@@ -59,9 +65,10 @@ html, body { margin:0; height:100%; }
 
 <script>
 // =====================
-// Map
+// Map（初期：関東地方）
 // =====================
-const map = L.map("map").setView([36.0, 138.0], 5);
+const map = L.map("map").setView([35.7, 139.5], 7);
+
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 let stationLayer = L.layerGroup().addTo(map);
@@ -115,7 +122,7 @@ function toUTC(d) {
 }
 
 // =====================
-// Fetch AMeDAS (404→10分遡行)
+// Fetch AMeDAS
 // =====================
 async function fetchAmedas(timeJST) {
   for (let i=0; i<6; i++) {
@@ -182,49 +189,25 @@ async function loadData() {
     const lat = s.lat[0] + s.lat[1]/60;
     const lon = s.lon[0] + s.lon[1]/60;
 
-    let val = null;
-    let text = null;
+    let val=null, text=null;
 
-    if (elem === "temp") {
-      val = T;
-      text = T.toFixed(1) + "℃";
+    if (elem==="temp") { val=T; text=T.toFixed(1)+"℃"; }
+    else if (elem==="tw" && !isNaN(RH)) { val=wetBulb(T,RH); text=val.toFixed(1)+"℃"; }
+    else if (elem==="td" && !isNaN(RH)) { val=dewPoint(T,RH); text=val.toFixed(1)+"℃"; }
+    else if (elem==="rh" && !isNaN(RH)) { text=Math.round(RH)+"%"; }
+    else return;
 
-    } else if (elem === "tw") {
-      if (isNaN(RH)) return;
-      val = wetBulb(T, RH);
-      text = val.toFixed(1) + "℃";
-
-    } else if (elem === "td") {
-      if (isNaN(RH)) return;
-      val = dewPoint(T, RH);
-      text = val.toFixed(1) + "℃";
-
-    } else if (elem === "rh") {
-      if (isNaN(RH)) return;
-      text = Math.round(RH) + "%";
-    }
-
-    if (text === null) return;
-
-    const cls =
-      (elem === "temp" || elem === "tw" || elem === "td")
-        ? tempClass(val)
-        : "";
+    const cls=(elem!=="rh")?tempClass(val):"";
 
     L.marker([lat,lon],{
-      icon: L.divIcon({
-        className:"",
-        html:`<div class="value-box ${cls}">${text}</div>`
-      })
+      icon:L.divIcon({className:"",html:`<div class="value-box ${cls}">${text}</div>`})
     }).addTo(stationLayer);
 
-    // Wind arrow
     if (v.wind && v.windDirection &&
         v.wind[1]===0 && v.windDirection[1]===0) {
-      const ws = v.wind[0];
-      const wd = v.windDirection[0];
+      const ws=v.wind[0], wd=v.windDirection[0];
       L.marker([lat,lon],{
-        icon: L.divIcon({
+        icon:L.divIcon({
           className:"",
           html:`<div class="wind-arrow"
             style="border-bottom-color:${windColor(ws)};
@@ -234,13 +217,27 @@ async function loadData() {
     }
   });
 
-  // Radar (UTC)
+  // ===== Radar（ズーム対策込み） =====
   if (radarLayer) map.removeLayer(radarLayer);
+
   const utc = toUTC(res.time);
   radarLayer = L.tileLayer(
     `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(utc)}00/none/${ymdhm(utc)}00/surf/hrpns/{z}/{x}/{y}.png`,
-    { opacity: 0.6 }
-  ).addTo(map);
+    {
+      opacity:0.6,
+      minZoom:5   // ← これが重要
+    }
+  );
+
+  if (map.getZoom() >= 5) radarLayer.addTo(map);
+
+  map.off("zoomend").on("zoomend", ()=>{
+    if (map.getZoom() >= 5) {
+      if (!map.hasLayer(radarLayer)) radarLayer.addTo(map);
+    } else {
+      if (map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
+    }
+  });
 }
 
 document.querySelectorAll("input[name=elem]").forEach(e=>{
