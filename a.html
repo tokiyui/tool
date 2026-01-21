@@ -171,6 +171,7 @@ async function loadData(){
       const arrowLat=lat+0.05; // ← 分離
       L.marker([arrowLat,lon],{
         icon:L.divIcon({
+          className: "wind-icon",
           html:`<div class="wind-arrow"
           style="border-bottom-color:${windColor(v.wind[0])};
           transform:rotate(${v.windDirection[0]*22.5}deg);"></div>`
