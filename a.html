@@ -1,31 +1,45 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<title>AMeDAS 関東 + 雨雲（操作可）</title>
+<meta charset="utf-8" />
+<title>AMeDAS Tw Viewer</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-html,body { margin:0; height:100%; }
+html, body { margin:0; padding:0; height:100%; }
 #map { width:100%; height:100%; }
 
-.ctrl {
+.control {
   position:absolute;
-  top:10px; left:10px;
-  z-index:1000;
-  background:#fff;
+  top:10px;
+  left:10px;
+  background:white;
   padding:8px;
-  font-size:14px;
+  z-index:1000;
+  font-size:13px;
 }
 
-.valbox {
+.value-box {
   padding:2px 4px;
-  border-radius:4px;
-  border:1px solid #000;
-  font-weight:bold;
-  font-size:12px;
+  border-radius:3px;
+  font-size:11px;
+  text-align:center;
+  min-width:32px;
+}
+
+.temp-hot { background:#ffb6c1; }
+.temp-mid { background:#ffffff; }
+.temp-cold { background:#add8e6; }
+
+.wind-arrow {
+  width:0;
+  height:0;
+  border-left:6px solid transparent;
+  border-right:6px solid transparent;
+  border-bottom:16px solid black;
+  transform-origin:50% 75%;
 }
 </style>
 </head>
@@ -33,200 +47,155 @@ html,body { margin:0; height:100%; }
 
 <div id="map"></div>
 
-<div class="ctrl">
-<label><input type="radio" name="elem" value="temp" checked> 気温</label><br>
-<label><input type="radio" name="elem" value="tw"> 湿球温度</label><br>
-<label><input type="radio" name="elem" value="td"> 露点温度</label><br>
-<label><input type="radio" name="elem" value="rh"> 湿度</label>
+<div class="control">
+  <div id="timeLabel"></div>
+  <button onclick="stepTime(-10)">◀ 10分</button>
+  <button onclick="stepTime(10)">10分 ▶</button>
+  <br>
+  <label><input type="radio" name="elem" value="temp" checked> 気温</label>
+  <label><input type="radio" name="elem" value="tw"> 湿球温度</label>
+  <label><input type="radio" name="elem" value="td"> 露点温度</label>
 </div>
 
 <script>
-// ==========================
-// 関東範囲（表示・抽出用）
-// ==========================
-const KANTO = {
-  latMin:34.5, latMax:37.5,
-  lonMin:138.5, lonMax:141.5
-};
+const map = L.map("map").setView([35.8, 139.5], 7);
 
-let DispElem = "temp";
-let rainLayer = null;
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
+}).addTo(map);
 
-// ==========================
-// 地図（操作可）
-// ==========================
-const map = L.map("map").setView([36.1,139.8],7);
+let stationLayer = L.layerGroup().addTo(map);
+let radarLayer;
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
-const layer = L.layerGroup().addTo(map);
+let amedasTable;
+let currentTime;
+let initialTime;
 
-// ==========================
-// 計算
-// ==========================
-function calcTd(T,RH){
-  if(isNaN(T)||isNaN(RH)) return NaN;
-  const a=17.27,b=237.7;
-  const α=(a*T)/(b+T)+Math.log(RH/100);
-  return (b*α)/(a-α);
+fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
+.then(r => r.json())
+.then(j => {
+  amedasTable = j;
+  initTime();
+});
+
+function initTime() {
+  const now = new Date();
+  now.setUTCMinutes(Math.floor(now.getUTCMinutes() / 10) * 10);
+  now.setUTCSeconds(0);
+  now.setUTCMilliseconds(0);
+  currentTime = new Date(now);
+  initialTime = new Date(now);
+  loadData();
 }
 
-function calcTw(T,RH){
-  if(isNaN(T)||isNaN(RH)) return NaN;
-  return T*Math.atan(0.151977*Math.sqrt(RH+8.313659))
-       + Math.atan(T+RH)
-       - Math.atan(RH-1.676331)
-       + 0.00391838*Math.pow(RH,1.5)*Math.atan(0.023101*RH)
-       - 4.686035;
+function stepTime(min) {
+  const next = new Date(currentTime.getTime() + min * 60000);
+  if (next > initialTime) return;
+  if (initialTime - next > 48 * 3600 * 1000) return;
+  currentTime = next;
+  loadData();
 }
 
-// ==========================
-// 色
-// ==========================
-function tempColor(v){
-  if(v >= 2) return "#ffb6c1";
-  if(v >= 0) return "#ffffff";
-  return "#add8e6";
+function ymdhm(d) {
+  return d.getUTCFullYear()
+    + String(d.getUTCMonth()+1).padStart(2,"0")
+    + String(d.getUTCDate()).padStart(2,"0")
+    + String(d.getUTCHours()).padStart(2,"0")
+    + String(d.getUTCMinutes()).padStart(2,"0");
 }
 
-function windColor(ws){
-  if(ws < 3) return "#ffffff";
-  if(ws < 6) return "#0000ff";
-  if(ws < 8) return "#ffff00";
-  if(ws <10) return "#ff9900";
-  return "#ff0000";
-}
-
-// ==========================
-// AMeDAS 時刻探索
-// ==========================
-async function getLatestAMeDAS(){
-  let d=new Date();
-  d.setSeconds(0); d.setMilliseconds(0);
-  d.setMinutes(Math.floor(d.getMinutes()/10)*10);
-
-  for(let i=0;i<12;i++){
-    const ts =
-      d.getFullYear().toString().padStart(4,"0")+
-      (d.getMonth()+1).toString().padStart(2,"0")+
-      d.getDate().toString().padStart(2,"0")+
-      d.getHours().toString().padStart(2,"0")+
-      d.getMinutes().toString().padStart(2,"0")+"00";
-
-    try{
-      const r=await fetch(
-        `https://www.jma.go.jp/bosai/amedas/data/map/${ts}.json`
-      );
-      if(r.ok) return await r.json();
-    }catch{}
-    d.setMinutes(d.getMinutes()-10);
+async function fetchAmedas(time) {
+  for (let i=0; i<6; i++) {
+    const t = new Date(time.getTime() - i*600000);
+    const url = `https://www.jma.go.jp/bosai/amedas/data/map/${ymdhm(t)}00.json`;
+    const r = await fetch(url);
+    if (r.ok) return { data: await r.json(), time: t };
   }
   return null;
 }
 
-// ==========================
-// 雨雲（UTC）
-// ==========================
-async function updateRainLayer(){
-  try{
-    const r=await fetch(
-      "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json"
-    );
-    if(!r.ok) return;
-
-    const arr=await r.json();
-    if(!arr||arr.length===0) return;
-
-    const t=arr[0];
-    const url=
-      `https://www.jma.go.jp/bosai/jmatile/data/nowc/`+
-      `${t.basetime}/none/${t.validtime}/surf/hrpns/{z}/{x}/{y}.png`;
-
-    if(rainLayer) map.removeLayer(rainLayer);
-
-    rainLayer=L.tileLayer(url,{
-      opacity:0.5,
-      maxZoom:16
-    }).addTo(map);
-
-  }catch(e){}
+function wetBulb(T, RH) {
+  const Tw = T * Math.atan(0.151977 * Math.sqrt(RH + 8.313659))
+    + Math.atan(T + RH)
+    - Math.atan(RH - 1.676331)
+    + 0.00391838 * RH ** 1.5 * Math.atan(0.023101 * RH)
+    - 4.686035;
+  return Tw;
 }
 
-// ==========================
-// 描画
-// ==========================
-async function draw(){
-  layer.clearLayers();
-
-  const table=await fetch(
-    "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
-  ).then(r=>r.json());
-
-  const obs=await getLatestAMeDAS();
-  if(!obs) return;
-
-  for(const id in obs){
-    if(!table[id]) continue;
-
-    const lat=table[id].lat[0]+table[id].lat[1]/60;
-    const lon=table[id].lon[0]+table[id].lon[1]/60;
-
-    if(lat<KANTO.latMin||lat>KANTO.latMax||
-       lon<KANTO.lonMin||lon>KANTO.lonMax) continue;
-
-    const d=obs[id];
-    const T =(d.temp&&d.temp[1]==0)?d.temp[0]:NaN;
-    const RH=(d.humidity&&d.humidity[1]==0)?d.humidity[0]:NaN;
-    const Wd=(d.windDirection&&d.windDirection[1]==0)?d.windDirection[0]:NaN;
-    const Ws=(d.wind&&d.wind[1]==0)?d.wind[0]:NaN;
-
-    let val=T, text="", bg="#fff";
-    if(DispElem==="tw") val=calcTw(T,RH);
-    if(DispElem==="td") val=calcTd(T,RH);
-    if(DispElem==="rh"){
-      text = Math.round(RH) + "%";
-    }else{
-      text = val.toFixed(1) + "℃";
-      bg = tempColor(val);
-    }
-
-    if(!isNaN(val) || DispElem==="rh"){
-      L.marker([lat,lon],{
-        icon:L.divIcon({
-          html:`<span class="valbox" style="background:${bg}">${text}</span>`,
-          className:""
-        })
-      }).addTo(layer);
-    }
-
-    // 風矢印
-    if(!isNaN(Wd)&&!isNaN(Ws)){
-      const ang=(Wd*22.5-90)*Math.PI/180;
-      const len=0.18;
-      L.polyline([
-        [lat,lon],
-        [lat+len*Math.cos(ang), lon+len*Math.sin(ang)]
-      ],{
-        color:windColor(Ws),
-        weight:2
-      }).addTo(layer);
-    }
-  }
+function dewPoint(T, RH) {
+  const a = 17.27, b = 237.7;
+  const alpha = (a * T) / (b + T) + Math.log(RH/100);
+  return (b * alpha) / (a - alpha);
 }
 
-// ==========================
-// UI
-// ==========================
-document.querySelectorAll('input[name="elem"]').forEach(r=>{
-  r.onchange=()=>{ DispElem=r.value; draw(); };
+function windColor(v) {
+  if (v < 3) return "white";
+  if (v < 6) return "blue";
+  if (v < 8) return "yellow";
+  if (v < 10) return "orange";
+  return "red";
+}
+
+function tempClass(t) {
+  if (t >= 2) return "temp-hot";
+  if (t >= 0) return "temp-mid";
+  return "temp-cold";
+}
+
+async function loadData() {
+  stationLayer.clearLayers();
+
+  const res = await fetchAmedas(currentTime);
+  if (!res) return;
+
+  document.getElementById("timeLabel").innerText =
+    `UTC ${res.time.toISOString().slice(0,16).replace("T"," ")}`;
+
+  const elem = document.querySelector("input[name=elem]:checked").value;
+
+  Object.entries(res.data).forEach(([id, v]) => {
+    const s = amedasTable[id];
+    if (!s || !v.temp) return;
+
+    const lat = s.lat[0] + s.lat[1]/60;
+    const lon = s.lon[0] + s.lon[1]/60;
+
+    const T = v.temp[0];
+    const RH = v.humidity ? v.humidity[0] : null;
+
+    let val = T;
+    if (elem === "tw" && RH !== null) val = wetBulb(T, RH);
+    if (elem === "td" && RH !== null) val = dewPoint(T, RH);
+
+    const box = L.divIcon({
+      className:"",
+      html:`<div class="value-box ${tempClass(val)}">${val.toFixed(1)}</div>`
+    });
+
+    L.marker([lat, lon], {icon:box}).addTo(stationLayer);
+
+    if (v.wind && v.windDirection) {
+      const arrow = L.divIcon({
+        className:"",
+        html:`<div class="wind-arrow"
+          style="border-bottom-color:${windColor(v.wind[0])};
+          transform:rotate(${v.windDirection[0]*22.5}deg);"></div>`
+      });
+      L.marker([lat, lon], {icon:arrow}).addTo(stationLayer);
+    }
+  });
+
+  if (radarLayer) map.removeLayer(radarLayer);
+  radarLayer = L.tileLayer(
+    `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(res.time)}00/none/${ymdhm(res.time)}00/surf/hrpns/{z}/{x}/{y}.png`,
+    { opacity:0.6 }
+  ).addTo(map);
+}
+
+document.querySelectorAll("input[name=elem]").forEach(e=>{
+  e.onchange = loadData;
 });
-
-// 初期化
-draw();
-updateRainLayer();
-
-// 更新
-setInterval(draw,600000);
-setInterval(updateRainLayer,300000);
 </script>
 </body>
 </html>
