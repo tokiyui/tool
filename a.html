@@ -95,6 +95,11 @@ function ymdhm(d) {
     + String(d.getMinutes()).padStart(2,"0");
 }
 
+function formatJST(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}
+          ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} JST`;
+}
+
 function toUTC(d) {
   return new Date(d.getTime() - 9*3600*1000);
 }
@@ -143,8 +148,7 @@ async function loadData() {
   const res = await fetchAmedas(currentTimeJST);
   if (!res) return;
 
-  document.getElementById("timeLabel").innerText =
-    `JST ${res.time.toISOString().slice(0,16).replace("T"," ")}`;
+  document.getElementById("timeLabel").innerText = formatJST(res.time);
 
   const elem = document.querySelector("input[name=elem]:checked").value;
 
