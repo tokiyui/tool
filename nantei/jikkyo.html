@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <title>南岸低気圧監視</title>
 <style>
-  body { margin:0; font-family:sans-serif; background:#f0f0f0; }
-  header { padding:10px; color:white; display:flex; align-items:center; }
+  body { margin:0; font-family:sans-serif; }
+  header { padding:10px; display:flex; align-items:center; }
   header h1 { margin:0; font-size:1.5em; }
   header a { margin-left:10px; font-size:0.9em; text-decoration:none; }
   header a:hover { text-decoration:underline; }
@@ -65,7 +65,7 @@ function updateImages(){
   const emURL = `https://weather.uwyo.edu/upperair/imgs/${emYYYY}${emMM}${emDD}${emHH}.47646.stuve.png`;
 
   // 850/925hPa気温：UTC3時間前を3時間単位に切り捨て
-  let tUTC = new Date(utc.getTime() - 3*3600*1000);
+  let tUTC = new Date(now.getTime() - 3*3600*1000);
   let tHour = Math.floor(tUTC.getUTCHours()/3)*3;
   const tHH = pad(tHour);
   const t850URL = `https://weather-models.info/latest/images/msm/${tHH}Z/kanto-850t-3.png`;
