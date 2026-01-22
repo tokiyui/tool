@@ -13,7 +13,7 @@
       height: 100vh;
     }
     .wind-speed-label {
-      font-size: 18px;
+      font-size: 18px; /* 大きく */
       font-weight: bold;
       color: black;
       text-shadow: 1px 1px 2px white;
@@ -37,18 +37,37 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    // CORS回避プロキシ
     const proxy = "https://api.allorigins.win/raw?url=";
     const dataUrl = "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50";
 
-    // 風向番号(0〜15)から回転角度（南を0°、時計回り）
-    const windIndexToAngle = idx => (idx * 22.5 + 180);
-
-    // 風速に応じた矢印の色を決定
     const getArrowColor = (speed) => {
-      if (speed >= 20) return "red";      // 20m/s以上 → 赤
-      if (speed >= 15) return "orange";  // 15m/s以上 → オレンジ
-      if (speed >= 10) return "yellow";  // 10m/s以上 → 黄色
-      return "blue";                     // それ未満 → 青（デフォルト）
+      if (speed >= 20) return "red";
+      if (speed >= 15) return "orange";
+      if (speed >= 10) return "yellow";
+      return "blue";
+    };
+
+    const windDirToAngle = (dir) => {
+      switch(dir) {
+        case "北": return 0;
+        case "北北東": return 22.5;
+        case "北東": return 45;
+        case "東北東": return 67.5;
+        case "東": return 90;
+        case "東南東": return 112.5;
+        case "南東": return 135;
+        case "南南東": return 157.5;
+        case "南": return 180;
+        case "南南西": return 202.5;
+        case "南西": return 225;
+        case "西南西": return 247.5;
+        case "西": return 270;
+        case "西北西": return 292.5;
+        case "北西": return 315;
+        case "北北西": return 337.5;
+        default: return null; // 不明は null
+      }
     };
 
     fetch(proxy + encodeURIComponent(dataUrl))
@@ -63,33 +82,13 @@
           const lon = parseFloat(match[1]);
           const lat = parseFloat(match[2]);
 
-          // 風向を角度に変換（簡易対応: 文字列から角度）
-          let angle = 0;
-          switch(entry.fuukou) {
-            case "北": angle = 0; break;
-            case "北北東": angle = 22.5; break;
-            case "北東": angle = 45; break;
-            case "東北東": angle = 67.5; break;
-            case "東": angle = 90; break;
-            case "東南東": angle = 112.5; break;
-            case "南東": angle = 135; break;
-            case "南南東": angle = 157.5; break;
-            case "南": angle = 180; break;
-            case "南南西": angle = 202.5; break;
-            case "南西": angle = 225; break;
-            case "西南西": angle = 247.5; break;
-            case "西": angle = 270; break;
-            case "西北西": angle = 292.5; break;
-            case "北西": angle = 315; break;
-            case "北北西": angle = 337.5; break;
-            default: angle = 0; break;
-          }
+          // 風向・風速が不明なら非表示
+          const angle = windDirToAngle(entry.fuukou);
+          const windSpeed = parseFloat(entry.fuusoku);
+          if (angle === null || isNaN(windSpeed)) return;
 
-          // 風速を数値化
-          const windSpeed = parseFloat(entry.fuusoku) || 0;
           const arrowColor = getArrowColor(windSpeed);
 
-          // SVG矢印 + 前面に風速
           const customIcon = L.divIcon({
             className: 'custom-wind-icon',
             html: `<div style="position: relative; width: 48px; height: 48px; text-align: center;">
