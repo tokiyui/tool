@@ -180,14 +180,28 @@ async function loadData(){
     }
   });
 
-  // ==== レーダー（ズーム差対策）====
+  // ==== レーダー（奇数ズームは偶数ズームを拡大表示）====
   if(radarLayer) map.removeLayer(radarLayer);
   const baseUTC = toUTC(res.time);
 
-  radarLayer = L.tileLayer(
-    `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/{z}/{x}/{y}.png`,
-    { opacity: 0.6, minZoom: 5, maxZoom: 18 }
-  );
+  radarLayer = L.TileLayer.extend({
+    getTileUrl: function(coords){
+      let z = coords.z;
+      let x = coords.x;
+      let y = coords.y;
+      let tileZ = z;
+
+      // 奇数ズームは1つ下の偶数ズームタイルを使用
+      if(z % 2 === 1 && z > 0){
+        tileZ = z - 1;
+        x = Math.floor(x / 2);
+        y = Math.floor(y / 2);
+      }
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${tileZ}/${x}/${y}.png`;
+    }
+  });
+
+  radarLayer = new radarLayer({ opacity: 0.6, minZoom: 5, maxZoom: 18 });
 
   // 初期表示
   if(map.getZoom() >= 5) radarLayer.addTo(map);
