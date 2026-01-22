@@ -177,18 +177,30 @@ async function loadData(){
     }
   });
 
-  // ==== レーダータイル（奇数ズーム対応）====
+  // ==== レーダータイル（奇数ズーム補正版）====
   if(radarLayer) map.removeLayer(radarLayer);
+
   const baseUTC = toUTC(res.time);
 
-  radarLayer = L.tileLayer('', {opacity:0.6, minZoom:5});
-  radarLayer.getTileUrl = function(coords){
-    // 奇数ズームなら1つ下の偶数ズームに丸める
-    const z = coords.z % 2 === 1 ? coords.z - 1 : coords.z;
-    const t = baseUTC;
-    return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/${z}/${coords.x}/${coords.y}.png`;
-  };
+  // GridLayer拡張で奇数ズームを補正
+  radarLayer = L.GridLayer.extend({
+    createTile: function(coords){
+      const tile = document.createElement('img');
+      tile.alt = "";
+      tile.setAttribute("role","presentation");
 
+      // 奇数ズームなら1つ下の偶数ズームに丸め
+      const z = coords.z % 2 === 1 ? coords.z - 1 : coords.z;
+
+      // JMAタイルURL
+      tile.src = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${coords.x}/${coords.y}.png`;
+      tile.style.width = this.getTileSize().x + 'px';
+      tile.style.height = this.getTileSize().y + 'px';
+      return tile;
+    }
+  });
+
+  radarLayer = new radarLayer({opacity:0.6, minZoom:5});
   radarLayer.addTo(map);
 }
 
