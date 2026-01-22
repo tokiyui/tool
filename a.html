@@ -177,23 +177,18 @@ async function loadData(){
     }
   });
 
-  // ==== レーダー（画像オーバーレイ版）====
+  // ==== レーダータイル（奇数ズーム対応）====
   if(radarLayer) map.removeLayer(radarLayer);
-
   const baseUTC = toUTC(res.time);
-  let radarURL = "";
-  for(let i=0;i<=6;i++){
-    const t = new Date(baseUTC.getTime()-i*600000);
-    radarURL = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/0/0/0.png`;
-    break; // 最初に取得できた画像のみ
-  }
 
-  // 日本全体を覆う範囲
-  const southWest = L.latLng(20, 122);
-  const northEast = L.latLng(50, 154);
-  const bounds = L.latLngBounds(southWest, northEast);
+  radarLayer = L.tileLayer('', {opacity:0.6, minZoom:5});
+  radarLayer.getTileUrl = function(coords){
+    // 奇数ズームなら1つ下の偶数ズームに丸める
+    const z = coords.z % 2 === 1 ? coords.z - 1 : coords.z;
+    const t = baseUTC;
+    return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/${z}/${coords.x}/${coords.y}.png`;
+  };
 
-  radarLayer = L.imageOverlay(radarURL, bounds, {opacity:0.6});
   radarLayer.addTo(map);
 }
 
