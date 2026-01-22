@@ -182,20 +182,23 @@ async function loadData(){
 
   // ==== レーダー（ズーム差対策）====
   if(radarLayer) map.removeLayer(radarLayer);
-  const baseUTC=toUTC(res.time);
+  const baseUTC = toUTC(res.time);
 
-  radarLayer=L.tileLayer("",{opacity:0.6,minZoom:5});
-  radarLayer.getTileUrl=function(coords){
-    for(let i=0;i<=6;i++){
-      const t=new Date(baseUTC.getTime()-i*600000);
-      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/${coords.z}/${coords.x}/${coords.y}.png`;
+  radarLayer = L.tileLayer(
+    `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/{z}/{x}/{y}.png`,
+    { opacity: 0.6, minZoom: 5, maxZoom: 18 }
+  );
+
+  // 初期表示
+  if(map.getZoom() >= 5) radarLayer.addTo(map);
+
+  // ズームイベントで表示切替
+  map.off("zoomend").on("zoomend", () => {
+    if(map.getZoom() >= 5){
+      if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);
+    } else {
+      if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
     }
-  };
-
-  if(map.getZoom()>=5) radarLayer.addTo(map);
-  map.off("zoomend").on("zoomend",()=>{
-    if(map.getZoom()>=5){ if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);}
-    else{ if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);}
   });
 }
 
