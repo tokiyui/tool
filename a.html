@@ -33,7 +33,6 @@ html, body { margin:0; height:100%; }
 .temp-mid  { background:#ffffff; }
 .temp-cold { background:#add8e6; }
 
-/* 風矢印（白は黒縁） */
 .wind-arrow {
   width:0;
   height:0;
@@ -117,7 +116,6 @@ async function fetchAmedas(t){
   return null;
 }
 
-// 気象計算
 function wetBulb(T,RH){
   return T*Math.atan(0.151977*Math.sqrt(RH+8.313659))
   +Math.atan(T+RH)-Math.atan(RH-1.676331)
@@ -135,7 +133,6 @@ function windColor(v){
   return"red";
 }
 
-// ======================
 async function loadData(){
   stationLayer.clearLayers();
   const res=await fetchAmedas(currentTimeJST);
@@ -177,30 +174,27 @@ async function loadData(){
     }
   });
 
-  // ==== レーダータイル（奇数ズーム補正版）====
+  // ==== レーダータイル（奇数ズーム対応）====
   if(radarLayer) map.removeLayer(radarLayer);
-
   const baseUTC = toUTC(res.time);
 
-  // GridLayer拡張で奇数ズームを補正
-  radarLayer = L.GridLayer.extend({
-    createTile: function(coords){
-      const tile = document.createElement('img');
-      tile.alt = "";
-      tile.setAttribute("role","presentation");
+  radarLayer = L.tileLayer('', {opacity:0.6, minZoom:5, maxZoom:13});
+  radarLayer.getTileUrl = function(coords){
+    let z = coords.z;
+    let x = coords.x;
+    let y = coords.y;
 
-      // 奇数ズームなら1つ下の偶数ズームに丸め
-      const z = coords.z % 2 === 1 ? coords.z - 1 : coords.z;
-
-      // JMAタイルURL
-      tile.src = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${coords.x}/${coords.y}.png`;
-      tile.style.width = this.getTileSize().x + 'px';
-      tile.style.height = this.getTileSize().y + 'px';
-      return tile;
+    if(z % 2 === 1){ // 奇数ズーム
+      const z_even = z - 1;
+      const factor = 2; // 2^(z - z_even) = 2
+      x = Math.floor(x / factor);
+      y = Math.floor(y / factor);
+      z = z_even;
     }
-  });
 
-  radarLayer = new radarLayer({opacity:0.6, minZoom:5});
+    return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${x}/${y}.png`;
+  };
+
   radarLayer.addTo(map);
 }
 
