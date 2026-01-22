@@ -54,10 +54,9 @@
 function pad(n){ return n.toString().padStart(2,'0'); }
 function updateImages(){
   const now = new Date();
-  const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
 
   // 館野エマグラム：UTC2時間前を12時間単位に切り捨て
-  let emUTC = new Date(utc.getTime() - 2*3600*1000);
+  let emUTC = new Date(now.getTime() - 2*3600*1000);
   let emHour = Math.floor(emUTC.getUTCHours()/12)*12;
   const emYYYY = emUTC.getUTCFullYear();
   const emMM = pad(emUTC.getUTCMonth()+1);
