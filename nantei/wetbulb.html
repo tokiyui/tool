@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>AMeDAS Tw Viewer</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+html, body { margin:0; height:100%; }
+#map { width:100%; height:100%; }
+
+.control {
+  position:absolute;
+  top:10px;
+  left:10px;
+  background:white;
+  padding:8px;
+  z-index:1000;
+  font-size:13px;
+}
+
+.value-box {
+  padding:2px 4px;
+  border-radius:3px;
+  font-size:11px;
+  text-align:center;
+  min-width:36px;
+}
+
+.temp-hot  { background:#ffb6c1; }
+.temp-mid  { background:#ffffff; }
+.temp-cold { background:#add8e6; }
+
+.wind-arrow {
+  width:0;
+  height:0;
+  border-left:6px solid transparent;
+  border-right:6px solid transparent;
+  border-bottom:16px solid black;
+  transform-origin:50% 75%;
+  filter:
+    drop-shadow(1px 0 0 black)
+    drop-shadow(-1px 0 0 black)
+    drop-shadow(0 1px 0 black)
+    drop-shadow(0 -1px 0 black);
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="control">
+  <div id="timeLabel"></div>
+  <button onclick="stepTime(-10)">◀ 10分</button>
+  <button onclick="stepTime(10)">10分 ▶</button><br>
+  <label><input type="radio" name="elem" value="temp" checked> 気温</label>
+  <label><input type="radio" name="elem" value="tw"> 湿球温度</label>
+  <label><input type="radio" name="elem" value="td"> 露点温度</label>
+  <label><input type="radio" name="elem" value="rh"> 湿度</label>
+</div>
+
+<script>
+/* =====================
+   ZoomSubstituteプラグイン（奇数ズーム対応）
+   ===================== */
+(function () {
+	if (typeof L === 'undefined') throw new Error('Leaflet must be loaded before the ZoomSubstitute plugin.');
+	L.TileLayer.ZoomSubstitute = L.TileLayer.extend({
+		createTile: function (coords, done) {
+			const tileSize = this.options.tileSize;
+			if (coords.z % 2 === 0) {
+				const tile = document.createElement('img');
+				tile.setAttribute('role', 'presentation');
+				tile.className = 'leaflet-tile';
+				const url = L.Util.template(this._url, {
+					s: this._getSubdomain(coords),
+					z: coords.z,
+					x: coords.x,
+					y: coords.y
+				});
+ 				tile.onload = L.bind(this._tileOnLoad, this, done, tile);
+ 				tile.onerror = L.bind(this._tileOnError, this, done, tile);
+ 				tile.src = url;
+				return tile;
+			} else {
+				const scale = 2;
+				const X2 = Math.floor(coords.x / 2);
+				const Y2 = Math.floor(coords.y / 2);
+				const deltX = (coords.x % 2 === 0) ? 0 : -tileSize;
+				const deltY = (coords.y % 2 === 0) ? 0 : -tileSize;
+
+				const tileP = document.createElement('div');
+				tileP.style.width = tileSize + 'px';
+				tileP.style.height = tileSize + 'px';
+				tileP.style.overflow= 'hidden';
+
+				const url = L.Util.template(this._url, {
+					s: this._getSubdomain(coords),
+					z: coords.z - 1,
+					x: X2,
+					y: Y2
+				});
+
+				const tileC = document.createElement('img');
+				tileC.style.width = tileSize + 'px';
+				tileC.style.height = tileSize + 'px';
+				tileC.style.transformOrigin = 'top left';
+				tileC.style.transform = 'translate(' + deltX + 'px,' + deltY + 'px) scale(' + scale + ')';
+				tileC.onload = L.bind(this._tileOnLoad, this, done, tileC);
+				tileC.onerror = L.bind(this._tileOnError, this, done, tileC);
+				tileC.src = url;
+
+				tileP.appendChild(tileC);
+				return tileP;
+			}
+		}
+	});
+	L.tileLayer.ZoomSubstitute = function (url, options) {
+		return new L.TileLayer.ZoomSubstitute(url, options);
+	};
+})();
+
+/* =====================
+   MAP
+   ===================== */
+const map = L.map("map").setView([35.7, 139.5], 7);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+let stationLayer = L.layerGroup().addTo(map);
+let radarLayer;
+let amedasTable;
+
+let currentTimeJST, initialTimeJST;
+
+/* =====================
+   AMEDAS
+   ===================== */
+fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
+.then(r=>r.json())
+.then(j=>{ amedasTable=j; initTime(); });
+
+function initTime(){
+  const n=new Date();
+  n.setMinutes(Math.floor(n.getMinutes()/10)*10,0,0);
+  currentTimeJST=new Date(n);
+  initialTimeJST=new Date(n);
+  loadData();
+}
+
+function stepTime(m){
+  const t=new Date(currentTimeJST.getTime()+m*60000);
+  if(t>initialTimeJST) return;
+  if(initialTimeJST-t>48*3600*1000) return;
+  currentTimeJST=t;
+  loadData();
+}
+
+function ymdhm(d){
+  return d.getFullYear()
+  +String(d.getMonth()+1).padStart(2,"0")
+  +String(d.getDate()).padStart(2,"0")
+  +String(d.getHours()).padStart(2,"0")
+  +String(d.getMinutes()).padStart(2,"0");
+}
+function toUTC(d){ return new Date(d.getTime()-9*3600*1000); }
+function formatJST(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}
+  ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} JST`;
+}
+
+async function fetchAmedas(t){
+  for(let i=0;i<6;i++){
+    const tt=new Date(t.getTime()-i*600000);
+    const r=await fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${ymdhm(tt)}00.json`);
+    if(r.ok) return {data:await r.json(), time:tt};
+  }
+  return null;
+}
+
+/* =====================
+   MET
+   ===================== */
+function wetBulb(T,RH){
+  return T*Math.atan(0.151977*Math.sqrt(RH+8.313659))
+  +Math.atan(T+RH)-Math.atan(RH-1.676331)
+  +0.00391838*RH**1.5*Math.atan(0.023101*RH)-4.686035;
+}
+function dewPoint(T,RH){
+  const a=17.27,b=237.7;
+  const α=(a*T)/(b+T)+Math.log(RH/100);
+  return (b*α)/(a-α);
+}
+function tempClass(t){ return t>=2?"temp-hot":t>=0?"temp-mid":"temp-cold"; }
+function windColor(v){
+  if(v<3)return"white"; if(v<6)return"blue";
+  if(v<8)return"yellow"; if(v<10)return"orange";
+  return"red";
+}
+
+/* =====================
+   LOAD
+   ===================== */
+async function loadData(){
+  stationLayer.clearLayers();
+  const res=await fetchAmedas(currentTimeJST);
+  if(!res) return;
+  document.getElementById("timeLabel").innerText=formatJST(res.time);
+
+  const elem=document.querySelector("input[name=elem]:checked").value;
+
+  Object.entries(res.data).forEach(([id,v])=>{
+    const s=amedasTable[id];
+    if(!s||!v.temp||v.temp[1]!==0) return;
+
+    const lat=s.lat[0]+s.lat[1]/60;
+    const lon=s.lon[0]+s.lon[1]/60;
+    const T=v.temp[0];
+    const RH=(v.humidity&&v.humidity[1]===0)?v.humidity[0]:NaN;
+
+    let val=null,text=null;
+    if(elem==="temp"){val=T;text=T.toFixed(1)+"℃";}
+    else if(elem==="tw"&&!isNaN(RH)){val=wetBulb(T,RH);text=val.toFixed(1)+"℃";}
+    else if(elem==="td"&&!isNaN(RH)){val=dewPoint(T,RH);text=val.toFixed(1)+"℃";}
+    else if(elem==="rh"&&!isNaN(RH)){text=Math.round(RH)+"%";}
+    else return;
+
+    L.marker([lat,lon],{
+      icon:L.divIcon({html:`<div class="value-box ${val!==null?tempClass(val):""}">${text}</div>`})
+    }).addTo(stationLayer);
+
+    if(v.wind&&v.windDirection&&v.wind[1]===0){
+      L.marker([lat+0.05,lon],{
+        icon:L.divIcon({
+          html:`<div class="wind-arrow"
+          style="border-bottom-color:${windColor(v.wind[0])};
+          transform:rotate(${v.windDirection[0]*22.5}deg);"></div>`
+        })
+      }).addTo(stationLayer);
+    }
+  });
+
+  /* ===== JMAレーダー（ZoomSubstitute使用） ===== */
+  if(radarLayer) map.removeLayer(radarLayer);
+  const t=toUTC(res.time);
+
+  radarLayer = L.tileLayer.ZoomSubstitute(
+    `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/{z}/{x}/{y}.png`,
+    {opacity:0.6, tileSize:256, minZoom:5, maxZoom:14}
+  ).addTo(map);
+}
+
+document.querySelectorAll("input[name=elem]").forEach(e=>e.onchange=loadData);
+</script>
+</body>
+</html>
