@@ -77,27 +77,27 @@ fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
 .then(j=>{ amedasTable=j; initTime(); });
 
 function initTime() {
-  const n = new Date();
+  const n=new Date();
   n.setMinutes(Math.floor(n.getMinutes()/10)*10,0,0);
-  currentTimeJST = new Date(n);
-  initialTimeJST = new Date(n);
+  currentTimeJST=new Date(n);
+  initialTimeJST=new Date(n);
   loadData();
 }
 
 function stepTime(m) {
-  const t = new Date(currentTimeJST.getTime() + m*60000);
-  if(t > initialTimeJST) return;
-  if(initialTimeJST-t > 48*3600*1000) return;
-  currentTimeJST = t;
+  const t=new Date(currentTimeJST.getTime()+m*60000);
+  if(t>initialTimeJST) return;
+  if(initialTimeJST-t>48*3600*1000) return;
+  currentTimeJST=t;
   loadData();
 }
 
 function ymdhm(d){
   return d.getFullYear()
-  + String(d.getMonth()+1).padStart(2,"0")
-  + String(d.getDate()).padStart(2,"0")
-  + String(d.getHours()).padStart(2,"0")
-  + String(d.getMinutes()).padStart(2,"0");
+    +String(d.getMonth()+1).padStart(2,"0")
+    +String(d.getDate()).padStart(2,"0")
+    +String(d.getHours()).padStart(2,"0")
+    +String(d.getMinutes()).padStart(2,"0");
 }
 
 function toUTC(d){ return new Date(d.getTime()-9*3600*1000); }
@@ -176,52 +176,33 @@ async function loadData(){
     }
   });
 
-  // ==== レーダー（奇数ズームは偶数ズーム拡大）====
+  // ==== レーダー（奇数ズーム補正）====
   if(radarLayer) map.removeLayer(radarLayer);
   const baseUTC = toUTC(res.time);
 
-  const RadarTileLayer = L.TileLayer.extend({
-    getTileUrl: function(coords){
-      let z = coords.z;
-      let x = coords.x;
-      let y = coords.y;
-      let tileZ = z;
-      let scale = 1;
+  radarLayer = L.tileLayer('', {opacity:0.6, minZoom:5, maxZoom:18, tileSize:256});
 
-      if(z % 2 === 1 && z > 0){
-        tileZ = z - 1;
-        x = Math.floor(x/2);
-        y = Math.floor(y/2);
-        scale = 2; // 2倍拡大
-      }
+  radarLayer.getTileUrl = function(coords) {
+    let z = coords.z;
+    let x = coords.x;
+    let y = coords.y;
 
-      // LeafletにtileSize=256のまま渡すのでCSS scaleで拡大
-      const url = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${tileZ}/${x}/${y}.png`;
-      return url;
-    },
-    createTile: function(coords, done){
-      const tile = document.createElement('img');
-      tile.onerror = function(){ done(null, tile); };
-      tile.onload = function(){ done(null, tile); };
-      tile.src = this.getTileUrl(coords);
-      // 奇数ズームで2倍拡大
-      if(coords.z % 2 === 1 && coords.z > 0){
-        tile.style.width = '512px';
-        tile.style.height = '512px';
-      } else {
-        tile.style.width = '256px';
-        tile.style.height = '256px';
-      }
-      return tile;
+    // 奇数ズームなら偶数ズームタイルを取得
+    if(z % 2 === 1){
+      z = z - 1;
+      x = Math.floor(x/2);
+      y = Math.floor(y/2);
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${x}/${y}.png`;
+    } else {
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${x}/${y}.png`;
     }
-  });
+  };
 
-  radarLayer = new RadarTileLayer({opacity:0.6, minZoom:5, maxZoom:18});
   if(map.getZoom()>=5) radarLayer.addTo(map);
 
-  map.off("zoomend").on("zoomend", ()=>{
+  map.off("zoomend").on("zoomend",()=>{
     if(map.getZoom()>=5){
-      if(!map.hasLayer(radarLayer)) map.addLayer(radarLayer);
+      if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);
     } else {
       if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
     }
