@@ -149,7 +149,7 @@ async function loadStations(region) {
     return;
   }
 
-  const proxy = "https://api.allorigins.win/raw?url=";
+  const proxy = "https://corsproxy.io/?";
   const url = proxy + encodeURIComponent(
     `https://lab.weathermap.co.jp/GPV_point_api/v1/points.php?a=${region}`
   );
