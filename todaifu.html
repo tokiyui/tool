@@ -12,6 +12,18 @@
     #map {
       height: 100vh;
     }
+    .wind-speed-label {
+      font-size: 18px;
+      font-weight: bold;
+      color: black;
+      text-shadow: 1px 1px 2px white;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 1000; /* 矢印の前面に */
+    }
   </style>
 </head>
 <body>
@@ -25,63 +37,76 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    const proxy = "https://api.allorigins.win/raw?url=";
     const dataUrl = "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50";
 
-    // 風向文字列 → 角度（北=0°, 時計回り）
-    const windDirToAngle = dir => {
-      const mapping = {
-        "北": 0, "北北東": 22.5, "北東": 45, "東北東": 67.5, "東": 90,
-        "東南東": 112.5, "南東": 135, "南南東": 157.5, "南": 180,
-        "南南西": 202.5, "南西": 225, "西南西": 247.5, "西": 270,
-        "西北西": 292.5, "北西": 315, "北北西": 337.5, "不明": 0, "-": 0
-      };
-      return mapping[dir] ?? 0;
+    // 風向番号(0〜15)から回転角度（南を0°、時計回り）
+    const windIndexToAngle = idx => (idx * 22.5 + 180);
+
+    // 風速に応じた矢印の色を決定
+    const getArrowColor = (speed) => {
+      if (speed >= 20) return "red";      // 20m/s以上 → 赤
+      if (speed >= 15) return "orange";  // 15m/s以上 → オレンジ
+      if (speed >= 10) return "yellow";  // 10m/s以上 → 黄色
+      return "blue";                     // それ未満 → 青（デフォルト）
     };
 
-    // 風速に応じた矢印色
-    const getArrowColor = speed => {
-      if (speed >= 20) return "red";
-      if (speed >= 15) return "orange";
-      if (speed >= 10) return "yellow";
-      return "blue";
-    };
-
-    fetch(dataUrl)
+    fetch(proxy + encodeURIComponent(dataUrl))
       .then(res => res.json())
       .then(data => {
-        data.forEach(station => {
-          const match = station.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
+        data.forEach(entry => {
+          if (!entry.shp) return;
+
+          const match = entry.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
           if (!match) return;
 
           const lon = parseFloat(match[1]);
           const lat = parseFloat(match[2]);
 
-          // 風速の数値抽出
-          const windSpeed = parseFloat(station.fuusoku) || 0;
-          const angle = windDirToAngle(station.fuukou);
+          // 風向を角度に変換（簡易対応: 文字列から角度）
+          let angle = 0;
+          switch(entry.fuukou) {
+            case "北": angle = 0; break;
+            case "北北東": angle = 22.5; break;
+            case "北東": angle = 45; break;
+            case "東北東": angle = 67.5; break;
+            case "東": angle = 90; break;
+            case "東南東": angle = 112.5; break;
+            case "南東": angle = 135; break;
+            case "南南東": angle = 157.5; break;
+            case "南": angle = 180; break;
+            case "南南西": angle = 202.5; break;
+            case "南西": angle = 225; break;
+            case "西南西": angle = 247.5; break;
+            case "西": angle = 270; break;
+            case "西北西": angle = 292.5; break;
+            case "北西": angle = 315; break;
+            case "北北西": angle = 337.5; break;
+            default: angle = 0; break;
+          }
+
+          // 風速を数値化
+          const windSpeed = parseFloat(entry.fuusoku) || 0;
           const arrowColor = getArrowColor(windSpeed);
 
-          // SVG矢印＋風速ラベル
+          // SVG矢印 + 前面に風速
           const customIcon = L.divIcon({
             className: 'custom-wind-icon',
-            html: `
-              <div style="position: relative; width: 48px; height: 48px; text-align: center;">
-                <svg width="48" height="48" viewBox="0 0 48 48" style="transform: rotate(${angle}deg); position: absolute; top: 0; left: 0;">
-                  <line x1="24" y1="2" x2="24" y2="28" stroke="${arrowColor}" stroke-width="2"/>
-                  <polygon points="24,2 28,10 24,8 20,10" fill="${arrowColor}"/>
-                  <text x="24" y="36" text-anchor="middle" fill="black" font-size="16" font-weight="bold" stroke="white" stroke-width="2" paint-order="stroke">
-                    ${windSpeed}
-                  </text>
-                </svg>
-              </div>`,
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
+            html: `<div style="position: relative; width: 48px; height: 48px; text-align: center;">
+              <svg width="48" height="48" viewBox="0 0 48 48" style="transform: rotate(${angle}deg); position: absolute; top: 0; left: 0; z-index: 1;">
+                <polygon points="24,2 28,10 24,8 20,10" fill="${arrowColor}"/>
+                <line x1="24" y1="2" x2="24" y2="28" stroke="${arrowColor}" stroke-width="2"/>
+              </svg>
+              <div class="wind-speed-label">${windSpeed}</div>
+            </div>`,
+            iconSize: [48, 48],
+            iconAnchor: [24, 24]
           });
 
           const marker = L.marker([lat, lon], { icon: customIcon }).addTo(map);
-
-          // クリックで観測所名を表示
-          marker.bindPopup(`<a href="${station.url}" target="_blank">${station.kansokujo_mei}</a><br>風向: ${station.fuukou}, 風速: ${station.fuusoku}`);
+          if (entry.kansokujo_mei) {
+            marker.bindPopup(`<a href="${entry.url}" target="_blank">${entry.kansokujo_mei}</a><br>風向: ${entry.fuukou}<br>風速: ${entry.fuusoku}<br>観測日時: ${entry.kansoku_date}`);
+          }
         });
       })
       .catch(err => console.error("データ取得エラー:", err));
