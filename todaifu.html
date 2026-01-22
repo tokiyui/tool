@@ -50,22 +50,22 @@
 
     const windDirToAngle = (dir) => {
       switch(dir) {
-        case "北": return 0;
-        case "北北東": return 22.5;
-        case "北東": return 45;
-        case "東北東": return 67.5;
-        case "東": return 90;
-        case "東南東": return 112.5;
-        case "南東": return 135;
-        case "南南東": return 157.5;
-        case "南": return 180;
-        case "南南西": return 202.5;
-        case "南西": return 225;
-        case "西南西": return 247.5;
-        case "西": return 270;
-        case "西北西": return 292.5;
-        case "北西": return 315;
-        case "北北西": return 337.5;
+        case "南": return 0;
+        case "南南西": return 22.5;
+        case "南西": return 45;
+        case "西南西": return 67.5;
+        case "西": return 90;
+        case "西北西": return 112.5;
+        case "北西": return 135;
+        case "北北西": return 157.5;
+        case "北": return 180;
+        case "北北東": return 202.5;
+        case "北東": return 225;
+        case "東北東": return 247.5;
+        case "東": return 270;
+        case "東南東": return 292.5;
+        case "南東": return 315;
+        case "南南東": return 337.5;
         default: return null; // 不明は null
       }
     };
