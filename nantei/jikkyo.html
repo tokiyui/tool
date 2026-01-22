@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>南岸低気圧監視</title>
+<style>
+  body { margin:0; font-family:sans-serif; background:#f0f0f0; }
+  header { padding:10px; background:#004080; color:white; display:flex; align-items:center; }
+  header h1 { margin:0; font-size:1.5em; }
+  header a { margin-left:10px; font-size:0.9em; color:#ffd700; text-decoration:none; }
+  header a:hover { text-decoration:underline; }
+
+  .grid { display:grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap:5px; padding:5px; height:calc(100vh - 50px); }
+  .grid-item { background:white; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden; }
+  .grid-item img { max-width:100%; max-height:100%; object-fit:contain; }
+  .grid-item span { margin-top:2px; font-size:0.9em; text-align:center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>南岸低気圧監視</h1>
+  <a href="https://hoge.com" target="_blank">湿球温度分布</a>
+</header>
+
+<div class="grid">
+  <div class="grid-item">
+    <img id="wpr-mito" src="" alt="WPR水戸">
+    <span>WPR水戸</span>
+  </div>
+  <div class="grid-item">
+    <img id="mitano" src="" alt="館野エマグラム">
+    <span>館野エマグラム</span>
+  </div>
+  <div class="grid-item">
+    <img id="t850" src="" alt="850hPa気温">
+    <span>850hPa気温</span>
+  </div>
+  <div class="grid-item">
+    <img id="wpr-katsuura" src="" alt="WPR勝浦">
+    <span>WPR勝浦</span>
+  </div>
+  <div class="grid-item">
+    <img id="tsukuba" src="" alt="筑波山">
+    <span>筑波山</span>
+  </div>
+  <div class="grid-item">
+    <img id="t925" src="" alt="925hPa気温">
+    <span>925hPa気温</span>
+  </div>
+</div>
+
+<script>
+function pad(n){ return n.toString().padStart(2,'0'); }
+function updateImages(){
+  const now = new Date();
+  const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
+
+  // 館野エマグラム：UTC2時間前を12時間単位に切り捨て
+  let emUTC = new Date(utc.getTime() - 2*3600*1000);
+  let emHour = Math.floor(emUTC.getUTCHours()/12)*12;
+  const emYYYY = emUTC.getUTCFullYear();
+  const emMM = pad(emUTC.getUTCMonth()+1);
+  const emDD = pad(emUTC.getUTCDate());
+  const emHH = pad(emHour);
+  const emURL = `https://weather.uwyo.edu/upperair/imgs/${emYYYY}${emMM}${emDD}${emHH}.47646.stuve.png`;
+
+  // 850/925hPa気温：UTC3時間前を3時間単位に切り捨て
+  let tUTC = new Date(utc.getTime() - 3*3600*1000);
+  let tHour = Math.floor(tUTC.getUTCHours()/3)*3;
+  const tHH = pad(tHour);
+  const t850URL = `https://weather-models.info/latest/images/msm/${tHH}Z/kanto-850t-3.png`;
+  const t925URL = `https://weather-models.info/latest/images/msm/${tHH}Z/kanto-925t-3.png`;
+
+  // 固定URL
+  document.getElementById("wpr-mito").src = "https://wxbrjp.com/figure/wpr/latest/WPR_WSPD_12hr_47629_latest.png";
+  document.getElementById("wpr-katsuura").src = "https://wxbrjp.com/figure/wpr/latest/WPR_WSPD_12hr_47674_latest.png";
+  document.getElementById("tsukuba").src = "https://www.geoenv.tsukuba.ac.jp/~kusakaken/mt-tsukuba/mt_tsukuba_realtime.png";
+  document.getElementById("mitano").src = emURL;
+  document.getElementById("t850").src = t850URL;
+  document.getElementById("t925").src = t925URL;
+}
+
+// ページ読み込み時
+updateImages();
+</script>
+
+</body>
+</html>
