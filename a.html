@@ -180,44 +180,45 @@ async function loadData(){
     }
   });
 
-// ==== レーダー（奇数ズームは1つ下の偶数ズームタイルを2倍表示）====
-if(radarLayer) map.removeLayer(radarLayer);
-const baseUTC = toUTC(res.time);
+  // ==== レーダー（奇数ズームは偶数ズームタイルを2倍表示）====
+  if(radarLayer) map.removeLayer(radarLayer);
+  const baseUTC = toUTC(res.time);
 
-radarLayer = L.TileLayer.extend({
-  getTileUrl: function(coords){
-    let z = coords.z;
-    let x = coords.x;
-    let y = coords.y;
-    let tileZ = z;
-    let tileSize = 256;
+  radarLayer = L.TileLayer.extend({
+    getTileUrl: function(coords){
+      let z = coords.z;
+      let x = coords.x;
+      let y = coords.y;
+      let tileZ = z;
+      let tileSize = 256;
 
-    if(z % 2 === 1 && z > 0){
-      tileZ = z - 1;         // 偶数ズームを取得
-      x = Math.floor(x / 2);
-      y = Math.floor(y / 2);
-      tileSize = 512;        // 2倍サイズタイルとして扱う
+      if(z % 2 === 1 && z > 0){
+        tileZ = z - 1;         // 偶数ズームを取得
+        x = Math.floor(x / 2);
+        y = Math.floor(y / 2);
+        tileSize = 512;        // 2倍サイズとしてLeafletに認識させる
+      }
+
+      this.options.tileSize = tileSize;
+
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${tileZ}/${x}/${y}.png`;
     }
+  });
 
-    this.options.tileSize = tileSize;
+  radarLayer = new radarLayer({ opacity: 0.6, minZoom: 5, maxZoom: 18 });
 
-    return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${tileZ}/${x}/${y}.png`;
-  }
-});
+  // 初期表示
+  if(map.getZoom() >= 5) radarLayer.addTo(map);
 
-radarLayer = new radarLayer({ opacity: 0.6, minZoom: 5, maxZoom: 18 });
-
-// 初期表示
-if(map.getZoom() >= 5) radarLayer.addTo(map);
-
-// ズームイベントで表示切替
-map.off("zoomend").on("zoomend", () => {
-  if(map.getZoom() >= 5){
-    if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);
-  } else {
-    if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
-  }
-});
+  // ズームイベントで表示切替
+  map.off("zoomend").on("zoomend", () => {
+    if(map.getZoom() >= 5){
+      if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);
+    } else {
+      if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
+    }
+  });
+}
 
 document.querySelectorAll("input[name=elem]").forEach(e=>e.onchange=loadData);
 </script>
