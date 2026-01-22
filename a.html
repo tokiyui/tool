@@ -47,6 +47,11 @@ html, body { margin:0; height:100%; }
     drop-shadow(0 1px 0 black)
     drop-shadow(0 -1px 0 black);
 }
+
+/* 奇数ズーム拡大タイル */
+.leaflet-tile img {
+  image-rendering: pixelated;
+}
 </style>
 </head>
 <body>
@@ -70,6 +75,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 let stationLayer = L.layerGroup().addTo(map);
 let radarLayer;
 let amedasTable;
+
 let currentTimeJST, initialTimeJST;
 
 fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
@@ -94,10 +100,10 @@ function stepTime(m) {
 
 function ymdhm(d){
   return d.getFullYear()
-    +String(d.getMonth()+1).padStart(2,"0")
-    +String(d.getDate()).padStart(2,"0")
-    +String(d.getHours()).padStart(2,"0")
-    +String(d.getMinutes()).padStart(2,"0");
+  +String(d.getMonth()+1).padStart(2,"0")
+  +String(d.getDate()).padStart(2,"0")
+  +String(d.getHours()).padStart(2,"0")
+  +String(d.getMinutes()).padStart(2,"0");
 }
 
 function toUTC(d){ return new Date(d.getTime()-9*3600*1000); }
@@ -164,7 +170,7 @@ async function loadData(){
     }).addTo(stationLayer);
 
     if(v.wind&&v.windDirection&&v.wind[1]===0){
-      const arrowLat=lat+0.05;
+      const arrowLat=lat+0.05; // ← 分離
       L.marker([arrowLat,lon],{
         icon:L.divIcon({
           className: "wind-icon",
@@ -176,36 +182,32 @@ async function loadData(){
     }
   });
 
-  // ==== レーダー（奇数ズーム補正）====
+  // ==== レーダー（ズーム差対策）====
   if(radarLayer) map.removeLayer(radarLayer);
-  const baseUTC = toUTC(res.time);
+  const baseUTC=toUTC(res.time);
 
-  radarLayer = L.tileLayer('', {opacity:0.6, minZoom:5, maxZoom:18, tileSize:256});
+  radarLayer=L.tileLayer("",{opacity:0.6,minZoom:5});
+  radarLayer.getTileUrl=function(coords){
+    let z=coords.z, x=coords.x, y=coords.y;
 
-  radarLayer.getTileUrl = function(coords) {
-    let z = coords.z;
-    let x = coords.x;
-    let y = coords.y;
-
-    // 奇数ズームなら偶数ズームタイルを取得
-    if(z % 2 === 1){
-      z = z - 1;
+    // 奇数ズームの場合、1つ下の偶数ズームを利用
+    if(z%2===1){
+      const evenZ = z-1;
       x = Math.floor(x/2);
       y = Math.floor(y/2);
-      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${x}/${y}.png`;
-    } else {
-      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(baseUTC)}00/none/${ymdhm(baseUTC)}00/surf/hrpns/${z}/${x}/${y}.png`;
+      z = evenZ;
+    }
+
+    for(let i=0;i<=6;i++){
+      const t=new Date(baseUTC.getTime()-i*600000);
+      return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${ymdhm(t)}00/none/${ymdhm(t)}00/surf/hrpns/${z}/${x}/${y}.png`;
     }
   };
 
   if(map.getZoom()>=5) radarLayer.addTo(map);
-
   map.off("zoomend").on("zoomend",()=>{
-    if(map.getZoom()>=5){
-      if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);
-    } else {
-      if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);
-    }
+    if(map.getZoom()>=5){ if(!map.hasLayer(radarLayer)) radarLayer.addTo(map);}
+    else{ if(map.hasLayer(radarLayer)) map.removeLayer(radarLayer);}
   });
 }
 
