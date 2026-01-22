@@ -180,14 +180,171 @@ async function fetchWeatherData(stationCode) {
 }
 
 /* =========================
-   以下 ★あなたの元コード完全コピー★
-   （plotEmagram / 計算 / tooltip /
-    LFC / EL / K-index / TT / 矢印キー）
+   計算関数
 ========================= */
+function calculatePotentialTemperature(tempK, pressureHpa) {
+  const Rd = 287.05, Cp = 1005, P0 = 1000;
+  return tempK * Math.pow(P0 / pressureHpa, Rd / Cp);
+}
 
-/* ★★ ここから下は、直前にあなたが貼った
-       <script> 内の内容を
-       一切変更せずそのまま置いてください ★★ */
+function calculateEquivalentPotentialTemperature(tempK, pressureHpa, rh) {
+  const tempC = tempK - 273.15;
+  const es = 6.112 * Math.exp((17.67 * tempC) / (tempC + 243.5));
+  const e = rh / 100 * es;
+  const lnRatio = Math.log(e / 6.112);
+  const Td_K = (243.5 * lnRatio) / (17.67 - lnRatio) + 273.15;
+  const w = 0.622 * e / (pressureHpa - e);
+  const TLCL = 1 / (1 / (Td_K - 56) + Math.log(tempK / Td_K) / 800) + 56;
+  return tempK * Math.pow(1000 / pressureHpa, 0.2854)
+       * Math.exp(((3376 / TLCL) - 2.54) * w * (1 + 0.81 * w));
+}
+
+function updateTargetTimeText(ftHour) {
+  const t = new Date(initDateObj.getTime() + ftHour * 3600000);
+  targetTimeText.textContent =
+    `対象時刻：${t.getFullYear()}年${pad(t.getMonth()+1)}月${pad(t.getDate())}日${pad(t.getHours())}JST`;
+}
+
+/* =========================
+   描画
+========================= */
+async function plotEmagram(displayTime) {
+  loadingDiv.style.display = 'block';
+  const timeIndex = displayTime / 3;
+  updateTargetTimeText(displayTime);
+
+  const levels = Object.keys(weatherData)
+    .filter(k => !isNaN(k) && k >= 300)
+    .sort((a,b)=>b-a);
+
+  const thetaPoints=[], thetaEPoints=[], satThetaEPoints=[];
+  let thetaE950=null;
+  let lfcPoint=null, elPoint=null;
+  let prevSat=null, prevP=null, prevH=null, prevT=null;
+
+  for(const p of levels){
+    const d = weatherData[p];
+    const T=d?.TMP?.[timeIndex];
+    const RH=d?.RH?.[timeIndex];
+    const H=d?.HGT?.[timeIndex];
+    if(typeof T==="number" && typeof RH==="number"){
+      const th=calculatePotentialTemperature(T,p);
+      const the=calculateEquivalentPotentialTemperature(T,p,RH);
+      const thes=calculateEquivalentPotentialTemperature(T,p,100);
+
+      thetaPoints.push({x:th,y:p,tempK:T,height:H});
+      thetaEPoints.push({x:the,y:p,height:H});
+      satThetaEPoints.push({x:thes,y:p,height:H});
+
+      if(p==950) thetaE950=the;
+
+      if(prevSat!==null && thetaE950!==null){
+        const d1=thetaE950-prevSat;
+        const d2=thetaE950-thes;
+        if(d1*d2<0 && p<=925){
+          const f=Math.abs(d1)/(Math.abs(d1)+Math.abs(d2));
+          const y=prevP+f*(p-prevP);
+          const h=prevH+f*(H-prevH);
+          const t=prevT+f*(T-prevT);
+          if(!lfcPoint) lfcPoint={x:thetaE950,y:y,height:h,tempK:t};
+          else if(!elPoint) elPoint={x:thetaE950,y:y,height:h,tempK:t};
+        }
+      }
+      prevSat=thes; prevP=p; prevH=H; prevT=T;
+    }
+  }
+
+  const T850=weatherData["850"]?.TMP?.[timeIndex];
+  const T700=weatherData["700"]?.TMP?.[timeIndex];
+  const T500=weatherData["500"]?.TMP?.[timeIndex];
+  const RH850=weatherData["850"]?.RH?.[timeIndex];
+  const RH700=weatherData["700"]?.RH?.[timeIndex];
+
+  const Td=(T,rh)=>{
+    const Tc=T-273.15;
+    const es=6.112*Math.exp(17.67*Tc/(Tc+243.5));
+    const e=rh/100*es;
+    const ln=Math.log(e/6.112);
+    return (243.5*ln)/(17.67-ln);
+  };
+
+  const Td850=Td(T850,RH850);
+  const Td700=Td(T700,RH700);
+  const K=T850+Td850-T500-(T700-Td700)+273.15;
+  const TT=T850+Td850-2*T500+273.15;
+
+  targetTimeText.textContent+=
+    `  K-Index=${K.toFixed(1)}  TotalTotals=${TT.toFixed(1)}  T500=${(T500-273.15).toFixed(1)}`;
+
+  const ctx=document.getElementById("emagramCanvas").getContext("2d");
+  if(chartInstance) chartInstance.destroy();
+
+  chartInstance=new Chart(ctx,{
+    type:"scatter",
+    data:{datasets:[
+      {label:"温位 (θ)",data:thetaPoints,showLine:true,borderColor:"red"},
+      {label:"相当温位 (θₑ)",data:thetaEPoints,showLine:true,borderColor:"blue"},
+      {label:"飽和相当温位 (θₑ*)",data:satThetaEPoints,showLine:true,borderColor:"green"},
+      {label:"θₑ(950hPa)",data:[{x:thetaE950,y:950},{x:thetaE950,y:100}],
+       showLine:true,borderColor:"black",pointRadius:0},
+      {label:"LFC",data:[lfcPoint],backgroundColor:"orange",pointRadius:8},
+      {label:"EL",data:[elPoint],backgroundColor:"red",pointRadius:8}
+    ]},
+    options:{
+      responsive:false,animation:false,
+      scales:{
+        x:{min:240,max:400,title:{display:true,text:"温位 (K)"}},
+        y:{type:"logarithmic",reverse:true,min:290,max:1000,
+           ticks:{callback:v=>[1000,900,800,700,600,500,400,300].includes(v)?v+" hPa":""}}
+      }
+    }
+  });
+
+  loadingDiv.style.display="none";
+}
+
+/* =========================
+   初期化・イベント
+========================= */
+async function initializeAndPlot(ft){
+  weatherData = await fetchWeatherData(currentStation);
+  await plotEmagram(ft);
+}
+
+regionSelector.addEventListener("change", async()=>{
+  currentRegion=regionSelector.value;
+  await loadStations(currentRegion);
+  await initializeAndPlot(parseInt(timeSelector.value));
+});
+
+stationSelector.addEventListener("change", async()=>{
+  currentStation=stationSelector.value;
+  await initializeAndPlot(parseInt(timeSelector.value));
+});
+
+timeSelector.addEventListener("change",()=>{
+  plotEmagram(parseInt(timeSelector.value));
+});
+
+document.addEventListener("keydown",(e)=>{
+  let t=parseInt(timeSelector.value);
+  if(e.key==="ArrowLeft" && t>0){
+    timeSelector.value=t-STEP;
+    plotEmagram(t-STEP);
+  }
+  if(e.key==="ArrowRight" && t<DISPLAY_MAX){
+    timeSelector.value=t+STEP;
+    plotEmagram(t+STEP);
+  }
+});
+
+/* =========================
+   起動
+========================= */
+(async()=>{
+  await loadStations(currentRegion);
+  await initializeAndPlot(0);
+})();
 
 </script>
 </body>
