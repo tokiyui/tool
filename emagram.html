@@ -206,6 +206,18 @@ timeSelector.addEventListener("change",()=>{
   plotEmagram(parseInt(timeSelector.value));
 });
 
+    document.addEventListener('keydown', (e) => {
+      let displayTime = parseInt(timeSelector.value);
+      if (e.key === 'ArrowLeft' && displayTime > 0) {
+        timeSelector.value = displayTime - STEP;
+        plotEmagram(displayTime - STEP);
+      }
+      if (e.key === 'ArrowRight' && displayTime < DISPLAY_MAX) {
+        timeSelector.value = displayTime + STEP;
+        plotEmagram(displayTime + STEP);
+      }
+    });
+
 /* ================= 初期化 ================= */
 async function initializeAndPlot(ft){
   weatherData=await fetchWeatherData(currentStation);
