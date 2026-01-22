@@ -6,61 +6,65 @@
   <title>MSM温位エマグラム</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; }
-    canvas { border: 1px solid #ccc; margin: 10px auto; display: block; }
-    #controls { margin-top: 10px; }
-    select { margin: 0 6px; }
-    #loading { color: red; font-size: 1.5em; margin: 10px; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 10px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #controls {
+      margin-top: 10px;
+    }
+    select {
+      margin: 0 10px;
+    }
+    #loading {
+      color: red;
+      font-size: 1.5em;
+      margin: 10px;
+    }
   </style>
 </head>
-
 <body>
+
 <h1>MSM温位エマグラム</h1>
 <div id="loading">読み込み中...</div>
 
 <div id="controls">
   <span id="initTimeText"></span>
-  <br><br>
-
-  <label>地域:</label>
-  <select id="regionSelector"></select>
-
   <label>地点:</label>
   <select id="stationSelector"></select>
-
   <label>FT=</label>
   <select id="timeSelector"></select>
-
   <span id="targetTimeText"></span>
 </div>
 
 <canvas id="emagramCanvas" width="1200" height="600"></canvas>
 
 <script>
-/* =========================
-   既存変数（変更なし）
-========================= */
+/* ================= 共通設定 ================= */
 let chartInstance = null;
 let weatherData = null;
 const DISPLAY_MAX = 39;
 const STEP = 3;
-let currentStation = "44132"; // 東京固定（デフォルト）
-
+let currentStation = "44132"; // 東京（デフォルト）
 const corsProxy = "https://api.allorigins.win/raw?url=";
 
-const initTimeText = document.getElementById('initTimeText');
-const timeSelector = document.getElementById('timeSelector');
-const stationSelector = document.getElementById('stationSelector');
-const regionSelector = document.getElementById('regionSelector');
-const targetTimeText = document.getElementById('targetTimeText');
-const loadingDiv = document.getElementById('loading');
+const initTimeText = document.getElementById("initTimeText");
+const timeSelector = document.getElementById("timeSelector");
+const stationSelector = document.getElementById("stationSelector");
+const targetTimeText = document.getElementById("targetTimeText");
+const loadingDiv = document.getElementById("loading");
 
-/* =========================
-   初期時刻（変更なし）
-========================= */
-const pad = n => n.toString().padStart(2, '0');
+/* ================= 初期時刻 ================= */
+const pad = n => n.toString().padStart(2,"0");
 const initDateObj = new Date(Date.now() - 2.5 * 3600000);
-initDateObj.setUTCHours(Math.floor(initDateObj.getUTCHours() / 12) * 12, 0, 0, 0);
+initDateObj.setUTCHours(Math.floor(initDateObj.getUTCHours()/12)*12,0,0,0);
 
 const initTimeStr =
   `${initDateObj.getUTCFullYear()}${pad(initDateObj.getUTCMonth()+1)}${pad(initDateObj.getUTCDate())}${pad(initDateObj.getUTCHours())}0000`;
@@ -68,324 +72,146 @@ const initTimeStr =
 initTimeText.textContent =
   `初期値：${initDateObj.getUTCFullYear()}年${pad(initDateObj.getUTCMonth()+1)}月${pad(initDateObj.getUTCDate())}日${pad(initDateObj.getUTCHours())}UTC`;
 
-/* =========================
-   FT セレクタ（変更なし）
-========================= */
+/* ================= FT selector ================= */
 for (let v = 0; v <= DISPLAY_MAX; v += STEP) {
-  const o = document.createElement('option');
-  o.value = v;
-  o.textContent = v;
-  timeSelector.appendChild(o);
+  const opt = document.createElement("option");
+  opt.value = v;
+  opt.textContent = v;
+  timeSelector.appendChild(opt);
 }
 
-/* =========================
-   地域セレクタ（新規）
-========================= */
-const regions = {
-  "-1": "主要都市",
-  "0": "北海道",
-  "1": "東北",
-  "2": "関東甲信",
-  "3": "東海北陸",
-  "4": "近畿",
-  "5": "中国四国",
-  "6": "九州",
-  "7": "沖縄"
-};
+/* ================= 主要都市取得 ================= */
+async function loadStations() {
+  const url = corsProxy + encodeURIComponent(
+    "https://lab.weathermap.co.jp/GPV_point_api/v1/points.php?a=-1"
+  );
+  const stations = await fetch(url).then(r => r.json());
 
-for (const [k, v] of Object.entries(regions)) {
-  const o = document.createElement('option');
-  o.value = k;
-  o.textContent = v;
-  if (k === "-1") o.selected = true;
-  regionSelector.appendChild(o);
+  stationSelector.innerHTML = "";
+  for (const [code, name] of Object.entries(stations)) {
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = name;
+    if (code === currentStation) opt.selected = true;
+    stationSelector.appendChild(opt);
+  }
 }
 
-/* =========================
-   API（既存fetchを流用）
-========================= */
-async function fetchStations(region) {
-  const url = `https://lab.weathermap.co.jp/GPV_point_api/v1/points.php?a=${region}`;
-  const res = await fetch(corsProxy + encodeURIComponent(url));
-  return await res.json();
-}
-
+/* ================= データ取得 ================= */
 async function fetchWeatherData(stationCode) {
   const url = corsProxy + encodeURIComponent(
     `https://lab.weathermap.co.jp/GPV_point_api/v1/get.py?model=MSM&ini=${initTimeStr}&ftmax=78&amedas=${stationCode}`
   );
-  const res = await fetch(url);
-  return await res.json();
+  return await fetch(url).then(r => r.json());
 }
 
-/* =========================
-   地点更新（新規）
-========================= */
-async function updateStations(region) {
-  stationSelector.innerHTML = "";
-  const stations = await fetchStations(region);
-
-  for (const [code, name] of Object.entries(stations)) {
-    const o = document.createElement('option');
-    o.value = code;
-    o.textContent = name;
-    if (code === "44132") o.selected = true; // 東京
-    stationSelector.appendChild(o);
-  }
-  currentStation = stationSelector.value;
-  await initializeAndPlot(parseInt(timeSelector.value));
+/* ================= 計算 ================= */
+function calculatePotentialTemperature(T, p) {
+  return T * Math.pow(1000 / p, 0.2854);
 }
 
-    async function plotEmagram(displayTime) {
-      loadingDiv.style.display = 'block';
-      const timeIndex = displayTime / 3;
-      updateTargetTimeText(displayTime);
+function calculateEquivalentPotentialTemperature(T, p, rh) {
+  const Tc = T - 273.15;
+  const es = 6.112 * Math.exp(17.67 * Tc / (Tc + 243.5));
+  const e = es * rh / 100;
+  const ln = Math.log(e / 6.112);
+  const Td = (243.5 * ln) / (17.67 - ln) + 273.15;
+  const w = 0.622 * e / (p - e);
+  const TLCL = 1 / (1 / (Td - 56) + Math.log(T / Td) / 800) + 56;
+  return T * Math.pow(1000 / p, 0.2854) *
+         Math.exp((3376 / TLCL - 2.54) * w * (1 + 0.81 * w));
+}
 
-      const levels = Object.keys(weatherData)
-        .filter(k => !isNaN(k) && parseInt(k) >= 300)
-        .sort((a, b) => b - a);
+/* ================= 描画 ================= */
+function updateTargetTimeText(ft) {
+  const t = new Date(initDateObj.getTime() + ft * 3600000);
+  targetTimeText.textContent =
+    `対象時刻：${t.getFullYear()}年${pad(t.getMonth()+1)}月${pad(t.getDate())}日${pad(t.getHours())}JST`;
+}
 
-      const thetaPoints = [], thetaEPoints = [], satuationthetaEPoints = [];
-      const tempKMap = {}; // 気温を保存（気圧基準）
+async function plotEmagram(displayTime) {
+  loadingDiv.style.display = "block";
+  const idx = displayTime / 3;
+  updateTargetTimeText(displayTime);
 
-      let thetaE950 = null;
-      let lfcPoint = null, elPoint = null;
-      let prevThetaE = null, prevSaturationThetaE = null, prevHeight = null, prevPressure = null;
-      let prevTempK = null;
+  const levels = Object.keys(weatherData)
+    .filter(k => !isNaN(k) && k >= 300)
+    .sort((a, b) => b - a);
 
-      for (const level of levels) {
-        const levelData = weatherData[level];
-        const tempK = levelData?.TMP?.[timeIndex];
-        const rh = levelData?.RH?.[timeIndex];
-        const height = levelData?.HGT?.[timeIndex];
-        const pressure = parseInt(level);
+  const th = [], the = [], thes = [];
 
-        if ([tempK, rh, height].every(v => typeof v === 'number' && isFinite(v))) {
-          const theta = calculatePotentialTemperature(tempK, pressure);
-          const thetaE = calculateEquivalentPotentialTemperature(tempK, pressure, rh);
-          const satuationthetaE = calculateEquivalentPotentialTemperature(tempK, pressure, 100);
-
-          tempKMap[pressure] = tempK;
-
-          thetaPoints.push({ x: theta, y: pressure, tempK, height });
-          thetaEPoints.push({ x: thetaE, y: pressure, height });
-          satuationthetaEPoints.push({ x: satuationthetaE, y: pressure, height });
-
-          if (pressure === 950) thetaE950 = thetaE;
-
-          // LFC/EL 判定：θₑ と θₑ* の交差検出
-          if (prevThetaE !== null && prevSatuationThetaE !== null) {
-            const diffCurr = thetaE950 - satuationthetaE;
-            const diffPrev = thetaE950 - prevSatuationThetaE;
-            if (isFinite(diffCurr) && isFinite(diffPrev) && diffCurr * diffPrev < 0 && pressure <= 925) {
-              // 線形補間
-              const frac = Math.abs(diffPrev) / (Math.abs(diffPrev) + Math.abs(diffCurr));
-              const crossX = prevSatuationThetaE + frac * (satuationthetaE - prevSatuationThetaE);
-              const crossY = prevPressure + frac * (pressure - prevPressure);
-              const crossHeight = prevHeight + frac * (height - prevHeight);
-                const tempKInterp = (prevTempK !== undefined && tempK !== undefined)
-                  ? prevTempK + frac * (tempK - prevTempK)
-                  : undefined;
-              const newPoint = {
-                x: crossX,
-                y: crossY,
-                height: crossHeight,
-                tempK: tempKInterp
-              };
-              if (!lfcPoint) lfcPoint = { x: crossX, y: crossY, height: crossHeight, tempK: tempKInterp};
-              else if (!elPoint) elPoint = { x: crossX, y: crossY, height: crossHeight, tempK: tempKInterp};
-            }
-          }
-          prevThetaE = thetaE;
-          prevSatuationThetaE = satuationthetaE;
-          prevHeight = height;
-          prevPressure = pressure;
-          prevTempK = tempK;
-          console.log(prevTempK);
-        }
-      }
-
-      // K-index, TotalTotalsの計算
-      const T850 = weatherData["850"]?.TMP?.[timeIndex];
-      const T700 = weatherData["700"]?.TMP?.[timeIndex];
-      const T500 = weatherData["500"]?.TMP?.[timeIndex];
-      const RH850 = weatherData["850"]?.RH?.[timeIndex];
-      const RH700 = weatherData["700"]?.RH?.[timeIndex];
-
-      const Td = (T, rh) => {
-        const tempC = T - 273.15;
-        const es = 6.112 * Math.exp((17.67 * tempC) / (tempC + 243.5));
-        const e = rh / 100 * es;
-        const lnRatio = Math.log(e / 6.112);
-        return (243.5 * lnRatio) / (17.67 - lnRatio);
-      };
-      const Td850 = Td(T850, RH850);
-      const Td700 = Td(T700, RH700);
-      const K = T850 + Td850 - T500 - (T700 - Td700) + 273.15;
-      const TT = T850 + Td850 - 2 * T500 + 273.15;
-      targetTimeText.textContent += `  K-Index=${K.toFixed(1)}  TotalTotals=${TT.toFixed(1)}  T500=${(T500 - 273.15).toFixed(1)}`;
-
-      const ctx = document.getElementById('emagramCanvas').getContext('2d');
-      if (chartInstance) chartInstance.destroy();
-
-chartInstance = new Chart(ctx, {
-  type: 'scatter',
-  data: {
-    datasets: [
-      {
-        label: '温位 (θ)',
-        data: thetaPoints,
-        borderColor: 'red',
-        backgroundColor: 'rgba(255,0,0,0.4)',
-        showLine: true,
-        pointRadius: 4,
-        parsing: {
-          xAxisKey: 'x',
-          yAxisKey: 'y'
-        }
-      },
-      {
-        label: '相当温位 (θₑ)',
-        data: thetaEPoints,
-        borderColor: 'blue',
-        backgroundColor: 'rgba(0,0,255,0.4)',
-        showLine: true,
-        pointRadius: 4,
-        parsing: {
-          xAxisKey: 'x',
-          yAxisKey: 'y'
-        }
-      },
-      {
-        label: '飽和相当温位 (θₑ*)',
-        data: satuationthetaEPoints,
-        borderColor: 'green',
-        backgroundColor: 'rgba(0,255,0,0.4)',
-        showLine: true,
-        pointRadius: 4,
-        parsing: {
-          xAxisKey: 'x',
-          yAxisKey: 'y'
-        }
-      },
-      {
-        label: 'θₑ(950hPa)',
-        data: [{ x: thetaE950, y: 950 }, { x: thetaE950, y: 100 }],
-        borderColor: 'black',
-        borderWidth: 2,
-        showLine: true,
-        pointRadius: 0,
-        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-      },
-      {
-        label: 'LFC',
-        data: [lfcPoint],
-        backgroundColor: 'orange',
-        borderColor: 'orange',
-        pointRadius: 8,
-        showLine: false,
-        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-      },
-      {
-        label: 'EL',
-        data: [elPoint],
-        backgroundColor: 'red',
-        borderColor: 'red',
-        pointRadius: 8,
-        showLine: false,
-        parsing: { xAxisKey: 'x', yAxisKey: 'y' }
-      }
-    ]
-  },
-  options: {
-    responsive: false,
-    animation: false,
-    scales: {
-      x: {
-        title: { display: true, text: '温位 (K)' },
-        min: 240,
-        max: 400
-      },
-      y: {
-        type: 'logarithmic',
-        title: { display: true, text: '気圧 (hPa)' },
-        reverse: true,
-        min: 290,
-        max: 1000,
-        ticks: {
-          callback: function (value) {
-            const shownTicks = [1000, 900, 800, 700, 600, 500, 400, 300];
-            return shownTicks.includes(value) ? value + ' hPa' : '';
-          }
-        }
-      }
-    },
-    interaction: {
-      mode: 'nearest',
-      intersect: true
-    },
-    plugins: {
-      tooltip: {
-        callbacks: {
-          label: function (context) {
-            const datasetLabel = context.dataset.label || '';
-            const data = context.raw;
-            if (!data) return '';
-
-            const height = data.height !== undefined ? data.height.toFixed(0) : 'N/A';
-
-            if (datasetLabel == '温位 (θ)') {
-              const tempC = (data.tempK !== undefined) ? (data.tempK - 273.15).toFixed(1) : 'N/A';
-              return `高度 ${height} m, 気温 ${tempC}℃`;
-            } else if (datasetLabel.includes('相当温位') && !datasetLabel.includes('飽和')) {
-              return `θₑ ${data.x.toFixed(1)} K`;
-            } else if (datasetLabel.includes('飽和相当温位')) {
-              return `θₑ* ${data.x.toFixed(1)} K`;
-            } else if (datasetLabel === 'LFC' || datasetLabel === 'EL') {
-              const tempC = (data.tempK !== undefined) ? (data.tempK - 273.15).toFixed(1) : 'N/A';
-              return `高度=${height} m, 気温=${tempC}℃`;
-            }
-            return '';
-          }
-        }
-      }
+  for (const p of levels) {
+    const d = weatherData[p];
+    const T = d?.TMP?.[idx];
+    const rh = d?.RH?.[idx];
+    if (typeof T === "number" && typeof rh === "number") {
+      th.push({ x: calculatePotentialTemperature(T, p), y: p });
+      the.push({ x: calculateEquivalentPotentialTemperature(T, p, rh), y: p });
+      thes.push({ x: calculateEquivalentPotentialTemperature(T, p, 100), y: p });
     }
   }
-});
 
-      loadingDiv.style.display = 'none';
-    }
+  const ctx = document.getElementById("emagramCanvas").getContext("2d");
+  if (chartInstance) chartInstance.destroy();
 
-    async function initializeAndPlot(displayTime) {
-      loadingDiv.style.display = 'block';
-      if (chartInstance) {
-        chartInstance.destroy();
-        chartInstance = null;
+  chartInstance = new Chart(ctx, {
+    type: "scatter",
+    data: {
+      datasets: [
+        { label: "温位 (θ)", data: th, showLine: true, borderColor: "red" },
+        { label: "相当温位 (θₑ)", data: the, showLine: true, borderColor: "blue" },
+        { label: "飽和相当温位 (θₑ*)", data: thes, showLine: true, borderColor: "green" }
+      ]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        x: {
+          min: 240,
+          max: 400,
+          title: { display: true, text: "温位 (K)" }
+        },
+        y: {
+          type: "logarithmic",
+          reverse: true,
+          min: 300,
+          max: 1000,
+          ticks: {
+            callback: v =>
+              [1000,900,800,700,600,500,400,300].includes(v) ? v + " hPa" : ""
+          }
+        }
       }
-      await new Promise(resolve => setTimeout(resolve, 100));
-      weatherData = await fetchWeatherData(currentStation);
-      await plotEmagram(displayTime);
     }
+  });
 
-/* =========================
-   初期化
-========================= */
-initializeAndPlot(0);
-updateStations(-1);
+  loadingDiv.style.display = "none";
+}
 
-regionSelector.addEventListener('change', e => {
-  updateStations(e.target.value);
-});
+/* ================= 初期化 ================= */
+async function initializeAndPlot(ft) {
+  loadingDiv.style.display = "block";
+  weatherData = await fetchWeatherData(currentStation);
+  await plotEmagram(ft);
+}
 
-stationSelector.addEventListener('change', async () => {
+stationSelector.addEventListener("change", async () => {
   currentStation = stationSelector.value;
   targetTimeText.textContent = "";
   await initializeAndPlot(parseInt(timeSelector.value));
 });
 
-timeSelector.addEventListener('change', () => {
+timeSelector.addEventListener("change", () => {
   plotEmagram(parseInt(timeSelector.value));
 });
+
+/* ================= 実行 ================= */
+(async () => {
+  await loadStations();
+  await initializeAndPlot(0);
+})();
 </script>
+
 </body>
 </html>
