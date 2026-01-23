@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>風向＋波高 統合マップ</title>
+<title>風向＋波高 統合マップ（NaN除外）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
@@ -39,9 +39,9 @@ html, body { margin:0; height:100%; }
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* =========================
-   Map
-========================= */
+// =====================
+// Map
+// =====================
 const map = L.map("map").setView([36,138],5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution:"© OpenStreetMap"
@@ -49,9 +49,9 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 const proxy = "https://corsproxy.io/?";
 
-/* =========================
-   Layer Groups
-========================= */
+// =====================
+// Layers
+// =====================
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
@@ -60,9 +60,9 @@ L.control.layers(null,{
   "波高": waveLayer
 }).addTo(map);
 
-/* =========================
-   Utility
-========================= */
+// =====================
+// Utils
+// =====================
 const getArrowColor = s =>
   s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
 
@@ -73,18 +73,19 @@ const getWaveColor = h =>
   h<2.0?"gold":
   h<3.0?"darkorange":"orangered";
 
-const windDirText = dir => ({
+const windDirText = d => ({
   "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
   "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
   "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
   "東":270,"東南東":292.5,"南東":315,"南南東":337.5
-}[dir] ?? null);
+}[d] ?? null);
 
-const windDir16 = d => d>=0&&d<=16 ? d*22.5+180 : null;
+const windDir16 = d =>
+  Number.isFinite(d) ? d * 22.5 + 180 : null;
 
-/* =========================
-   Icons
-========================= */
+// =====================
+// Icons
+// =====================
 const makeWindIcon = (angle,speed,color)=>L.divIcon({
   className:"",
   iconSize:[48,48],
@@ -101,11 +102,11 @@ const makeWindIcon = (angle,speed,color)=>L.divIcon({
   </div>`
 });
 
-/* =========================
-   ① 海上保安庁（風＋波）
-========================= */
+// =====================
+// ① 海上保安庁（風＋波）
+// =====================
 async function fetchKaiho(){
-  const url = proxy+encodeURIComponent(
+  const url = proxy + encodeURIComponent(
     "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
     "?lon=135&lat=35&stlon=120&stlat=20&edlon=150&edlat=50"
   );
@@ -115,37 +116,41 @@ async function fetchKaiho(){
     if(!e.shp) return;
     const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
     if(!m) return;
-    const lon=+m[1], lat=+m[2];
 
-    // --- wind ---
-    const angle=windDirText(e.fuukou);
-    const speed=parseFloat(e.fuusoku);
-    if(angle!=null && !isNaN(speed)){
+    const lon=Number(m[1]);
+    const lat=Number(m[2]);
+
+    // ---- wind ----
+    const angle = windDirText(e.fuukou);
+    const speed = Number(e.fuusoku);
+
+    if (angle !== null && Number.isFinite(speed)) {
       L.marker([lat,lon],{
-        icon:makeWindIcon(angle,speed,getArrowColor(speed))
+        icon:makeWindIcon(angle, speed, getArrowColor(speed))
       }).addTo(windLayer)
-       .bindPopup(`${e.kansokujo_mei}<br>風 ${speed} m/s`);
+       .bindPopup(`${e.kansokujo_mei}<br>風速 ${speed} m/s`);
     }
 
-    // --- wave ---
-    if(e.hakou){
-      const h=parseFloat(e.hakou);
-      if(!isNaN(h)){
-        L.circleMarker([lat,lon],{
-          radius:8,color:getWaveColor(h),
-          fillColor:getWaveColor(h),fillOpacity:0.8
-        }).addTo(waveLayer)
-         .bindTooltip(`${e.kansokujo_mei}<br>${h.toFixed(2)} m`);
-      }
+    // ---- wave ----
+    const h = Number(e.hakou);
+    if (Number.isFinite(h)) {
+      L.circleMarker([lat,lon],{
+        radius:8,
+        color:getWaveColor(h),
+        fillColor:getWaveColor(h),
+        fillOpacity:0.8
+      }).addTo(waveLayer)
+       .bindTooltip(`${e.kansokujo_mei}<br>${h.toFixed(2)} m`);
     }
   });
 }
 
-/* =========================
-   ② AMeDAS（風）
-========================= */
+// =====================
+// ② AMeDAS（風）
+// =====================
 function getAmedasTime(){
-  const d=new Date(); d.setMinutes(d.getMinutes()-10);
+  const d=new Date();
+  d.setMinutes(d.getMinutes()-10);
   d.setMinutes(Math.floor(d.getMinutes()/10)*10);
   const p=n=>n.toString().padStart(2,"0");
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+
@@ -160,53 +165,73 @@ async function fetchAmedas(){
   ]);
 
   Object.keys(data).forEach(c=>{
-    const o=data[c], m=meta[c];
-    if(!m||!o.wind) return;
-    const s=o.wind[0], d=o.windDirection[0];
-    if(s<10) return;
-    const a=windDir16(d);
-    if(a==null) return;
+    const o=data[c];
+    const m=meta[c];
+    if(!m) return;
+
+    const speed = Number(o.wind?.[0]);
+    const dir   = Number(o.windDirection?.[0]);
+
+    if (!Number.isFinite(speed) || !Number.isFinite(dir)) return;
+    if (speed < 10) return;
+
+    const angle = windDir16(dir);
+    if (angle === null) return;
+
     const lat=m.lat[0]+m.lat[1]/60;
     const lon=m.lon[0]+m.lon[1]/60;
+
     L.marker([lat,lon],{
-      icon:makeWindIcon(a,s.toFixed(1),getArrowColor(s))
+      icon:makeWindIcon(angle, speed.toFixed(1), getArrowColor(speed))
     }).addTo(windLayer)
-     .bindPopup(`${m.kjName}<br>${s} m/s`);
+     .bindPopup(`${m.kjName}<br>${speed} m/s`);
   });
 }
 
-/* =========================
-   ③ NOAA 船舶（風＋波）
-========================= */
+// =====================
+// ③ NOAA 船舶（風＋波）
+// =====================
 async function fetchNOAA(){
   const txt = await fetch(
-    proxy+encodeURIComponent("https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2")
+    proxy + encodeURIComponent(
+      "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
+    )
   ).then(r=>r.text());
 
   (txt.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
-    const p=s.replace(/<[^>]+>/g,"").split(/\s+/);
+    const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
     if(p.length<8) return;
-    const lat=+p[2], lon=+p[3];
-    const wdir=+p[4], wspd=+p[5], wv=+p[7]*0.3048;
-    if(isNaN(lat)||isNaN(lon)) return;
 
-    L.marker([lat,lon],{
-      icon:makeWindIcon(wdir,wspd.toFixed(1),getArrowColor(wspd))
-    }).addTo(windLayer);
+    const lat  = Number(p[2]);
+    const lon  = Number(p[3]);
+    const wdir = Number(p[4]);
+    const wspd = Number(p[5]);
+    const wv   = Number(p[7]) * 0.3048;
 
-    if(!isNaN(wv)){
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)) return;
+    if (lon < 90 || lon > 180 || lat < 15 || lat > 60) return;
+    
+    if (Number.isFinite(wdir) && Number.isFinite(wspd)) {
+      L.marker([lat,lon],{
+        icon:makeWindIcon(wdir, wspd.toFixed(1), getArrowColor(wspd))
+      }).addTo(windLayer);
+    }
+
+    if (Number.isFinite(wv)) {
       L.circleMarker([lat,lon],{
-        radius:7,color:getWaveColor(wv),
-        fillColor:getWaveColor(wv),fillOpacity:0.7
+        radius:7,
+        color:getWaveColor(wv),
+        fillColor:getWaveColor(wv),
+        fillOpacity:0.7
       }).addTo(waveLayer)
        .bindTooltip(`Ship<br>${wv.toFixed(2)} m`);
     }
   });
 }
 
-/* =========================
-   Init
-========================= */
+// =====================
+// Init
+// =====================
 (async()=>{
   await Promise.all([
     fetchKaiho(),
