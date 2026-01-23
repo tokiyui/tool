@@ -143,6 +143,7 @@ async function fetchAll() {
       if(!m) return;
       const s=o.wind?.[0], d=o.windDirection?.[0];
       if(s==null||d==null) return;
+      if(s < 10) return;
       const txt = windDirText16(d);
       const ang = windDir16ToAngle(d);
       if(ang===null||!txt) return;
