@@ -2,132 +2,94 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>最新NCファイル取得デバッグ（SWH L3 NRT PT1S）</title>
+<title>PyScript CMEMS 最新NC取得</title>
 
-<!-- PyScript最新バージョン -->
-<link rel="stylesheet" href="https://pyscript.net/releases/2025.10.1/core.css">
+<link rel="stylesheet" href="https://pyscript.net/releases/2025.10.1/core.css" />
 <script type="module" src="https://pyscript.net/releases/2025.10.1/core.js"></script>
 
 <style>
 body { font-family: sans-serif; padding: 20px; }
-#status { margin-top: 5px; white-space: pre-wrap; font-family: monospace; }
-button { margin-top: 10px; padding: 6px 12px; }
+#status { white-space: pre-wrap; font-family: monospace; margin-top: 10px; }
+button { padding: 6px 12px; margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h2>最新NCファイル取得デバッグ（cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S）</h2>
+<h2>PyScriptでCMEMS APIから最新NC取得</h2>
 
-<button id="fetchBtn">JSで最新ファイル取得</button>
+<div>
+  <label>Username: <input id="username" type="text"></label><br>
+  <label>Password: <input id="password" type="password"></label><br>
+  <button id="fetchBtn">最新NC取得</button>
+</div>
+
 <div id="status"></div>
 
-<script>
-// CORS回避用プロキシ（ファイル取得用）
-const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-
-// BASE URL（ディレクトリ・サブdataset）
-const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211%2F";
-
-function getLatestTime() {
-    const now = new Date();
-    const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-    const minus6 = new Date(utcNow.getTime() - 6*60*60*1000);
-    const hour = Math.floor(minus6.getUTCHours()/3)*3;
-    const latest = new Date(Date.UTC(minus6.getUTCFullYear(), minus6.getUTCMonth(), minus6.getUTCDate(), hour));
-    const y = latest.getUTCFullYear();
-    const m = String(latest.getUTCMonth()+1).padStart(2,'0');
-    const d = String(latest.getUTCDate()).padStart(2,'0');
-    const H = String(latest.getUTCHours()).padStart(2,'0');
-    return { YYYYMMDDTHHMMSS: `${y}${m}${d}T${H}0000`, y, m, d };
-}
-
-async function fetchLatestNC() {
-    const t = getLatestTime();
-
-    // ===== ① ディレクトリHTML取得はプロキシなし =====
-    const dirUrl = `${BASE}${t.y}%2F${t.m}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
-    const status = document.getElementById("status");
-    status.innerText = `[JS] ディレクトリURL: ${dirUrl}\n取得中（プロキシなし）...`;
-
-    try {
-        const resp = await fetch(dirUrl);
-        status.innerText += `\n[JS] HTTP status: ${resp.status}`;
-        const html = await resp.text();
-        status.innerText += `\nHTML length: ${html.length}`;
-        status.innerText += `\n先頭1000文字:\n${html.slice(0,1000)}`;
-
-        // ===== ファイル名正規表現（寛容化） =====
-        const regex = new RegExp(`cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211_${t.YYYYMMDDTHHMMSS}_[^<"\\s]+\\.nc`, "g");
-        const matches = html.match(regex);
-        status.innerText += `\nMatches: ${matches ? matches.length : 0}`;
-        if (!matches || !matches.length) throw new Error("ファイルが見つかりません");
-
-        const latestFile = matches[0];
-        status.innerText += `\n最新ファイル: ${latestFile}\n取得中（プロキシ経由）...`;
-
-        // ===== ② ファイル取得はプロキシ使用 =====
-        const fileUrl = `${PROXY}${BASE}${t.y}%2F${t.m}%2F${latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
-        const fileResp = await fetch(fileUrl);
-        status.innerText += `\nFile HTTP status: ${fileResp.status}`;
-        if (!fileResp.ok) throw new Error(`HTTP error ${fileResp.status}`);
-        const blob = await fileResp.blob();
-        status.innerText += `\nFile size: ${blob.size} bytes`;
-
-    } catch (err) {
-        status.innerText += `\nError: ${err}`;
-    }
-}
-
-document.getElementById("fetchBtn").addEventListener("click", fetchLatestNC);
-</script>
-
 <script type="py">
-import asyncio, datetime, re
-from pyodide.http import pyfetch
+import asyncio
+import datetime
 from pyscript import display
+import micropip
 
-PROXY = "https://worker.ryohorita105.workers.dev/?url="
-BASE  = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211%2F"
-
-async def fetch_nc_py():
+async def fetch_latest_nc(username: str, password: str):
     out = ""
-    now = datetime.datetime.utcnow()
-    minus6 = now - datetime.timedelta(hours=6)
-    hour = (minus6.hour // 3) * 3
-    latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
-    key = latest.strftime("%Y%m%dT%H0000")
-
-    # ===== ① ディレクトリHTML取得はプロキシなし =====
-    dirUrl = f"{BASE}{latest.year:04d}%2F{latest.month:02d}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
-    out += f"[PyScript] Dir URL: {dirUrl}\n"
-
     try:
-        resp = await pyfetch(dirUrl)  # プロキシなし
-        out += f"[PyScript] Dir HTTP: {resp.status}\n"
-        html = await resp.string()
-        out += f"[PyScript] HTML length: {len(html)}\n"
-        out += f"[DEBUG] HTML先頭1000文字:\n{html[:1000]}"
+        out += "PyScript: motuclientをインストール中...\n"
+        await micropip.install("motuclient")
+        from motuclient import MotuClient
 
-        regex = re.compile(f"cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211_{key}_[^<\"'\\s]+\\.nc")
-        matches = regex.findall(html)
-        out += f"\n[PyScript] Matches: {len(matches)}"
-        if not matches:
-            raise RuntimeError("ファイルが見つかりません")
+        # 最新時刻計算 (UTC-6h, 3時間単位)
+        now = datetime.datetime.utcnow()
+        minus6 = now - datetime.timedelta(hours=6)
+        hour = (minus6.hour // 3) * 3
+        latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
 
-        latestFile = matches[0]
-        out += f"\n[PyScript] File: {latestFile}"
+        start_time = latest.strftime("%Y-%m-%d %H:%M:%S")
+        end_time   = (latest + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        output_file = f"global_vavh_l3_rt_j3_{latest.strftime('%Y%m%dT%H%M%S')}.nc"
 
-        # ===== ② ファイル取得はプロキシ使用 =====
-        fileUrl = f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F{latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
-        fileResp = await pyfetch(fileUrl)
-        out += f"\n[PyScript] File HTTP: {fileResp.status}"
-        data = await fileResp.bytes()
-        out += f"\n[PyScript] File size: {len(data)} bytes"
+        out += f"取得範囲: {start_time} ～ {end_time}\n"
+        out += f"出力ファイル名: {output_file}\n"
+
+        # MOTU Client 設定
+        motu = MotuClient(
+            service_id='WAVE_GLO_PHY_SWH_L3_NRT_014_001',
+            product_id='cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211',
+            date_min=start_time,
+            date_max=end_time,
+            depth_min='0.0',
+            depth_max='0.0',
+            longitude_min='-180',
+            longitude_max='180',
+            latitude_min='-90',
+            latitude_max='90',
+            variable=['swh'],
+            out_dir='.',
+            out_name=output_file,
+            user=username,
+            pwd=password,
+            format='netcdf'
+        )
+
+        out += "PyScript: データ取得開始...\n"
+        motu.download()
+        out += f"取得完了: {output_file}\n"
 
     except Exception as e:
-        out += f"\n[PyScript] Error: {e}"
+        out += f"エラー: {e}"
 
     display(out, target="status", append=True)
+
+# ボタンイベント設定
+from js import document
+import pyodide
+
+def on_click(e):
+    username = document.getElementById("username").value
+    password = document.getElementById("password").value
+    asyncio.ensure_future(fetch_latest_nc(username, password))
+
+document.getElementById("fetchBtn").addEventListener("click", pyodide.ffi.create_proxy(on_click))
 </script>
 
 </body>
