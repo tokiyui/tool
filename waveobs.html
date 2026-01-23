@@ -35,38 +35,6 @@
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
-    // --- Copernicus WMTS ---
-    const datasetList = ['cfo','c2','h2b','h2c','j3','al','s3a','s3b','s6a','swon'];
-    const now = new Date();
-    now.setUTCHours(now.getUTCHours() - 3);
-    const flooredHours = Math.floor(now.getUTCHours() / 6) * 6;
-    now.setUTCHours(flooredHours, 0, 0, 0);
-    const time = now.toISOString();
-
-    const tiles = [
-      {tileMatrix: 4, row: 6, col: 13, bounds: [[21.943,112.5],[40.979,135]]},
-      {tileMatrix: 4, row: 5, col: 13, bounds: [[40.979,112.5],[55.776,135]]},
-      {tileMatrix: 4, row: 6, col: 14, bounds: [[21.943,135],[40.979,157.5]]},
-      {tileMatrix: 4, row: 5, col: 14, bounds: [[40.979,135],[55.776,157.5]]}
-    ];
-
-    tiles.forEach(tile => {
-      datasetList.forEach(datasetId => {
-        const wmtsUrl =
-          `https://wmts.marine.copernicus.eu/teroWmts/` +
-          `?service=WMTS&version=1.0.0&request=GetTile` +
-          `&layer=WAVE_GLO_PHY_SWH_L3_NRT_014_001/` +
-          `cmems_obs-wave_glo_phy-swh_nrt_${datasetId}-l3_PT1S_202211/VAVH` +
-          `&tilematrixset=EPSG:3857@3x` +
-          `&tilematrix=${tile.tileMatrix}&tilerow=${tile.row}&tilecol=${tile.col}` +
-          `&time=${time}&style=cmap:rainbow,range:0.0/3.0`;
-
-        const img = new Image();
-        img.onload = () => L.imageOverlay(wmtsUrl, tile.bounds, { opacity: 0.5 }).addTo(map);
-        img.src = wmtsUrl;
-      });
-    });
-
     const proxy = "https://worker.ryohorita105.workers.dev/?url=";
     const setupURL = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml");
     const dataURL  = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/mapxml/DataMap.xml");
