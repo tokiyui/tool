@@ -2,32 +2,36 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>風向SVGマップ（海保＋AMeDAS）</title>
+<title>波高＋風向 統合マップ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <link rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-html, body {
-  margin: 0;
-  height: 100%;
-}
-#map {
-  height: 100vh;
-}
+html, body { margin:0; height:100%; }
+#map { height:100vh; width:100vw; }
 
-.wind-speed-label {
-  font-size: 18px;
-  font-weight: bold;
-  color: black;
-  text-shadow: 1px 1px 2px white;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: 1000;
+.wind-speed {
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  font-size:16px;
+  font-weight:bold;
+  color:black;
+  text-shadow:1px 1px 2px white;
+  pointer-events:none;
+}
+.legend {
+  background:white;
+  padding:6px 8px;
+  font-size:13px;
+}
+.legend i {
+  width:18px;
+  height:18px;
+  float:left;
+  margin-right:6px;
 }
 </style>
 </head>
@@ -37,203 +41,164 @@ html, body {
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// ======================================
+// ===================================================
 // 地図
-// ======================================
-const map = L.map('map').setView([42.0, 143.0], 6);
+// ===================================================
+const map = L.map("map").setView([36,138],5);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  attribution:"&copy; OpenStreetMap"
 }).addTo(map);
 
-// ======================================
-// 風速→色
-// ======================================
-const getArrowColor = (speed) => {
-  if (speed >= 20) return "red";
-  if (speed >= 15) return "orange";
-  if (speed >= 10) return "yellow";
-  return "blue";
-};
+const waveLayer = L.layerGroup().addTo(map);
+const windLayer = L.layerGroup().addTo(map);
 
-// ======================================
-// 風向変換
-// ======================================
-const windDirToAngleText = (dir) => ({
-  "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
-  "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
-  "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
-  "東":270,"東南東":292.5,"南東":315,"南南東":337.5
-}[dir] ?? null);
-
-const windDir16ToAngle = (dir) =>
-  (dir >= 0 && dir <= 16) ? dir * 22.5 + 180: null;
-
-// ======================================
-// AMeDAS 時刻
-// ======================================
-const getAmedasTimeString = () => {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - 10);
-  d.setMinutes(Math.floor(d.getMinutes() / 10) * 10);
-  d.setSeconds(0);
-
-  const p = n => n.toString().padStart(2, "0");
-  return (
-    d.getFullYear() +
-    p(d.getMonth() + 1) +
-    p(d.getDate()) +
-    p(d.getHours()) +
-    p(d.getMinutes()) +
-    "00"
-  );
-};
-
-// ======================================
-// SVGアイコン生成
-// ======================================
-const makeWindIcon = (angle, speed, color) => {
-  return L.divIcon({
-    className: '',
-    html: `
-      <div style="position:relative;width:48px;height:48px;">
-        <svg width="48" height="48" viewBox="0 0 48 48"
-             style="transform:rotate(${angle}deg);
-                    position:absolute;top:0;left:0;">
-          <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
-          <line x1="24" y1="2" x2="24" y2="28"
-                stroke="${color}" stroke-width="2"/>
-        </svg>
-        <div class="wind-speed-label">${speed}</div>
-      </div>
-    `,
-    iconSize: [48,48],
-    iconAnchor: [24,24]
-  });
-};
-
-// ======================================
-// ① 海保（灯台）【★修正箇所はここだけ】
-// ======================================
+// ===================================================
+// 共通
+// ===================================================
 const proxy = "https://corsproxy.io/?";
-const kaihoUrl =
-  "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute" +
-  "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50&f=json";
 
-fetch(proxy + encodeURIComponent(kaihoUrl))
-  .then(r => r.text())
-  .then(txt => {
-    if (!txt.trim().startsWith("{")) return;
-    const data = JSON.parse(txt);
+const getColor = h =>
+  h<0.5?"dodgerblue":
+  h<1.0?"limegreen":
+  h<1.5?"greenyellow":
+  h<2.0?"gold":
+  h<3.0?"darkorange":"orangered";
 
-    (data.features ?? data).forEach(e => {
-      if (!e.shp) return;
+const getArrowColor = s =>
+  s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
 
-      const m = e.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
-      if (!m) return;
+const windDirText = d => ({
+ "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
+ "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
+ "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
+ "東":270,"東南東":292.5,"南東":315,"南南東":337.5
+}[d] ?? null);
 
-      const lon = +m[1];
-      const lat = +m[2];
-
-      const angle = windDirToAngleText(e.fuukou);
-      const speed = parseFloat(e.fuusoku);
-      if (angle === null || isNaN(speed)) return;
-
-      const icon = makeWindIcon(
-        angle,
-        speed,
-        getArrowColor(speed)
-      );
-
-      L.marker([lat, lon], { icon }).addTo(map)
-        .bindPopup(`
-          <a href="${e.url}" target="_blank">
-            ${e.kansokujo_mei}
-          </a><br>
-          風向: ${e.fuukou}<br>
-          風速: ${e.fuusoku}<br>
-          観測日時: ${e.kansoku_date}
-        `);
-    });
-  });
-
-// ======================================
-// ② AMeDAS（10m/s以上）
-// ======================================
-const timeStr = getAmedasTimeString();
-
-Promise.all([
-  fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${timeStr}.json`)
-    .then(r => r.json()),
-  fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
-    .then(r => r.json())
-]).then(([amedas, table]) => {
-
-  Object.keys(amedas).forEach(code => {
-    const obs = amedas[code];
-    const meta = table[code];
-    if (!meta) return;
-
-    const speed = obs.wind?.[0];
-    const dir = obs.windDirection?.[0];
-    if (speed == null || dir == null || speed < 10) return;
-
-    const angle = windDir16ToAngle(dir);
-    if (angle === null) return;
-
-    const lat = meta.lat[0] + meta.lat[1] / 60;
-    const lon = meta.lon[0] + meta.lon[1] / 60;
-
-    const icon = makeWindIcon(
-      angle,
-      speed.toFixed(1),
-      getArrowColor(speed)
-    );
-
-    L.marker([lat, lon], { icon }).addTo(map);
-  });
+const makeWindIcon = (angle,speed,color)=>L.divIcon({
+ className:"",
+ html:`
+ <div style="position:relative;width:48px;height:48px">
+  <svg width="48" height="48"
+   style="transform:rotate(${angle}deg)">
+   <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
+   <line x1="24" y1="2" x2="24" y2="28"
+    stroke="${color}" stroke-width="2"/>
+  </svg>
+  <div class="wind-speed">${speed}</div>
+ </div>`,
+ iconSize:[48,48],
+ iconAnchor:[24,24]
 });
 
-// ======================================
-// ③ NOAA 船舶
-// ======================================
-const ndbcUrl =
-  "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2";
+// ===================================================
+// 安全 fetch（JSON崩壊対策）
+// ===================================================
+async function safeFetchJSON(url){
+  const r = await fetch(url);
+  const t = await r.text();
+  if(!t || t.length<5) return null;
+  try { return JSON.parse(t); }
+  catch { return null; }
+}
 
-fetch(proxy + encodeURIComponent(ndbcUrl))
-  .then(r => r.text())
-  .then(text => {
+// ===================================================
+// ① 海上保安庁（波高＋風向）【1回取得】
+// ===================================================
+(async()=>{
+  const url =
+   "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
+   "?stlon=120&stlat=20&edlon=150&edlat=50";
 
-    const lines = text
-      .split("\n")
-      .filter(l => l.startsWith("<span>SHIP"));
+  const data = await safeFetchJSON(
+    proxy+encodeURIComponent(url)
+  );
+  if(!Array.isArray(data)) return;
 
-    lines.forEach(line => {
-      const clean = line.replace(/<[^>]+>/g, "").trim();
-      const cols = clean.split(/\s+/);
-      if (cols.length < 6) return;
+  data.forEach(e=>{
+    if(!e.shp) return;
+    const m = e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
+    if(!m) return;
 
-      const lat  = parseFloat(cols[2]);
-      const lon  = parseFloat(cols[3]);
-      const wdir = parseFloat(cols[4]);
-      const wspd = parseFloat(cols[5]);
+    const lon=+m[1], lat=+m[2];
+    if(lat<20||lat>50||lon<120||lon>150) return;
 
-      if (
-        isNaN(lat) || isNaN(lon) ||
-        isNaN(wdir) || isNaN(wspd)
-      ) return;
+    // --- 波高 ---
+    if(e.hakou){
+      const h=parseFloat(e.hakou);
+      if(!isNaN(h)){
+        L.circleMarker([lat,lon],{
+          radius:8,
+          color:getColor(h),
+          fillColor:getColor(h),
+          fillOpacity:0.8
+        }).bindTooltip(
+          `${e.kansokujo_mei}<br>波高 ${h.toFixed(2)}m`
+        ).addTo(waveLayer);
+      }
+    }
 
-      if (lat < 20 || lat > 50 || lon < 120 || lon > 150) return;
-
-      const icon = makeWindIcon(
-        wdir,
-        wspd.toFixed(1),
-        getArrowColor(wspd)
-      );
-
-      L.marker([lat, lon], { icon }).addTo(map);
-    });
+    // --- 風向 ---
+    const angle=windDirText(e.fuukou);
+    const speed=parseFloat(e.fuusoku);
+    if(angle!=null&&!isNaN(speed)){
+      L.marker([lat,lon],{
+        icon:makeWindIcon(angle,speed,getArrowColor(speed))
+      }).bindPopup(
+        `${e.kansokujo_mei}<br>
+         風向:${e.fuukou}<br>
+         風速:${e.fuusoku}`
+      ).addTo(windLayer);
+    }
   });
+})();
+
+// ===================================================
+// ② NOAA 船舶（1回取得で波＋風）
+// ===================================================
+(async()=>{
+ const url="https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2";
+ const t=await fetch(proxy+encodeURIComponent(url)).then(r=>r.text());
+ t.split("\n").forEach(l=>{
+  if(!l.includes("SHIP")) return;
+  const c=l.replace(/<[^>]+>/g,"").trim().split(/\s+/);
+  if(c.length<8) return;
+
+  const lat=+c[2], lon=+c[3],
+        dir=+c[4], spd=+c[5], wv=+c[7];
+
+  if(lat<20||lat>50||lon<120||lon>150) return;
+
+  if(!isNaN(wv)){
+    const h=wv*0.3048;
+    L.circleMarker([lat,lon],{
+      radius:7,color:getColor(h),
+      fillColor:getColor(h),fillOpacity:0.8
+    }).bindTooltip(`SHIP 波高 ${h.toFixed(2)}m`)
+     .addTo(waveLayer);
+  }
+
+  if(!isNaN(dir)&&!isNaN(spd)){
+    L.marker([lat,lon],{
+      icon:makeWindIcon(dir,spd,getArrowColor(spd))
+    }).addTo(windLayer);
+  }
+ });
+})();
+
+// ===================================================
+// 凡例
+// ===================================================
+const legend=L.control({position:"bottomright"});
+legend.onAdd=()=>{
+ const d=L.DomUtil.create("div","legend");
+ d.innerHTML="<b>波高(m)</b><br>";
+ [0,0.5,1,1.5,2,3].forEach(v=>{
+  d.innerHTML+=`<i style="background:${getColor(v+0.01)}"></i>${v}<br>`;
+ });
+ return d;
+};
+legend.addTo(map);
 </script>
 </body>
 </html>
