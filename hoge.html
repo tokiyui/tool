@@ -1,82 +1,106 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Copernicus fetch test</title>
+<meta charset="UTF-8">
+<title>最新NCファイル取得サンプル</title>
+<script src="https://pyscript.net/latest/pyscript.js"></script>
+<style>
+  body { font-family: sans-serif; padding: 20px; }
+  #status { margin-top: 10px; }
+</style>
 </head>
 <body>
 
-<h3>Copernicus nc fetch test</h3>
-<pre id="log">start...</pre>
+<h2>最新NCファイル取得テスト</h2>
 
+<button id="fetchBtn">最新ファイル取得</button>
+<div id="status"></div>
+
+<!-- JS部分 -->
 <script>
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-const BASE =
-  "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=" +
-  "WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211";
+const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/";
 
-const log = msg => {
-  document.getElementById("log").textContent += "\n" + msg;
-};
+function getLatestTime() {
+    const now = new Date();
+    const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
+    const minus6 = new Date(utcNow.getTime() - 6*60*60*1000);
+    const hour = Math.floor(minus6.getUTCHours()/3)*3;
+    const latest = new Date(Date.UTC(minus6.getUTCFullYear(), minus6.getUTCMonth(), minus6.getUTCDate(), hour));
 
-function floorTo3hUTC(date) {
-  const d = new Date(date);
-  d.setUTCHours(Math.floor(d.getUTCHours() / 3) * 3, 0, 0, 0);
-  return d;
+    const y = latest.getUTCFullYear();
+    const m = String(latest.getUTCMonth()+1).padStart(2,'0');
+    const d = String(latest.getUTCDate()).padStart(2,'0');
+    const H = String(latest.getUTCHours()).padStart(2,'0');
+    const M = "00";
+    return { YYYYMMDDHHMM: `${y}${m}${d}${H}${M}`, y, m, d };
 }
 
-function ymdh(d) {
-  return d.toISOString().slice(0,13).replace(/[-:]/g,"");
+async function fetchLatestNC() {
+    const t = getLatestTime();
+    const fileName = `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_${t.YYYYMMDDHHMM}.nc`;
+    const url = `${PROXY}${BASE}${t.y}/${t.m}/${t.d}/${fileName}`;
+    document.getElementById("status").innerText = `取得URL: ${url}\n取得中...`;
+
+    try {
+        const resp = await fetch(url);
+        if(!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+        const blob = await resp.blob();
+        document.getElementById("status").innerText += `\n取得成功: ${blob.size} bytes`;
+        return blob;
+    } catch(err) {
+        document.getElementById("status").innerText += `\n取得失敗: ${err}`;
+        console.error(err);
+    }
 }
 
-async function testFetch() {
-  // UTC now - 6h
-  let t = new Date(Date.now() - 6 * 3600 * 1000);
-  t = floorTo3hUTC(t);
-  const t2 = new Date(t.getTime() + 3 * 3600 * 1000);
-
-  const dir =
-    `${t.getUTCFullYear()}/` +
-    `${String(t.getUTCMonth()+1).padStart(2,"0")}/` +
-    `${String(t.getUTCDate()).padStart(2,"0")}`;
-
-  const fname =
-    `global_vavh_l3_rt_cfo_${ymdh(t)}0000_${ymdh(t2)}0000.nc`;
-
-  const url = `${BASE}%2F${dir}%2F${fname}` +
-              `&subdataset=cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211`;
-
-  log("target time (UTC): " + t.toISOString());
-  log("file name: " + fname);
-  log("raw url:");
-  log(url);
-
-  const fetchURL = PROXY + encodeURIComponent(url);
-  log("proxy url:");
-  log(fetchURL);
-
-  const res = await fetch(fetchURL);
-
-  log("HTTP status: " + res.status);
-
-  if (!res.ok) {
-    throw new Error("fetch failed");
-  }
-
-  const buf = await res.arrayBuffer();
-  log("downloaded bytes: " + buf.byteLength);
-
-  if (buf.byteLength > 0) {
-    log("✅ nc file fetched successfully");
-  } else {
-    log("⚠️ file size is zero");
-  }
-}
-
-testFetch().catch(e => {
-  log("❌ ERROR: " + e);
-});
+document.getElementById("fetchBtn").addEventListener("click", fetchLatestNC);
 </script>
+
+<!-- PyScript部分 -->
+<py-script>
+import js
+from pyodide.http import pyfetch
+
+async def fetch_nc_py():
+    PROXY = "https://worker.ryohorita105.workers.dev/?url="
+    BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/"
+    
+    import datetime
+    now = datetime.datetime.utcnow()
+    minus6 = now - datetime.timedelta(hours=6)
+    hour = (minus6.hour // 3) * 3
+    latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
+    
+    YYYYMMDDHHMM = f"{latest.year:04d}{latest.month:02d}{latest.day:02d}{latest.hour:02d}00"
+    fileName = f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_{YYYYMMDDHHMM}.nc"
+    url = f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/{fileName}"
+    
+    js.document.getElementById("status").innerText += f"\n[PyScript] URL: {url}\n取得中..."
+    
+    try:
+        response = await pyfetch(url)
+        if response.status != 200:
+            raise RuntimeError(f"HTTP error {response.status}")
+        data = await response.bytes()
+        js.document.getElementById("status").innerText += f"\n[PyScript] 取得成功: {len(data)} bytes"
+    except Exception as e:
+        js.document.getElementById("status").innerText += f"\n[PyScript] 取得失敗: {e}"
+
+# PyScriptボタン
+from pyodide.ffi import create_proxy
+import asyncio
+
+async def setup_button():
+    btn = js.document.createElement("button")
+    btn.innerText = "PyScriptで取得"
+    js.document.body.appendChild(btn)
+    async def click_handler(event):
+        await fetch_nc_py()
+    btn.addEventListener("click", create_proxy(click_handler))
+
+asyncio.ensure_future(setup_button())
+</py-script>
 
 </body>
 </html>
