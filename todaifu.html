@@ -67,7 +67,7 @@ const windDirToAngleText = (dir) => ({
 }[dir] ?? null);
 
 const windDir16ToAngle = (dir) =>
-  (dir >= 0 && dir <= 16) ? (dir - 1) * 22.5 + 180: null;
+  (dir >= 0 && dir <= 16) ? dir * 22.5 + 180: null;
 
 // ======================================
 // AMeDAS 時刻
