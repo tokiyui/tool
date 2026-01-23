@@ -1,132 +1,144 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>Copernicus SWH DEBUG</title>
+<meta charset="utf-8">
+<title>Copernicus SWH Latest (CORS bypass)</title>
 
-<link rel="stylesheet"
-  href="https://pyscript.net/releases/2025.2.4/core.css">
-<script type="module"
-  src="https://pyscript.net/releases/2025.2.4/core.js"></script>
-
-<style>
-body { font-family: monospace; }
-pre { background:#eee; padding:10px; white-space:pre-wrap; }
-#status { font-weight:bold; color:#b00; }
-</style>
+<script defer src="https://pyscript.net/latest/pyscript.js"></script>
 
 <py-config>
-packages = ["xarray", "numpy", "matplotlib"]
+packages = ["xarray", "numpy", "matplotlib", "netCDF4", "requests", "beautifulsoup4"]
 </py-config>
+
+<style>
+body { font-family: sans-serif; }
+#status { margin: 0.5em 0; font-size: 0.9em; }
+img { max-width: 100%; }
+</style>
 </head>
 
 <body>
-
-<h2>Copernicus SWH DEBUG</h2>
-<div id="status">booting…</div>
-<pre id="log"></pre>
-
-<py-script>
-import xarray as xr
-import matplotlib.pyplot as plt
-from js import document
-
-def load_and_plot(url):
-    document.getElementById("status").innerText = "PyScript: loading netCDF"
-    ds = xr.open_dataset(url)
-    swh = ds["VAVH"]
-
-    plt.figure(figsize=(9,4))
-    swh.isel(time=0).plot()
-    plt.title("SWH")
-    plt.show()
-
-    document.getElementById("status").innerText = "PyScript: done"
-</py-script>
+<h2>Latest Significant Wave Height (Copernicus Marine)</h2>
+<div id="status">initializing...</div>
+<img id="plot"/>
 
 <script>
+/* ===============================
+   CORS回避プロキシ
+================================ */
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-const log = msg =>
-  document.getElementById("log").textContent += msg + "\n";
 
-function getLatestStartTimeUTC(offsetH) {
-  const d = new Date();
-  const utc = new Date(d.getTime() + d.getTimezoneOffset()*60000);
-  utc.setHours(utc.getHours() - offsetH);
-  utc.setHours(Math.floor(utc.getHours()/3)*3,0,0,0);
-  return utc;
+/* ===============================
+   UTC基準時刻
+================================ */
+function getBaseTimeUTC() {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const t = new Date(utcMs - 6 * 3600 * 1000);
+
+  const h = t.getUTCHours();
+  const fh = Math.floor(h / 3) * 3;
+  t.setUTCHours(fh, 0, 0, 0);
+
+  return {
+    y: t.getUTCFullYear(),
+    m: String(t.getUTCMonth() + 1).padStart(2, "0"),
+    d: String(t.getUTCDate()).padStart(2, "0")
+  };
 }
 
-function fmt(dt) {
-  const p=n=>String(n).padStart(2,"0");
+/* ===============================
+   ディレクトリURL生成（素のURL）
+================================ */
+function buildDirectoryURL() {
+  const t = getBaseTimeUTC();
   return (
-    dt.getUTCFullYear() +
-    p(dt.getUTCMonth()+1) +
-    p(dt.getUTCDate()) +
-    "T" +
-    p(dt.getUTCHours()) +
-    "0000"
-  );
-}
-
-async function tryOnce(offsetH) {
-  const t0 = getLatestStartTimeUTC(offsetH);
-  const startStr = fmt(t0);
-
-  const y=t0.getUTCFullYear();
-  const m=String(t0.getUTCMonth()+1).padStart(2,"0");
-  const d=String(t0.getUTCDate()).padStart(2,"0");
-
-  log(`--- TRY offset ${offsetH}h → ${startStr} ---`);
-
-  const baseURL =
-    "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files" +
-    "?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/" +
+    "https://data.marine.copernicus.eu/product/" +
+    "WAVE_GLO_PHY_SWH_L3_NRT_014_001/" +
     "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/" +
-    `${y}/${m}/${d}/`;
-
-  log("DIR URL:");
-  log(baseURL);
-
-  const r = await fetch(PROXY + encodeURIComponent(baseURL));
-  const txt = await r.text();
-
-  log("LISTING HEAD:");
-  log(txt.slice(0,500));
-
-  const re = new RegExp(
-    `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_${startStr}_[^"]+\\.nc`
+    `${t.y}/${t.m}/${t.d}/`
   );
-
-  const m2 = txt.match(re);
-  if(!m2) {
-    log("→ NOT FOUND");
-    return null;
-  }
-
-  log("FOUND:");
-  log(m2[0]);
-  return PROXY + encodeURIComponent(baseURL + m2[0]);
 }
 
-async function run() {
-  document.getElementById("status").innerText = "JS: searching…";
-
-  for (const h of [6,9,12]) {
-    const url = await tryOnce(h);
-    if(url) {
-      document.getElementById("status").innerText = "JS: calling PyScript";
-      pyscript.interpreter.globals.set("nc_url", url);
-      pyscript.runPython("load_and_plot(nc_url)");
-      return;
-    }
-  }
-
-  document.getElementById("status").innerText = "ALL FAILED";
-}
-
-window.addEventListener("py:ready", run);
+/* PyScriptへ渡す（PROXY込み） */
+const RAW_DIR_URL = buildDirectoryURL();
+window.CMEMS_DIR_URL = PROXY + encodeURIComponent(RAW_DIR_URL);
 </script>
+
+<py-script>
+import io
+import re
+import js
+import requests
+import xarray as xr
+import matplotlib.pyplot as plt
+from bs4 import BeautifulSoup
+
+status = js.document.getElementById("status")
+img = js.document.getElementById("plot")
+
+# ===============================
+# 1. ディレクトリ一覧取得（PROXY経由）
+# ===============================
+dir_url = js.CMEMS_DIR_URL
+status.innerHTML = f"fetch directory (via proxy):<br>{dir_url}"
+
+r = requests.get(dir_url)
+r.raise_for_status()
+
+soup = BeautifulSoup(r.text, "html.parser")
+
+nc_files = []
+for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if href.endswith(".nc") and "global_vavh_l3_rt_cfo" in href:
+        nc_files.append(href)
+
+if not nc_files:
+    raise RuntimeError("No nc files found")
+
+# ===============================
+# 2. 最新ファイル選択
+# ===============================
+def extract_ts(name):
+    m = re.search(r"_(\d{8}T\d{6})\.nc", name)
+    return m.group(1) if m else ""
+
+nc_files.sort(key=extract_ts)
+latest_nc = nc_files[-1]
+
+# ===============================
+# 3. nc取得（PROXY経由）
+# ===============================
+raw_nc_url = js.decodeURIComponent(dir_url.split("url=")[1]) + latest_nc
+nc_url = js.encodeURIComponent(raw_nc_url)
+full_nc_url = js.decodeURIComponent(js.CMEMS_DIR_URL.split("?url=")[0] + "?url=") + nc_url
+
+status.innerHTML = f"latest file:<br>{latest_nc}"
+
+r = requests.get(full_nc_url)
+r.raise_for_status()
+
+ds = xr.open_dataset(io.BytesIO(r.content))
+
+# ===============================
+# 4. 描画（SWH）
+# ===============================
+swh = ds["VAVH"].isel(time=0)
+
+plt.figure(figsize=(10,5))
+swh.plot(cmap="viridis", vmin=0)
+plt.title("Significant Wave Height [m]")
+plt.tight_layout()
+
+buf = io.BytesIO()
+plt.savefig(buf, format="png", dpi=120)
+plt.close()
+buf.seek(0)
+
+img.src = "data:image/png;base64," + buf.getvalue().decode("latin1")
+status.innerHTML = "done"
+</py-script>
 
 </body>
 </html>
