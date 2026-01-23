@@ -113,9 +113,18 @@ fetch(proxy+encodeURIComponent(
   const a=windDirToAngleText(e.fuukou);
   const s=parseFloat(e.fuusoku);
   if(a===null||isNaN(s))return;
-  L.marker([lat,lon],{
-    icon:makeWindIcon(a,s,getArrowColor(s))
-  }).addTo(map);
+L.marker([lat, lon], {
+  icon: makeWindIcon(a, s, getArrowColor(s))
+})
+  .bindTooltip(
+    `<a href="${e.url}" target="_blank">
+       ${e.kansokujo_mei}
+     </a><br>
+     風向: ${e.fuukou}<br>
+     風速: ${e.fuusoku}`,
+    { sticky: true }
+  )
+  .addTo(map);
  });
 });
 
@@ -144,9 +153,17 @@ Promise.all([
   if(ang===null)return;
   const lat=m.lat[0]+m.lat[1]/60;
   const lon=m.lon[0]+m.lon[1]/60;
-  L.marker([lat,lon],{
-   icon:makeWindIcon(ang,s.toFixed(1),getArrowColor(s))
-  }).addTo(map);
+  L.marker([lat, lon], {
+    icon: makeWindIcon(ang, s.toFixed(1), getArrowColor(s))
+  })
+  .bindTooltip(
+    `<a href="https://www.jma.go.jp/bosai/amedas/#amdno=${code}" target="_blank">
+       ${meta.kjName}
+     </a><br>
+     風速: ${s.toFixed(1)} m/s`,
+    { sticky: true }
+  )
+  .addTo(map);
  });
 });
 
