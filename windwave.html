@@ -278,10 +278,7 @@ plotRiverCoastWaves();
 // ---------------- ⑥ 描画 ----------------
 function drawPoints(){
  Object.values(pointData).forEach(p=>{
-  const html = `
-   ${p.windHtml ?? ""}
-   ${p.waveHtml ? "<hr>"+p.waveHtml : ""}
-  `;
+  const html = (p.windHtml ?? "") + (p.waveHtml ? "<hr>" + p.waveHtml : "");
 
   // レイヤーグループで1地点
   const group = L.layerGroup().addTo(map);
