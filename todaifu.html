@@ -5,10 +5,8 @@
 <title>風向SVGマップ（海保＋AMeDAS）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 html, body {
@@ -49,7 +47,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 // ======================================
-// 共通：風速→色
+// 風速→色
 // ======================================
 const getArrowColor = (speed) => {
   if (speed >= 20) return "red";
@@ -59,25 +57,17 @@ const getArrowColor = (speed) => {
 };
 
 // ======================================
-// 海保：文字風向→角度
+// 風向変換
 // ======================================
-const windDirToAngleText = (dir) => {
-  const table = {
-    "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
-    "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
-    "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
-    "東":270,"東南東":292.5,"南東":315,"南南東":337.5
-  };
-  return table[dir] ?? null;
-};
+const windDirToAngleText = (dir) => ({
+  "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
+  "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
+  "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
+  "東":270,"東南東":292.5,"南東":315,"南南東":337.5
+}[dir] ?? null);
 
-// ======================================
-// AMeDAS：16方位→角度
-// ======================================
-const windDir16ToAngle = (dir) => {
-  if (dir < 1 || dir > 16) return null;
-  return (dir - 1) * 22.5;
-};
+const windDir16ToAngle = (dir) =>
+  (dir >= 1 && dir <= 16) ? (dir - 1) * 22.5 : null;
 
 // ======================================
 // AMeDAS 時刻
@@ -100,9 +90,10 @@ const getAmedasTimeString = () => {
 };
 
 // ======================================
-// SVGアイコン
+// SVGアイコン生成
+// labelColor を指定可能
 // ======================================
-const makeWindIcon = (angle, speed, color) => {
+const makeWindIcon = (angle, speed, color, labelColor = "black") => {
   return L.divIcon({
     className: '',
     html: `
@@ -114,7 +105,10 @@ const makeWindIcon = (angle, speed, color) => {
           <line x1="24" y1="2" x2="24" y2="28"
                 stroke="${color}" stroke-width="2"/>
         </svg>
-        <div class="wind-speed-label">${speed}</div>
+        <div class="wind-speed-label"
+             style="color:${labelColor};">
+          ${speed}
+        </div>
       </div>
     `,
     iconSize: [48,48],
@@ -123,7 +117,7 @@ const makeWindIcon = (angle, speed, color) => {
 };
 
 // ======================================
-// ① 海保（灯台）データ ※リンク保持
+// ① 海保（灯台）※風速文字は白
 // ======================================
 const proxy = "https://api.allorigins.win/raw?url=";
 const kaihoUrl =
@@ -146,7 +140,12 @@ fetch(proxy + encodeURIComponent(kaihoUrl))
       const speed = parseFloat(e.fuusoku);
       if (angle === null || isNaN(speed)) return;
 
-      const icon = makeWindIcon(angle, speed, getArrowColor(speed));
+      const icon = makeWindIcon(
+        angle,
+        speed,
+        getArrowColor(speed),
+        "white"          // ← 灯台のみ白
+      );
 
       L.marker([lat, lon], { icon }).addTo(map)
         .bindPopup(`
@@ -161,7 +160,7 @@ fetch(proxy + encodeURIComponent(kaihoUrl))
   });
 
 // ======================================
-// ② AMeDAS（10m/s以上）
+// ② AMeDAS（10m/s以上・リンク追加）
 // ======================================
 const timeStr = getAmedasTimeString();
 
@@ -193,9 +192,14 @@ Promise.all([
       getArrowColor(speed)
     );
 
+    const amedasUrl =
+      `https://www.jma.go.jp/bosai/amedas/#amdno=${code}`;
+
     L.marker([lat, lon], { icon }).addTo(map)
       .bindPopup(`
-        <b>${meta.kjName}</b><br>
+        <a href="${amedasUrl}" target="_blank">
+          ${meta.kjName}
+        </a><br>
         風速: ${speed} m/s<br>
         観測時刻: ${timeStr}
       `);
