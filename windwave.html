@@ -68,6 +68,8 @@ const windDirJMA = dir => ({
  "西":90,"西北西":112.5,"北西":135,"北北西":157.5
 }[dir] ?? null);
 
+const windDir16ToAngle = d => (d>=0&&d<=16)?d*22.5+180:null;
+
 const makeWindIcon = (angle,speed,color) => L.divIcon({
   html:`
   <div style="position:relative;width:48px;height:48px;">
@@ -212,7 +214,7 @@ async function fetchAll() {
       if(!pointData[key]) pointData[key]={lat,lon};
       pointData[key].waveType="ナウファス";
       pointData[key].waveName=name;
-      pointData[key].waveUrl={`https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/`};
+      pointData[key].waveUrl=`https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/`;
       pointData[key].waveHeight=h;
     });
   })();
@@ -265,7 +267,11 @@ function drawPoints(){
       const type=p.windType;
       const nameHtml = p.windUrl?`<a href="${p.windUrl}" target="_blank">${p.windName}</a>`:p.windName;
       lines.push(`${type} ${nameHtml}`);
-      if(p.iconAngle!=null) lines.push(`風向: ${windDirText16(((Math.round((p.iconAngle-180)/22.5)%16)+16)%16)}`);
+      if(p.iconAngle!=null){
+        // 日本語の16方位表示
+        const idx = ((Math.round((p.iconAngle-180)/22.5)%16)+16)%16;
+        lines.push(`風向: ${dirs[idx]}`);
+      }
       if(p.iconSpeed!=null) lines.push(`風速: ${p.iconSpeed} m/s`);
     }
 
