@@ -99,7 +99,7 @@ async function loadAndRender(url) {
   if (!res.ok) throw new Error("fetch failed");
 
   const buf = await res.arrayBuffer();
-  const nc = new netcdfjs.NetCDFReader(buf);
+  const nc = new NetCDFReader(buf);
 
   const lon = nc.getDataVariable("longitude");
   const lat = nc.getDataVariable("latitude");
