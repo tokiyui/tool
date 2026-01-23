@@ -1,108 +1,94 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Copernicus NRT 波高 デバッグ版（10データセット）</title>
-<script src="https://cdn.jsdelivr.net/npm/netcdfjs@0.5.1/dist/netcdfjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.31.1/plotly.min.js"></script>
+<title>Copernicus 最新ファイル確認</title>
+<style>
+body { font-family: monospace; }
+pre { background: #f0f0f0; padding: 10px; }
+</style>
 </head>
 <body>
-<h1>Copernicus NRT 波高データ（10データセット・デバッグ版）</h1>
-<div id="status" style="white-space: pre-wrap; background:#eee; padding:10px; margin-bottom:20px;"></div>
-<div id="plots"></div>
+<h2>Copernicus Marine 最新ファイルチェック</h2>
+<div id="debug"></div>
+<div id="latest"></div>
 
 <script>
-const statusDiv = document.getElementById('status');
-function log(msg){ console.log(msg); statusDiv.textContent += msg+'\n'; }
+const debug = (msg) => {
+    const div = document.getElementById('debug');
+    div.innerHTML += msg + "\n";
+};
 
+const latestDiv = document.getElementById('latest');
+
+const proxies = "https://copernicus.ryohorita105.workers.dev/";
 const datasets = [
-  "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_c2-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_h2b-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_h2c-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_al-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_s3a-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_s3b-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_s6a-l3_PT1S",
-  "cmems_obs-wave_glo_phy-swh_nrt_swon-l3_PT1S"
+    "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_c2-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_h2b-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_h2c-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_al-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_s3a-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_s3b-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_s6a-l3_PT1S",
+    "cmems_obs-wave_glo_phy-swh_nrt_swon-l3_PT1S"
 ];
 
-(async()=>{
-  // 現在UTCの6時間前 → 3時間単位切り捨て
-  const now = new Date();
-  now.setUTCHours(now.getUTCHours()-6);
-  const hour = Math.floor(now.getUTCHours()/3)*3;
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth()+1).padStart(2,'0');
-  const day = String(now.getUTCDate()).padStart(2,'0');
-  const hh = String(hour).padStart(2,'0');
+// 現在UTCの1時間前 → 3時間単位切捨
+function getTargetTime() {
+    const now = new Date();
+    const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
+    utc.setHours(utc.getHours() - 1); // 1時間前
+    const h = Math.floor(utc.getHours() / 3) * 3; // 3時間単位
+    utc.setHours(h,0,0,0);
+    return utc;
+}
 
-  log(`対象時刻: ${year}-${month}-${day}T${hh}:00 UTC`);
+function formatTimeUTC(date) {
+    const pad = (n)=>n.toString().padStart(2,'0');
+    return date.getUTCFullYear().toString()+
+           pad(date.getUTCMonth()+1)+
+           pad(date.getUTCDate())+'T'+
+           pad(date.getUTCHours())+
+           pad(date.getUTCMinutes())+
+           pad(date.getUTCSeconds());
+}
 
-  for(const dataset of datasets){
-    try{
-      log(`\n=== データセット: ${dataset} ===`);
-      const workerUrl = `https://copernicus.ryohorita105.workers.dev/?dataset=${dataset}&year=${year}&month=${month}`;
-      log(`Worker URL: ${workerUrl}`);
+const targetTimeStr = formatTimeUTC(getTargetTime());
+debug("Target time UTC (3h rounded): " + targetTimeStr);
 
-      const resp = await fetch(workerUrl);
-      if(!resp.ok) throw new Error(`Worker HTTP error ${resp.status}`);
-      const json = await resp.json();
-
-      if(json.error){ log(`Worker error: ${json.error}`); continue; }
-
-      log(`取得ファイル数: ${json.files.length}`);
-
-      // ディレクトリ時刻は UTC6時間前の時刻で決め打ち
-      const prefix = `global_vavh_l3_rt_${dataset.split("_").pop()}_${year}${month}${day}T${hh}0000_`;
-      const latestFile = json.files.filter(f=>f.startsWith(prefix)).sort().reverse()[0];
-
-      if(!latestFile){ log(`最新ファイルが見つかりません`); continue; }
-
-      log(`最新ファイル: ${latestFile}`);
-
-      const ncUrl = `https://s3.waw3-1.cloudferro.com/mdl-native-05/native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/${dataset}/${year}/${month}/${latestFile}`;
-      log(`NC URL: ${ncUrl}`);
-
-      const ncResp = await fetch(ncUrl);
-      if(!ncResp.ok) throw new Error(`NC HTTP error ${ncResp.status}`);
-      const arrayBuffer = await ncResp.arrayBuffer();
-
-      log(`NCファイル取得成功 (${arrayBuffer.byteLength} bytes)`);
-
-      const nc = new NetCDF(arrayBuffer);
-      const swh = nc.root.variables.find(v=>v.name==="swh").readSlice(0, nc.root.variables.find(v=>v.name==="swh").dimensions[0].length,
-                                                                            0, nc.root.variables.find(v=>v.name==="swh").dimensions[1].length);
-
-      const lats = nc.root.variables.find(v=>v.name==="latitude").readSlice(0, nc.root.variables.find(v=>v.name==="latitude").dimensions[0].length);
-      const lons = nc.root.variables.find(v=>v.name==="longitude").readSlice(0, nc.root.variables.find(v=>v.name==="longitude").dimensions[0].length);
-
-      const div = document.createElement('div');
-      div.id = `plot-${dataset}`;
-      div.style.height="400px";
-      div.style.marginBottom="40px";
-      document.getElementById('plots').appendChild(div);
-
-      Plotly.newPlot(div.id,[{
-        z: swh,
-        x: lons,
-        y: lats,
-        type:'heatmap',
-        colorscale:'Viridis',
-        colorbar:{title:'SWH (m)'}
-      }],{
-        title:`${dataset} SWH ${year}-${month}-${day} ${hh}:00 UTC`,
-        xaxis:{title:'Longitude'},
-        yaxis:{title:'Latitude'}
-      });
-
-      log(`${dataset} 描画完了`);
-
-    }catch(e){
-      log(`エラー: ${e}`);
-      console.error(e);
+async function fetchFileList(dataset) {
+    try {
+        const url = `${proxies}${dataset}/`;
+        debug("Fetching: " + url);
+        const resp = await fetch(url);
+        if(!resp.ok) throw new Error(resp.statusText);
+        const text = await resp.text();
+        // Copernicus HTMLからリンク抽出
+        const files = [...text.matchAll(/href="([^"]+\.nc)"/g)].map(m=>m[1]);
+        debug(dataset + " files: " + files.join(", "));
+        return files;
+    } catch(e) {
+        debug("Error fetching " + dataset + ": " + e);
+        return [];
     }
-  }
-})();
+}
+
+async function main() {
+    for(const ds of datasets) {
+        const files = await fetchFileList(ds);
+        const matched = files.filter(f=>f.includes(targetTimeStr));
+        debug(ds + " matched: " + matched.join(", "));
+        if(matched.length > 0) {
+            latestDiv.innerHTML += `<p>${ds}: <b>${matched[matched.length-1]}</b></p>`;
+        } else {
+            latestDiv.innerHTML += `<p>${ds}: <i>no match</i></p>`;
+        }
+    }
+}
+
+main();
 </script>
+</body>
+</html>
