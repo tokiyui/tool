@@ -8,9 +8,9 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<!-- PyScript -->
-<link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
-<script defer src="https://pyscript.net/latest/pyscript.js"></script>
+<!-- PyScript（★固定バージョン） -->
+<link rel="stylesheet" href="https://pyscript.net/2024.5.1/pyscript.css">
+<script defer src="https://pyscript.net/2024.5.1/pyscript.js"></script>
 
 <style>
 html, body, #map {
@@ -53,20 +53,14 @@ import urllib.request
 import js
 import asyncio
 
-# ============================
-# 最新時刻計算
-# ============================
 def latest_base_time():
     now = datetime.datetime.utcnow() - datetime.timedelta(hours=6)
-    hour = (now.hour // 3) * 3
-    return now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    h = (now.hour // 3) * 3
+    return now.replace(hour=h, minute=0, second=0, microsecond=0)
 
 def fmt(t):
     return t.strftime("%Y%m%dT%H0000")
 
-# ============================
-# URL生成
-# ============================
 def build_url():
     t1 = latest_base_time()
     t2 = t1 + datetime.timedelta(hours=3)
@@ -75,7 +69,7 @@ def build_url():
     y = t1.year
     m = f"{t1.month:02d}"
 
-    filename = (
+    fname = (
         f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_"
         f"{fmt(t1)}_{fmt(t2)}_{fmt(t3)}.nc"
     )
@@ -86,18 +80,14 @@ def build_url():
         f"?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/"
         f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/"
         f"{y}/{m}/"
-        f"&subdataset={filename}"
+        f"&subdataset={fname}"
     )
 
-# ============================
-# メイン処理
-# ============================
 async def main():
     js.document.getElementById("status").innerText = "fetching netCDF…"
 
     url = build_url()
     raw = urllib.request.urlopen(url).read()
-
     ds = Dataset("mem", memory=raw)
 
     lon = ds.variables["longitude"][:]
@@ -105,31 +95,28 @@ async def main():
     swh = ds.variables["VAVH"][:]
 
     ny, nx = swh.shape
-
     img = Image.new("RGBA", (nx, ny))
     px = img.load()
 
-    # ---- カラールール（観測点と整合） ----
     for j in range(ny):
         for i in range(nx):
             v = swh[j, i]
             if np.isnan(v):
-                px[i, ny-1-j] = (0, 0, 0, 0)
-            elif v < 1.0:
-                px[i, ny-1-j] = (0, 120, 255, 160)
-            elif v < 2.0:
-                px[i, ny-1-j] = (0, 200, 0, 160)
-            elif v < 3.0:
-                px[i, ny-1-j] = (255, 200, 0, 160)
+                px[i, ny-1-j] = (0,0,0,0)
+            elif v < 1:
+                px[i, ny-1-j] = (0,120,255,160)
+            elif v < 2:
+                px[i, ny-1-j] = (0,200,0,160)
+            elif v < 3:
+                px[i, ny-1-j] = (255,200,0,160)
             else:
-                px[i, ny-1-j] = (255, 0, 0, 160)
+                px[i, ny-1-j] = (255,0,0,160)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    png = buf.getvalue()
 
     js.renderOverlay(
-        png,
+        buf.getvalue(),
         float(lat.min()), float(lat.max()),
         float(lon.min()), float(lon.max())
     )
@@ -143,8 +130,7 @@ asyncio.ensure_future(main())
 const map = L.map("map").setView([30, 140], 3);
 
 L.tileLayer(
-  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-  { attribution: "&copy; OpenStreetMap" }
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
 ).addTo(map);
 
 window.renderOverlay = function(pngBytes, latMin, latMax, lonMin, lonMax) {
