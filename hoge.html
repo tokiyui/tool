@@ -2,28 +2,31 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>最新NCファイル取得デバッグ（PyScript modern syntax）</title>
+<title>最新NCファイル取得デバッグ（SWH L3 NRT PT1S）</title>
 
-<!-- PyScript: pin to specific current version (avoid /latest; deprecation noted) -->
+<!-- PyScript最新バージョン -->
 <link rel="stylesheet" href="https://pyscript.net/releases/2025.10.1/core.css">
 <script type="module" src="https://pyscript.net/releases/2025.10.1/core.js"></script>
 
 <style>
-  body { font-family: sans-serif; padding: 20px; }
-  #status { margin-top: 5px; white-space: pre-wrap; font-family: monospace; }
-  button { margin-top: 10px; padding: 6px 12px; }
+body { font-family: sans-serif; padding: 20px; }
+#status { margin-top: 5px; white-space: pre-wrap; font-family: monospace; }
+button { margin-top: 10px; padding: 6px 12px; }
 </style>
 </head>
 <body>
 
-<h2>最新NCファイル取得デバッグ（global_vavh形式）</h2>
+<h2>最新NCファイル取得デバッグ（cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S）</h2>
 
 <button id="fetchBtn">JSで最新ファイル取得</button>
 <div id="status"></div>
 
 <script>
+// CORS回避用プロキシ
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-const BASE  = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/global_vavh_l3_rt_cfo_";
+
+// BASE URL 更新
+const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211%2F";
 
 function getLatestTime() {
     const now = new Date();
@@ -40,7 +43,7 @@ function getLatestTime() {
 
 async function fetchLatestNC() {
     const t = getLatestTime();
-    const dirUrl = `${PROXY}${BASE}${t.y}/${t.m}/${t.d}/`;
+    const dirUrl = `${PROXY}${BASE}${t.y}%2F${t.m}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
     const status = document.getElementById("status");
     status.innerText = `[JS] ディレクトリURL: ${dirUrl}\n取得中...`;
 
@@ -50,8 +53,10 @@ async function fetchLatestNC() {
         if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
         const html = await resp.text();
         status.innerText += `\n[JS] HTML length: ${html.length}`;
+        status.innerText += `\n[DEBUG] HTML先頭1000文字:\n${html.slice(0,1000)}`;
 
-        const regex = new RegExp(`global_vavh_l3_rt_cfo_${t.YYYYMMDDTHHMMSS}_[^<"\\s]+\\.nc`, "g");
+        // 正規表現をファイル名形式に合わせて寛容化
+        const regex = new RegExp(`cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211_${t.YYYYMMDDTHHMMSS}_[^<"\\s]+\\.nc`, "g");
         const matches = html.match(regex);
         status.innerText += `\n[JS] Matches: ${matches ? matches.length : 0}`;
         if (!matches || !matches.length) throw new Error("ファイルが見つかりません");
@@ -59,7 +64,7 @@ async function fetchLatestNC() {
         const latestFile = matches[0];
         status.innerText += `\n[JS] Found file: ${latestFile}\nFetching...`;
 
-        const fileResp = await fetch(`${PROXY}${BASE}${t.y}/${t.m}/${t.d}/${latestFile}`);
+        const fileResp = await fetch(`${PROXY}${BASE}${t.y}%2F${t.m}%2F${latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`);
         status.innerText += `\n[JS] File HTTP status: ${fileResp.status}`;
         if (!fileResp.ok) throw new Error(`HTTP error ${fileResp.status}`);
         const blob = await fileResp.blob();
@@ -77,6 +82,9 @@ import asyncio, datetime, re
 from pyodide.http import pyfetch
 from pyscript import display
 
+PROXY = "https://worker.ryohorita105.workers.dev/?url="
+BASE  = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211%2F"
+
 async def fetch_nc_py():
     out = ""
     now = datetime.datetime.utcnow()
@@ -85,7 +93,7 @@ async def fetch_nc_py():
     latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
     key = latest.strftime("%Y%m%dT%H0000")
 
-    dirUrl = f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/"
+    dirUrl = f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
     out += f"[PyScript] Dir URL: {dirUrl}\n"
 
     try:
@@ -93,26 +101,26 @@ async def fetch_nc_py():
         out += f"[PyScript] Dir HTTP: {resp.status}\n"
         html = await resp.string()
         out += f"[PyScript] HTML length: {len(html)}\n"
+        out += f"[DEBUG] HTML先頭1000文字:\n{html[:1000]}"
 
-        regex = re.compile(f"global_vavh_l3_rt_cfo_{key}_[^<\"'\\s]+\\.nc")
+        regex = re.compile(f"cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211_{key}_[^<\"'\\s]+\\.nc")
         matches = regex.findall(html)
-        out += f"[PyScript] Matches: {len(matches)}\n"
+        out += f"\n[PyScript] Matches: {len(matches)}"
         if not matches:
             raise RuntimeError("ファイルが見つかりません")
 
         latestFile = matches[0]
-        out += f"[PyScript] File: {latestFile}\n"
+        out += f"\n[PyScript] File: {latestFile}"
 
-        fileResp = await pyfetch(f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/{latestFile}")
-        out += f"[PyScript] File HTTP: {fileResp.status}\n"
+        fileResp = await pyfetch(f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F{latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211")
+        out += f"\n[PyScript] File HTTP: {fileResp.status}"
         data = await fileResp.bytes()
-        out += f"[PyScript] File size: {len(data)} bytes"
+        out += f"\n[PyScript] File size: {len(data)} bytes"
+
     except Exception as e:
-        out += f"[PyScript] Error: {e}"
+        out += f"\n[PyScript] Error: {e}"
 
     display(out, target="status", append=True)
-
-button = Element("status")  # hack: trigger once
 </script>
 
 </body>
