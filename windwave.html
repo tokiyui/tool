@@ -11,13 +11,14 @@ html, body { margin:0; height:100%; }
 #map { height:100vh; width:100vw; }
 
 .wind-speed-label {
-  font-size:18px;
-  font-weight:bold;
-  color:black;
-  position:absolute;
-  top:50%; left:50%;
-  transform:translate(-50%,-50%);
-  pointer-events:auto;
+  font-size: 18px;
+  font-weight: bold;
+  color: black;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .leaflet-div-icon {
@@ -26,24 +27,22 @@ html, body { margin:0; height:100%; }
   pointer-events: auto;
 }
 
-.leaflet-div-icon * {
-  pointer-events: auto;
-}
-  
 .legend {
-  background:white;
-  padding:6px 8px;
-  font-size:14px;
-  line-height:18px;
-  color:#333;
+  background: white;
+  padding: 6px 8px;
+  font-size: 14px;
+  line-height: 18px;
+  color: #333;
 }
+
 .legend i {
-  width:18px;
-  height:18px;
-  float:left;
-  margin-right:6px;
-  opacity:0.8;
+  width: 18px;
+  height: 18px;
+  float: left;
+  margin-right: 6px;
+  opacity: 0.8;
 }
+
 </style>
 </head>
 
