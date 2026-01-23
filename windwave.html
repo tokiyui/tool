@@ -2,8 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>風向＋波高 統合マップ（NaN除外）</title>
+<title>風・波 統合マップ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
@@ -23,12 +24,14 @@ html, body { margin:0; height:100%; }
 
 .legend {
   background:white;
-  padding:6px;
+  padding:6px 8px;
   font-size:13px;
 }
 .legend i {
-  width:16px; height:16px;
-  float:left; margin-right:6px;
+  width:18px;
+  height:18px;
+  float:left;
+  margin-right:6px;
   opacity:0.8;
 }
 </style>
@@ -39,30 +42,25 @@ html, body { margin:0; height:100%; }
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// =====================
-// Map
-// =====================
+/* =========================
+   MAP
+========================= */
 const map = L.map("map").setView([36,138],5);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution:"© OpenStreetMap"
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  attribution:"&copy; OpenStreetMap contributors"
 }).addTo(map);
 
 const proxy = "https://corsproxy.io/?";
 
-// =====================
-// Layers
-// =====================
+/* =========================
+   LAYERS
+========================= */
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-L.control.layers(null,{
-  "風向・風速": windLayer,
-  "波高": waveLayer
-}).addTo(map);
-
-// =====================
-// Utils
-// =====================
+/* =========================
+   UTIL
+========================= */
 const getArrowColor = s =>
   s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
 
@@ -80,189 +78,124 @@ const windDirText = d => ({
   "東":270,"東南東":292.5,"南東":315,"南南東":337.5
 }[d] ?? null);
 
-const windDir16 = d =>
-  Number.isFinite(d) ? d * 22.5 + 180 : null;
+const windDir16 = d => (d>=0&&d<=16)?d*22.5+180:null;
 
-// =====================
-// Icons
-// =====================
 const makeWindIcon = (angle,speed,color)=>L.divIcon({
   className:"",
-  iconSize:[48,48],
-  iconAnchor:[24,24],
   html:`
-  <div style="position:relative;width:48px;height:48px">
-    <svg width="48" height="48" viewBox="0 0 48 48"
+  <div style="width:48px;height:48px;position:relative">
+    <svg width="48" height="48"
       style="transform:rotate(${angle}deg)">
       <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
       <line x1="24" y1="2" x2="24" y2="28"
         stroke="${color}" stroke-width="2"/>
     </svg>
     <div class="wind-speed-label">${speed}</div>
-  </div>`
+  </div>`,
+  iconSize:[48,48],
+  iconAnchor:[24,24]
 });
 
-// =====================
-// ① 海上保安庁（風＋波）
-// =====================
-async function fetchKaiho(){
-  const url = proxy + encodeURIComponent(
-    "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
-    "?lon=135&lat=35&stlon=120&stlat=20&edlon=150&edlat=50"
-  );
-  const data = await fetch(url).then(r=>r.json());
-
-  data.forEach(e=>{
+/* =========================
+   ① 海上保安庁 風
+========================= */
+fetch(proxy+encodeURIComponent(
+"https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
+"?lon=135&lat=35&stlon=90&stlat=15&edlon=180&edlat=60"
+))
+.then(r=>r.json())
+.then(d=>{
+  d.forEach(e=>{
     if(!e.shp) return;
-    const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
+    const m=e.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
     if(!m) return;
-
-    const lon=Number(m[1]);
-    const lat=Number(m[2]);
-
-    // ---- wind ----
-    const angle = windDirText(e.fuukou);
-    const speed = Number(e.fuusoku);
-
-    if (angle !== null && Number.isFinite(speed)) {
-      L.marker([lat,lon],{
-        icon:makeWindIcon(angle, speed, getArrowColor(speed))
-      }).addTo(windLayer)
-       .bindPopup(`${e.kansokujo_mei}<br>風速 ${speed} m/s`);
-    }
-
-    // ---- wave ----
-    const h = Number(e.hakou);
-    if (Number.isFinite(h)) {
-      L.circleMarker([lat,lon],{
-        radius:8,
-        color:getWaveColor(h),
-        fillColor:getWaveColor(h),
-        fillOpacity:0.8
-      }).addTo(waveLayer)
-       .bindTooltip(`${e.kansokujo_mei}<br>${h.toFixed(2)} m`);
-    }
+    const lat=Number(m[2]), lon=Number(m[1]);
+    const sp=Number(e.fuusoku);
+    const ang=windDirText(e.fuukou);
+    if(!Number.isFinite(sp)||ang===null) return;
+    L.marker([lat,lon],{
+      icon:makeWindIcon(ang,sp,getArrowColor(sp))
+    }).addTo(windLayer);
   });
-}
+});
 
-// =====================
-// ② AMeDAS（風）
-// =====================
-function getAmedasTime(){
+/* =========================
+   ② AMeDAS 風
+========================= */
+const amTime=(()=>{
   const d=new Date();
   d.setMinutes(d.getMinutes()-10);
   d.setMinutes(Math.floor(d.getMinutes()/10)*10);
-  const p=n=>n.toString().padStart(2,"0");
-  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+
-         p(d.getHours())+p(d.getMinutes())+"00";
-}
+  return d.toISOString().slice(0,16).replace(/[-T:]/g,"")+"00";
+})();
 
-async function fetchAmedas(){
-  const t=getAmedasTime();
-  const [data,meta]=await Promise.all([
-    fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${t}.json`).then(r=>r.json()),
-    fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json").then(r=>r.json())
-  ]);
-
-  Object.keys(data).forEach(c=>{
-    const o=data[c];
-    const m=meta[c];
-    if(!m) return;
-
-    const speed = Number(o.wind?.[0]);
-    const dir   = Number(o.windDirection?.[0]);
-
-    if (!Number.isFinite(speed) || !Number.isFinite(dir)) return;
-    if (speed < 10) return;
-
-    const angle = windDir16(dir);
-    if (angle === null) return;
-
+Promise.all([
+  fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${amTime}.json`).then(r=>r.json()),
+  fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json").then(r=>r.json())
+]).then(([a,t])=>{
+  Object.keys(a).forEach(c=>{
+    const o=a[c], m=t[c];
+    const sp=Number(o.wind?.[0]);
+    const d=Number(o.windDirection?.[0]);
+    if(!Number.isFinite(sp)||sp<10||!Number.isFinite(d)) return;
+    const ang=windDir16(d);
+    if(ang===null) return;
     const lat=m.lat[0]+m.lat[1]/60;
     const lon=m.lon[0]+m.lon[1]/60;
-
     L.marker([lat,lon],{
-      icon:makeWindIcon(angle, speed.toFixed(1), getArrowColor(speed))
-    }).addTo(windLayer)
-     .bindPopup(`${m.kjName}<br>${speed} m/s`);
+      icon:makeWindIcon(ang,sp.toFixed(1),getArrowColor(sp))
+    }).addTo(windLayer);
   });
-}
+});
 
-// =====================
-// ③ NOAA 船舶（風＋波）
-// =====================
-async function fetchNOAA(){
-  const txt = await fetch(
-    proxy + encodeURIComponent(
-      "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
-    )
-  ).then(r=>r.text());
-
+/* =========================
+   ③ NOAA 船舶 風・波
+========================= */
+fetch(proxy+encodeURIComponent(
+"https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
+))
+.then(r=>r.text())
+.then(txt=>{
   (txt.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
     const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
     if(p.length<8) return;
-
-    const lat  = Number(p[2]);
-    const lon  = Number(p[3]);
-    const wdir = Number(p[4]);
-    const wspd = Number(p[5]);
-    const wv   = Number(p[7]) * 0.3048;
-
+    const lat=Number(p[2]), lon=Number(p[3]);
+    const wd=Number(p[4]), ws=Number(p[5]);
+    const wh=Number(p[7])*0.3048;
     if(!Number.isFinite(lat)||!Number.isFinite(lon)) return;
-    if (lon < 90 || lon > 180 || lat < 15 || lat > 60) return;
-    
-    if (Number.isFinite(wdir) && Number.isFinite(wspd)) {
+    if(lat<15||lat>60||lon<90||lon>180) return;
+
+    if(Number.isFinite(ws)&&Number.isFinite(wd)){
       L.marker([lat,lon],{
-        icon:makeWindIcon(wdir, wspd.toFixed(1), getArrowColor(wspd))
+        icon:makeWindIcon(wd,ws.toFixed(1),getArrowColor(ws))
       }).addTo(windLayer);
     }
-
-    if (Number.isFinite(wv)) {
+    if(Number.isFinite(wh)){
       L.circleMarker([lat,lon],{
-        radius:7,
-        color:getWaveColor(wv),
-        fillColor:getWaveColor(wv),
-        fillOpacity:0.7
+        radius:7,color:getWaveColor(wh),
+        fillColor:getWaveColor(wh),fillOpacity:0.7
       }).addTo(waveLayer)
-       .bindTooltip(`Ship<br>${wv.toFixed(2)} m`);
+      .bindTooltip(`Ship ${wh.toFixed(2)} m`);
     }
   });
-}
+});
 
-// =====================
-// 波高 凡例
-// =====================
-const legend = L.control({ position: "bottomright" });
-
-legend.onAdd = function () {
-  const div = L.DomUtil.create("div", "legend");
-  const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
-
-  div.innerHTML += "<b>波高 (m)</b><br>";
-
-  for (let i = 0; i < grades.length; i++) {
-    const from = grades[i];
-    const to   = grades[i + 1];
-
-    div.innerHTML +=
-      `<i style="background:${getWaveColor(from + 0.01)}"></i> ` +
-      from + (to ? `–${to}` : "+") + "<br>";
+/* =========================
+   波高 凡例
+========================= */
+const legend=L.control({position:"bottomright"});
+legend.onAdd=()=>{
+  const d=L.DomUtil.create("div","legend");
+  const g=[0,0.5,1,1.5,2,3];
+  d.innerHTML="<b>波高 (m)</b><br>";
+  for(let i=0;i<g.length;i++){
+    d.innerHTML+=
+      `<i style="background:${getWaveColor(g[i]+0.01)}"></i>
+       ${g[i]}${g[i+1]?"–"+g[i+1]:"+"}<br>`;
   }
-  return div;
+  return d;
 };
-
 legend.addTo(map);
-
-// =====================
-// Init
-// =====================
-(async()=>{
-  await Promise.all([
-    fetchKaiho(),
-    fetchAmedas(),
-    fetchNOAA()
-  ]);
-})();
 </script>
 </body>
 </html>
