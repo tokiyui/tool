@@ -125,6 +125,11 @@ dataXML.querySelectorAll("mapdata").forEach(md=>{
 // ======================================
 // 海保 風向
 // ======================================
+fetch(proxy + encodeURIComponent(URL))
+  .then(r => r.text())
+  .then(txt => {
+    console.log(txt);
+  });
 fetch(proxy+encodeURIComponent(
  "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
  "?stlon=120&stlat=20&edlon=150&edlat=50"))
