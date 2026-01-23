@@ -1,23 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Copernicus NRT 波高（SWH） デバッグ版</title>
-  <script src="https://cdn.jsdelivr.net/npm/netcdfjs@0.5.1/dist/netcdfjs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.31.1/plotly.min.js"></script>
+<meta charset="UTF-8">
+<title>Copernicus NRT 波高 デバッグ版（10データセット）</title>
+<script src="https://cdn.jsdelivr.net/npm/netcdfjs@0.5.1/dist/netcdfjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.31.1/plotly.min.js"></script>
 </head>
 <body>
-<h1>Copernicus NRT 波高データ（デバッグ版）</h1>
-<div id="status" style="white-space: pre-wrap; background: #eee; padding: 10px; margin-bottom: 20px;"></div>
+<h1>Copernicus NRT 波高データ（10データセット・デバッグ版）</h1>
+<div id="status" style="white-space: pre-wrap; background:#eee; padding:10px; margin-bottom:20px;"></div>
 <div id="plots"></div>
 
 <script>
 const statusDiv = document.getElementById('status');
-
-function logStatus(msg){
-  console.log(msg);
-  statusDiv.textContent += msg + '\n';
-}
+function log(msg){ console.log(msg); statusDiv.textContent += msg+'\n'; }
 
 const datasets = [
   "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S",
@@ -32,89 +28,79 @@ const datasets = [
   "cmems_obs-wave_glo_phy-swh_nrt_swon-l3_PT1S"
 ];
 
-(async () => {
-  // UTC 6時間前 → 3時間単位で切り捨て
+(async()=>{
+  // 現在UTCの6時間前 → 3時間単位切り捨て
   const now = new Date();
-  now.setUTCHours(now.getUTCHours() - 6);
+  now.setUTCHours(now.getUTCHours()-6);
   const hour = Math.floor(now.getUTCHours()/3)*3;
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth()+1).padStart(2,'0');
   const day = String(now.getUTCDate()).padStart(2,'0');
   const hh = String(hour).padStart(2,'0');
 
-  logStatus(`対象時刻: ${year}-${month}-${day}T${hh}:00 UTC`);
+  log(`対象時刻: ${year}-${month}-${day}T${hh}:00 UTC`);
 
   for(const dataset of datasets){
     try{
-      logStatus(`\n=== データセット: ${dataset} ===`);
-
+      log(`\n=== データセット: ${dataset} ===`);
       const workerUrl = `https://copernicus.ryohorita105.workers.dev/?dataset=${dataset}&year=${year}&month=${month}`;
-      logStatus(`Worker URL: ${workerUrl}`);
+      log(`Worker URL: ${workerUrl}`);
 
       const resp = await fetch(workerUrl);
       if(!resp.ok) throw new Error(`Worker HTTP error ${resp.status}`);
       const json = await resp.json();
 
-      if(json.error){
-        logStatus(`Worker returned error: ${json.error}`);
-        continue;
-      }
+      if(json.error){ log(`Worker error: ${json.error}`); continue; }
 
-      const files = json.files;
-      logStatus(`取得ファイル数: ${files.length}`);
+      log(`取得ファイル数: ${json.files.length}`);
 
-      const targetPrefix = `global_vavh_l3_rt_${dataset.split("_").pop()}_${year}${month}${day}T${hh}0000_`;
-      const latestFile = files.filter(f => f.startsWith(targetPrefix))
-                              .sort().reverse()[0];
+      // ディレクトリ時刻は UTC6時間前の時刻で決め打ち
+      const prefix = `global_vavh_l3_rt_${dataset.split("_").pop()}_${year}${month}${day}T${hh}0000_`;
+      const latestFile = json.files.filter(f=>f.startsWith(prefix)).sort().reverse()[0];
 
-      if(!latestFile){
-        logStatus(`最新ファイルが見つかりません`);
-        continue;
-      }
+      if(!latestFile){ log(`最新ファイルが見つかりません`); continue; }
 
-      logStatus(`最新ファイル: ${latestFile}`);
+      log(`最新ファイル: ${latestFile}`);
 
       const ncUrl = `https://s3.waw3-1.cloudferro.com/mdl-native-05/native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/${dataset}/${year}/${month}/${latestFile}`;
-      logStatus(`NC URL: ${ncUrl}`);
+      log(`NC URL: ${ncUrl}`);
 
       const ncResp = await fetch(ncUrl);
       if(!ncResp.ok) throw new Error(`NC HTTP error ${ncResp.status}`);
       const arrayBuffer = await ncResp.arrayBuffer();
 
-      logStatus(`NCファイル取得成功 (${arrayBuffer.byteLength} bytes)`);
+      log(`NCファイル取得成功 (${arrayBuffer.byteLength} bytes)`);
 
       const nc = new NetCDF(arrayBuffer);
-      const swhVar = nc.root.variables.find(v => v.name === "swh");
-      const data = swhVar.readSlice(0, swhVar.dimensions[0].length, 0, swhVar.dimensions[1].length);
+      const swh = nc.root.variables.find(v=>v.name==="swh").readSlice(0, nc.root.variables.find(v=>v.name==="swh").dimensions[0].length,
+                                                                            0, nc.root.variables.find(v=>v.name==="swh").dimensions[1].length);
 
-      const latVar = nc.root.variables.find(v => v.name === "latitude");
-      const lonVar = nc.root.variables.find(v => v.name === "longitude");
-      const lats = latVar.readSlice(0, latVar.dimensions[0].length);
-      const lons = lonVar.readSlice(0, lonVar.dimensions[0].length);
+      const lats = nc.root.variables.find(v=>v.name==="latitude").readSlice(0, nc.root.variables.find(v=>v.name==="latitude").dimensions[0].length);
+      const lons = nc.root.variables.find(v=>v.name==="longitude").readSlice(0, nc.root.variables.find(v=>v.name==="longitude").dimensions[0].length);
 
-      // プロット用 div
       const div = document.createElement('div');
       div.id = `plot-${dataset}`;
-      div.style.height = "400px";
-      div.style.marginBottom = "40px";
+      div.style.height="400px";
+      div.style.marginBottom="40px";
       document.getElementById('plots').appendChild(div);
 
-      Plotly.newPlot(div.id, [{
-        z: data,
+      Plotly.newPlot(div.id,[{
+        z: swh,
         x: lons,
         y: lats,
-        type: 'heatmap',
-        colorscale: 'Viridis',
-        colorbar: { title: 'SWH (m)' }
-      }], {
-        title: `${dataset} SWH ${year}-${month}-${day} ${hh}:00 UTC`,
-        xaxis: { title: 'Longitude' },
-        yaxis: { title: 'Latitude' }
+        type:'heatmap',
+        colorscale:'Viridis',
+        colorbar:{title:'SWH (m)'}
+      }],{
+        title:`${dataset} SWH ${year}-${month}-${day} ${hh}:00 UTC`,
+        xaxis:{title:'Longitude'},
+        yaxis:{title:'Latitude'}
       });
 
-      logStatus(`${dataset} 描画完了`);
+      log(`${dataset} 描画完了`);
+
     }catch(e){
-      logStatus(`エラー: ${e}`);
+      log(`エラー: ${e}`);
       console.error(e);
     }
   }
