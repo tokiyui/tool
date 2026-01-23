@@ -230,6 +230,30 @@ async function fetchNOAA(){
 }
 
 // =====================
+// 波高 凡例
+// =====================
+const legend = L.control({ position: "bottomright" });
+
+legend.onAdd = function () {
+  const div = L.DomUtil.create("div", "legend");
+  const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
+
+  div.innerHTML += "<b>波高 (m)</b><br>";
+
+  for (let i = 0; i < grades.length; i++) {
+    const from = grades[i];
+    const to   = grades[i + 1];
+
+    div.innerHTML +=
+      `<i style="background:${getWaveColor(from + 0.01)}"></i> ` +
+      from + (to ? `–${to}` : "+") + "<br>";
+  }
+  return div;
+};
+
+legend.addTo(map);
+
+// =====================
 // Init
 // =====================
 (async()=>{
