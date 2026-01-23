@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Copernicus SWH latest</title>
+  <title>Copernicus SWH latest (CORS proxy)</title>
 
   <!-- PyScript -->
   <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
@@ -41,7 +41,6 @@ def load_and_plot(url):
 
     ds = xr.open_dataset(url)
 
-    # Significant Wave Height
     swh = ds["VAVH"]
 
     plt.figure(figsize=(9,4))
@@ -57,11 +56,14 @@ def load_and_plot(url):
 <!-- JavaScript -->
 <!-- ============================= -->
 <script>
+/* ===== Cloudflare Worker CORS proxy ===== */
+const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
+
 function getLatestStartTimeUTC() {
   const now = new Date();
   const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
 
-  // minus 6 hours
+  // -6 hours
   utc.setHours(utc.getHours() - 6);
 
   // floor to 3-hour
@@ -101,7 +103,8 @@ async function run() {
 
   status.innerText = "searching latest nc file…";
 
-  const res = await fetch(baseURL);
+  /* directory listing via CORS proxy */
+  const res = await fetch(PROXY + encodeURIComponent(baseURL));
   const text = await res.text();
 
   const re = new RegExp(
@@ -119,7 +122,10 @@ async function run() {
 
   status.innerText = "loading nc…";
 
-  pyscript.interpreter.globals.set("nc_url", ncURL);
+  /* netCDF itself also via proxy */
+  const proxiedNC = PROXY + encodeURIComponent(ncURL);
+
+  pyscript.interpreter.globals.set("nc_url", proxiedNC);
   pyscript.runPython("load_and_plot(nc_url)");
 }
 
