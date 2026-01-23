@@ -35,7 +35,7 @@
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
-    const proxy = "https://api.allorigins.win/raw?";
+    const proxy = "https://corsproxy.io/?";
     const setupURL = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml");
     const dataURL  = proxy + encodeURIComponent("https://nowphas.mlit.go.jp/mapxml/DataMap.xml");
     const shipURL  = proxy + encodeURIComponent("https://www.ndbc.noaa.gov/ship_obs.php?uom=E&time=2");
