@@ -49,9 +49,16 @@
       return "orangered";
     }
 
-    function createCircleMarker(lat, lon, color, text) {
-      return L.circleMarker([lat, lon], { radius: 8, color, fillColor: color, fillOpacity: 0.8, weight: 1 })
-        .bindTooltip(text, { permanent: false }).addTo(map);
+    function createCircleMarker(lat, lon, color, html) {
+      return L.circleMarker([lat, lon], {
+        radius: 8,
+        color,
+        fillColor: color,
+        fillOpacity: 0.8,
+        weight: 1
+      })
+      .bindTooltip(html, { permanent: false, direction: "top", opacity: 0.9 })
+      .addTo(map);
     }
 
     async function fetchXML(url) {
@@ -148,7 +155,16 @@
           const h = parseFloat(yugiha);
           if (h >= 100) continue;
           const { name, lat, lon } = points[code];
-          createCircleMarker(lat, lon, getColor(h), `${name} (${h.toFixed(2)} m)`);
+          const url = `https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/`;
+
+          createCircleMarker(
+            lat,
+            lon,
+            getColor(h),
+            `<a href="${url}" target="_blank" rel="noopener">
+               ${name}
+             </a><br>(${h.toFixed(2)} m)`
+          );
         }
       }
 
