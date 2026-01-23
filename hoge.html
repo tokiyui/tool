@@ -22,10 +22,10 @@ button { margin-top: 10px; padding: 6px 12px; }
 <div id="status"></div>
 
 <script>
-// CORS回避用プロキシ
+// CORS回避用プロキシ（ファイル取得用）
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
 
-// BASE URL 更新
+// BASE URL（ディレクトリ・サブdataset）
 const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2Fcmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211%2F";
 
 function getLatestTime() {
@@ -43,34 +43,38 @@ function getLatestTime() {
 
 async function fetchLatestNC() {
     const t = getLatestTime();
-    const dirUrl = `${PROXY}${BASE}${t.y}%2F${t.m}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
+
+    // ===== ① ディレクトリHTML取得はプロキシなし =====
+    const dirUrl = `${BASE}${t.y}%2F${t.m}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
     const status = document.getElementById("status");
-    status.innerText = `[JS] ディレクトリURL: ${dirUrl}\n取得中...`;
+    status.innerText = `[JS] ディレクトリURL: ${dirUrl}\n取得中（プロキシなし）...`;
 
     try {
         const resp = await fetch(dirUrl);
-        status.innerText += `\n[JS] ディレクトリHTTPステータス: ${resp.status}`;
-        if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+        status.innerText += `\n[JS] HTTP status: ${resp.status}`;
         const html = await resp.text();
-        status.innerText += `\n[JS] HTML length: ${html.length}`;
-        status.innerText += `\n[DEBUG] HTML先頭1000文字:\n${html.slice(0,1000)}`;
+        status.innerText += `\nHTML length: ${html.length}`;
+        status.innerText += `\n先頭1000文字:\n${html.slice(0,1000)}`;
 
-        // 正規表現をファイル名形式に合わせて寛容化
+        // ===== ファイル名正規表現（寛容化） =====
         const regex = new RegExp(`cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211_${t.YYYYMMDDTHHMMSS}_[^<"\\s]+\\.nc`, "g");
         const matches = html.match(regex);
-        status.innerText += `\n[JS] Matches: ${matches ? matches.length : 0}`;
+        status.innerText += `\nMatches: ${matches ? matches.length : 0}`;
         if (!matches || !matches.length) throw new Error("ファイルが見つかりません");
 
         const latestFile = matches[0];
-        status.innerText += `\n[JS] Found file: ${latestFile}\nFetching...`;
+        status.innerText += `\n最新ファイル: ${latestFile}\n取得中（プロキシ経由）...`;
 
-        const fileResp = await fetch(`${PROXY}${BASE}${t.y}%2F${t.m}%2F${latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`);
-        status.innerText += `\n[JS] File HTTP status: ${fileResp.status}`;
+        // ===== ② ファイル取得はプロキシ使用 =====
+        const fileUrl = `${PROXY}${BASE}${t.y}%2F${t.m}%2F${latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211`;
+        const fileResp = await fetch(fileUrl);
+        status.innerText += `\nFile HTTP status: ${fileResp.status}`;
         if (!fileResp.ok) throw new Error(`HTTP error ${fileResp.status}`);
         const blob = await fileResp.blob();
-        status.innerText += `\n[JS] File size: ${blob.size} bytes`;
+        status.innerText += `\nFile size: ${blob.size} bytes`;
+
     } catch (err) {
-        status.innerText += `\n[JS] Error: ${err}`;
+        status.innerText += `\nError: ${err}`;
     }
 }
 
@@ -93,11 +97,12 @@ async def fetch_nc_py():
     latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
     key = latest.strftime("%Y%m%dT%H0000")
 
-    dirUrl = f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
+    # ===== ① ディレクトリHTML取得はプロキシなし =====
+    dirUrl = f"{BASE}{latest.year:04d}%2F{latest.month:02d}%2F&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
     out += f"[PyScript] Dir URL: {dirUrl}\n"
 
     try:
-        resp = await pyfetch(dirUrl)
+        resp = await pyfetch(dirUrl)  # プロキシなし
         out += f"[PyScript] Dir HTTP: {resp.status}\n"
         html = await resp.string()
         out += f"[PyScript] HTML length: {len(html)}\n"
@@ -112,7 +117,9 @@ async def fetch_nc_py():
         latestFile = matches[0]
         out += f"\n[PyScript] File: {latestFile}"
 
-        fileResp = await pyfetch(f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F{latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211")
+        # ===== ② ファイル取得はプロキシ使用 =====
+        fileUrl = f"{PROXY}{BASE}{latest.year:04d}%2F{latest.month:02d}%2F{latestFile}&subdataset=cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211"
+        fileResp = await pyfetch(fileUrl)
         out += f"\n[PyScript] File HTTP: {fileResp.status}"
         data = await fileResp.bytes()
         out += f"\n[PyScript] File size: {len(data)} bytes"
