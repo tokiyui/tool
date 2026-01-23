@@ -1,114 +1,204 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>風向SVGマップ（風速色分け）</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
-  <style>
-    #map {
-      height: 100vh;
-    }
-    .wind-speed-label {
-      font-size: 18px; /* 大きく */
-      font-weight: bold;
-      color: black;
-      text-shadow: 1px 1px 2px white;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 1000; /* 矢印の前面に */
-    }
-  </style>
+<meta charset="UTF-8">
+<title>風向SVGマップ（海保＋AMeDAS）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+
+<style>
+html, body {
+  margin: 0;
+  height: 100%;
+}
+#map {
+  height: 100vh;
+}
+
+.wind-speed-label {
+  font-size: 18px;
+  font-weight: bold;
+  color: black;
+  text-shadow: 1px 1px 2px white;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1000;
+}
+</style>
 </head>
+
 <body>
-  <div id="map"></div>
+<div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    const map = L.map('map').setView([42.0, 143.0], 6);
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ======================================
+// 地図
+// ======================================
+const map = L.map('map').setView([42.0, 143.0], 6);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
 
-    // CORS回避プロキシ
-    const proxy = "https://api.allorigins.win/raw?url=";
-    const dataUrl = "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50";
+// ======================================
+// 共通：風速→色
+// ======================================
+const getArrowColor = (speed) => {
+  if (speed >= 20) return "red";
+  if (speed >= 15) return "orange";
+  if (speed >= 10) return "yellow";
+  return "blue";
+};
 
-    const getArrowColor = (speed) => {
-      if (speed >= 20) return "red";
-      if (speed >= 15) return "orange";
-      if (speed >= 10) return "yellow";
-      return "blue";
-    };
+// ======================================
+// 海保：文字風向→角度
+// ======================================
+const windDirToAngleText = (dir) => {
+  const table = {
+    "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
+    "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
+    "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
+    "東":270,"東南東":292.5,"南東":315,"南南東":337.5
+  };
+  return table[dir] ?? null;
+};
 
-    const windDirToAngle = (dir) => {
-      switch(dir) {
-        case "南": return 0;
-        case "南南西": return 22.5;
-        case "南西": return 45;
-        case "西南西": return 67.5;
-        case "西": return 90;
-        case "西北西": return 112.5;
-        case "北西": return 135;
-        case "北北西": return 157.5;
-        case "北": return 180;
-        case "北北東": return 202.5;
-        case "北東": return 225;
-        case "東北東": return 247.5;
-        case "東": return 270;
-        case "東南東": return 292.5;
-        case "南東": return 315;
-        case "南南東": return 337.5;
-        default: return null; // 不明は null
-      }
-    };
+// ======================================
+// AMeDAS：16方位(1–16)→角度
+// ======================================
+const windDir16ToAngle = (dir) => {
+  if (dir < 1 || dir > 16) return null;
+  return (dir - 1) * 22.5;
+};
 
-    fetch(proxy + encodeURIComponent(dataUrl))
-      .then(res => res.json())
-      .then(data => {
-        data.forEach(entry => {
-          if (!entry.shp) return;
+// ======================================
+// AMeDAS 時刻生成（現在-10分）
+// ======================================
+const getAmedasTimeString = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - 10);
+  d.setMinutes(Math.floor(d.getMinutes() / 10) * 10);
+  d.setSeconds(0);
 
-          const match = entry.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
-          if (!match) return;
+  const p = n => n.toString().padStart(2, "0");
+  return (
+    d.getFullYear() +
+    p(d.getMonth() + 1) +
+    p(d.getDate()) +
+    p(d.getHours()) +
+    p(d.getMinutes()) +
+    "00"
+  );
+};
 
-          const lon = parseFloat(match[1]);
-          const lat = parseFloat(match[2]);
+// ======================================
+// SVGマーカー生成
+// ======================================
+const makeWindIcon = (angle, speed, color) => {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="position:relative;width:48px;height:48px;">
+        <svg width="48" height="48" viewBox="0 0 48 48"
+             style="transform:rotate(${angle}deg);
+                    position:absolute;top:0;left:0;">
+          <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
+          <line x1="24" y1="2" x2="24" y2="28"
+                stroke="${color}" stroke-width="2"/>
+        </svg>
+        <div class="wind-speed-label">${speed}</div>
+      </div>
+    `,
+    iconSize: [48,48],
+    iconAnchor: [24,24]
+  });
+};
 
-          // 風向・風速が不明なら非表示
-          const angle = windDirToAngle(entry.fuukou);
-          const windSpeed = parseFloat(entry.fuusoku);
-          if (angle === null || isNaN(windSpeed)) return;
+// ======================================
+// ① 海保データ
+// ======================================
+const proxy = "https://api.allorigins.win/raw?url=";
+const kaihoUrl =
+  "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute" +
+  "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50";
 
-          const arrowColor = getArrowColor(windSpeed);
+fetch(proxy + encodeURIComponent(kaihoUrl))
+  .then(r => r.json())
+  .then(data => {
+    data.forEach(e => {
+      if (!e.shp) return;
 
-          const customIcon = L.divIcon({
-            className: 'custom-wind-icon',
-            html: `<div style="position: relative; width: 48px; height: 48px; text-align: center;">
-              <svg width="48" height="48" viewBox="0 0 48 48" style="transform: rotate(${angle}deg); position: absolute; top: 0; left: 0; z-index: 1;">
-                <polygon points="24,2 28,10 24,8 20,10" fill="${arrowColor}"/>
-                <line x1="24" y1="2" x2="24" y2="28" stroke="${arrowColor}" stroke-width="2"/>
-              </svg>
-              <div class="wind-speed-label">${windSpeed}</div>
-            </div>`,
-            iconSize: [48, 48],
-            iconAnchor: [24, 24]
-          });
+      const m = e.shp.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
+      if (!m) return;
 
-          const marker = L.marker([lat, lon], { icon: customIcon }).addTo(map);
-          if (entry.kansokujo_mei) {
-            marker.bindPopup(`<a href="${entry.url}" target="_blank">${entry.kansokujo_mei}</a><br>風向: ${entry.fuukou}<br>風速: ${entry.fuusoku}<br>観測日時: ${entry.kansoku_date}`);
-          }
-        });
-      })
-      .catch(err => console.error("データ取得エラー:", err));
-  </script>
+      const lon = +m[1];
+      const lat = +m[2];
+
+      const angle = windDirToAngleText(e.fuukou);
+      const speed = parseFloat(e.fuusoku);
+      if (angle === null || isNaN(speed)) return;
+
+      const icon = makeWindIcon(angle, speed, getArrowColor(speed));
+
+      L.marker([lat, lon], { icon }).addTo(map)
+        .bindPopup(`
+          <b>${e.kansokujo_mei}</b><br>
+          風向: ${e.fuukou}<br>
+          風速: ${e.fuusoku}<br>
+          観測: ${e.kansoku_date}
+        `);
+    });
+  });
+
+// ======================================
+// ② AMeDAS（10m/s以上）
+// ======================================
+const timeStr = getAmedasTimeString();
+
+Promise.all([
+  fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${timeStr}.json`)
+    .then(r => r.json()),
+  fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json")
+    .then(r => r.json())
+]).then(([amedas, table]) => {
+
+  Object.keys(amedas).forEach(code => {
+    const obs = amedas[code];
+    const meta = table[code];
+    if (!meta) return;
+
+    const speed = obs.wind?.[0];
+    const dir = obs.windDirection?.[0];
+    if (speed == null || dir == null || speed < 10) return;
+
+    const angle = windDir16ToAngle(dir);
+    if (angle === null) return;
+
+    const lat = meta.lat[0] + meta.lat[1] / 60;
+    const lon = meta.lon[0] + meta.lon[1] / 60;
+
+    const icon = makeWindIcon(
+      angle,
+      speed.toFixed(1),
+      getArrowColor(speed)
+    );
+
+    L.marker([lat, lon], { icon }).addTo(map)
+      .bindPopup(`
+        <b>${meta.kjName}</b><br>
+        風速: ${speed} m/s<br>
+        観測時刻: ${timeStr}
+      `);
+  });
+});
+</script>
 </body>
 </html>
