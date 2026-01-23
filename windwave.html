@@ -261,6 +261,8 @@ async function fetchAll() {
 
 // ========== Draw ==========
 function drawPoints(){
+  let currentPopup = null; // 現在表示中のポップアップを記憶
+
   Object.values(pointData).forEach(p=>{
     let lines=[];
 
@@ -269,7 +271,7 @@ function drawPoints(){
       const nameHtml = p.windUrl?`<a href="${p.windUrl}" target="_blank">${p.windName}</a>`:p.windName;
       lines.push(`${type} ${nameHtml}`);
       if(p.iconAngle!=null){
-        // 日本語の16方位表示
+        // 日本語16方位
         const idx = ((Math.round((p.iconAngle-180)/22.5)%16)+16)%16;
         lines.push(`風向: ${dirs[idx]}`);
       }
@@ -283,23 +285,38 @@ function drawPoints(){
       lines.push(`波高: ${p.waveHeight.toFixed(2)} m`);
     }
 
-    const popupHtml=lines.join("<br>");
+    const popupHtml = lines.join("<br>");
 
+    // 風マーカー
     if(p.iconAngle!=null){
-      const m= L.marker([p.lat,p.lon],{icon:makeWindIcon(p.iconAngle,p.iconSpeed,p.iconColor)}).addTo(map);
+      const m = L.marker([p.lat,p.lon], {icon: makeWindIcon(p.iconAngle, p.iconSpeed, p.iconColor)}).addTo(map);
       m.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
-      m.on("mouseover",e=>e.target.openPopup());;
+      m.on("mouseover", e=>{
+        if(currentPopup) currentPopup.close();  // 前のポップアップを閉じる
+        e.target.openPopup();
+        currentPopup = e.target.getPopup();
+      });
     }
+
+    // 波マーカー
     if(p.waveHeight!=null){
-      const c=L.circleMarker([p.lat,p.lon],{
-        radius:8,color:getColor(p.waveHeight),
-        fillColor:getColor(p.waveHeight),fillOpacity:0.8,weight:1
+      const c = L.circleMarker([p.lat,p.lon],{
+        radius:8,
+        color:getColor(p.waveHeight),
+        fillColor:getColor(p.waveHeight),
+        fillOpacity:0.8,
+        weight:1
       }).addTo(map);
       c.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
-      c.on("mouseover",e=>e.target.openPopup());
+      c.on("mouseover", e=>{
+        if(currentPopup) currentPopup.close();
+        e.target.openPopup();
+        currentPopup = e.target.getPopup();
+      });
     }
   });
 }
+
 
 // ========== Legend ==========
 const legend=L.control({position:"bottomright"});
