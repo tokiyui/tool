@@ -1,148 +1,129 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<title>Copernicus SWH (netCDF4 via PyScript)</title>
+  <meta charset="UTF-8">
+  <title>Copernicus SWH latest</title>
 
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- PyScript -->
+  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
+  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
 
-<!-- PyScript（★固定バージョン） -->
-<link rel="stylesheet" href="https://pyscript.net/2024.5.1/pyscript.css">
-<script defer src="https://pyscript.net/2024.5.1/pyscript.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    #status {
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+  </style>
 
-<style>
-html, body, #map {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-}
-#status {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  background: rgba(255,255,255,0.9);
-  padding: 6px;
-  font-family: monospace;
-  z-index: 999;
-}
-</style>
+  <py-config>
+packages = ["xarray", "numpy", "matplotlib"]
+  </py-config>
 </head>
-<body>
 
-<div id="map"></div>
+<body>
+<h2>Copernicus Significant Wave Height (SWH)</h2>
 <div id="status">initializing…</div>
 
-<py-config>
-packages = [
-  "numpy",
-  "netCDF4",
-  "pillow"
-]
-</py-config>
-
+<!-- ============================= -->
+<!-- PyScript -->
+<!-- ============================= -->
 <py-script>
-import numpy as np
-from netCDF4 import Dataset
-from PIL import Image
-import datetime
-import io
-import urllib.request
-import js
-import asyncio
+import xarray as xr
+import matplotlib.pyplot as plt
 
-def latest_base_time():
-    now = datetime.datetime.utcnow() - datetime.timedelta(hours=6)
-    h = (now.hour // 3) * 3
-    return now.replace(hour=h, minute=0, second=0, microsecond=0)
+def load_and_plot(url):
+    from js import document
+    document.getElementById("status").innerText = "loading netCDF…"
 
-def fmt(t):
-    return t.strftime("%Y%m%dT%H0000")
+    ds = xr.open_dataset(url)
 
-def build_url():
-    t1 = latest_base_time()
-    t2 = t1 + datetime.timedelta(hours=3)
-    t3 = datetime.datetime.utcnow()
+    # Significant Wave Height
+    swh = ds["VAVH"]
 
-    y = t1.year
-    m = f"{t1.month:02d}"
+    plt.figure(figsize=(9,4))
+    swh.isel(time=0).plot(cmap="viridis")
+    plt.title("Significant Wave Height (m)")
+    plt.tight_layout()
+    plt.show()
 
-    fname = (
-        f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_"
-        f"{fmt(t1)}_{fmt(t2)}_{fmt(t3)}.nc"
-    )
-
-    return (
-        "https://data.marine.copernicus.eu/product/"
-        "WAVE_GLO_PHY_SWH_L3_NRT_014_001/files"
-        f"?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/"
-        f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/"
-        f"{y}/{m}/"
-        f"&subdataset={fname}"
-    )
-
-async def main():
-    js.document.getElementById("status").innerText = "fetching netCDF…"
-
-    url = build_url()
-    raw = urllib.request.urlopen(url).read()
-    ds = Dataset("mem", memory=raw)
-
-    lon = ds.variables["longitude"][:]
-    lat = ds.variables["latitude"][:]
-    swh = ds.variables["VAVH"][:]
-
-    ny, nx = swh.shape
-    img = Image.new("RGBA", (nx, ny))
-    px = img.load()
-
-    for j in range(ny):
-        for i in range(nx):
-            v = swh[j, i]
-            if np.isnan(v):
-                px[i, ny-1-j] = (0,0,0,0)
-            elif v < 1:
-                px[i, ny-1-j] = (0,120,255,160)
-            elif v < 2:
-                px[i, ny-1-j] = (0,200,0,160)
-            elif v < 3:
-                px[i, ny-1-j] = (255,200,0,160)
-            else:
-                px[i, ny-1-j] = (255,0,0,160)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-
-    js.renderOverlay(
-        buf.getvalue(),
-        float(lat.min()), float(lat.max()),
-        float(lon.min()), float(lon.max())
-    )
-
-    js.document.getElementById("status").innerText = "done"
-
-asyncio.ensure_future(main())
+    document.getElementById("status").innerText = "done"
 </py-script>
 
+<!-- ============================= -->
+<!-- JavaScript -->
+<!-- ============================= -->
 <script>
-const map = L.map("map").setView([30, 140], 3);
+function getLatestStartTimeUTC() {
+  const now = new Date();
+  const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
 
-L.tileLayer(
-  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-).addTo(map);
+  // minus 6 hours
+  utc.setHours(utc.getHours() - 6);
 
-window.renderOverlay = function(pngBytes, latMin, latMax, lonMin, lonMax) {
-  const blob = new Blob([pngBytes], { type: "image/png" });
-  const url = URL.createObjectURL(blob);
+  // floor to 3-hour
+  const h = utc.getHours();
+  utc.setHours(Math.floor(h / 3) * 3, 0, 0, 0);
 
-  L.imageOverlay(
-    url,
-    [[latMin, lonMin], [latMax, lonMax]],
-    { opacity: 0.7 }
-  ).addTo(map);
-};
+  return utc;
+}
+
+function fmt(dt) {
+  const p = n => String(n).padStart(2, "0");
+  return (
+    dt.getUTCFullYear() +
+    p(dt.getUTCMonth() + 1) +
+    p(dt.getUTCDate()) +
+    "T" +
+    p(dt.getUTCHours()) +
+    "0000"
+  );
+}
+
+async function run() {
+  const status = document.getElementById("status");
+
+  const t0 = getLatestStartTimeUTC();
+  const startStr = fmt(t0);
+
+  const y = t0.getUTCFullYear();
+  const m = String(t0.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(t0.getUTCDate()).padStart(2, "0");
+
+  const baseURL =
+    "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files" +
+    "?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/" +
+    "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/" +
+    `${y}/${m}/${d}/`;
+
+  status.innerText = "searching latest nc file…";
+
+  const res = await fetch(baseURL);
+  const text = await res.text();
+
+  const re = new RegExp(
+    `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_${startStr}_[0-9T]{15}_[0-9T]{15}\\.nc`
+  );
+
+  const match = text.match(re);
+  if (!match) {
+    status.innerText = "nc file not found";
+    throw "nc file not found";
+  }
+
+  const ncURL = baseURL + match[0];
+  console.log("NC URL:", ncURL);
+
+  status.innerText = "loading nc…";
+
+  pyscript.interpreter.globals.set("nc_url", ncURL);
+  pyscript.runPython("load_and_plot(nc_url)");
+}
+
+run();
 </script>
 
 </body>
