@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Copernicus SWH latest (NetCDF + Leaflet)</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<!-- NetCDF reader -->
+<script src="https://unpkg.com/netcdfjs@0.7.0/dist/netcdfjs.min.js"></script>
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+#map {
+  width: 100%;
+  height: 100%;
+}
+#info {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  background: rgba(255,255,255,0.9);
+  padding: 6px 10px;
+  font-family: monospace;
+  font-size: 12px;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="info">loading...</div>
+
+<script>
+// ==================================================
+// 時刻計算（UTC-6h → 3時間切り捨て）
+// ==================================================
+function getLatestBaseTimeUTC() {
+  const now = new Date();
+  const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
+
+  utc.setUTCHours(utc.getUTCHours() - 6);
+  const h = utc.getUTCHours();
+  utc.setUTCHours(Math.floor(h / 3) * 3, 0, 0, 0);
+
+  return utc;
+}
+
+function fmt(dt) {
+  const z = n => String(n).padStart(2, "0");
+  return (
+    dt.getUTCFullYear() +
+    z(dt.getUTCMonth() + 1) +
+    z(dt.getUTCDate()) +
+    "T" +
+    z(dt.getUTCHours()) +
+    "0000"
+  );
+}
+
+// ==================================================
+// Copernicus URL 作成
+// ==================================================
+function buildCopernicusURL(baseTime) {
+  const y = baseTime.getUTCFullYear();
+  const m = String(baseTime.getUTCMonth() + 1).padStart(2, "0");
+
+  const t1 = fmt(baseTime);
+  const t2 = fmt(new Date(baseTime.getTime() + 3 * 3600 * 1000));
+  const t3 = fmt(new Date());
+
+  return (
+    "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files" +
+    "?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/" +
+    "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/" +
+    y + "/" + m + "/" +
+    "&subdataset=cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_" +
+    t1 + "_" + t2 + "_" + t3 + ".nc"
+  );
+}
+
+// ==================================================
+// NetCDF 読み込み → Canvas 描画
+// ==================================================
+async function loadAndRender(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("fetch failed");
+
+  const buf = await res.arrayBuffer();
+  const nc = new netcdfjs.NetCDFReader(buf);
+
+  const lon = nc.getDataVariable("longitude");
+  const lat = nc.getDataVariable("latitude");
+  const swh = nc.getDataVariable("VAVH"); // 有義波高
+
+  const nx = lon.length;
+  const ny = lat.length;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = nx;
+  canvas.height = ny;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(nx, ny);
+
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const v = swh[j * nx + i];
+      const p = ((ny - 1 - j) * nx + i) * 4;
+
+      if (isNaN(v)) {
+        img.data[p + 3] = 0;
+      } else {
+        // 0–8 m を想定
+        const c = Math.min(255, v / 8 * 255);
+        img.data[p]     = c;
+        img.data[p + 1] = c;
+        img.data[p + 2] = 255;
+        img.data[p + 3] = 180;
+      }
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+
+  return {
+    canvas,
+    bounds: [
+      [Math.min(...lat), Math.min(...lon)],
+      [Math.max(...lat), Math.max(...lon)]
+    ]
+  };
+}
+
+// ==================================================
+// Leaflet 初期化
+// ==================================================
+(async () => {
+  const map = L.map("map").setView([0, 160], 2);
+
+  L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { maxZoom: 8 }
+  ).addTo(map);
+
+  const baseTime = getLatestBaseTimeUTC();
+  const url = buildCopernicusURL(baseTime);
+
+  document.getElementById("info").textContent =
+    "fetching: " + fmt(baseTime) + " UTC";
+
+  console.log(url);
+
+  try {
+    const { canvas, bounds } = await loadAndRender(url);
+    L.imageOverlay(canvas, bounds).addTo(map);
+    document.getElementById("info").textContent =
+      "SWH " + fmt(baseTime) + " UTC";
+  } catch (e) {
+    document.getElementById("info").textContent = "ERROR";
+    console.error(e);
+  }
+})();
+</script>
+
+</body>
+</html>
