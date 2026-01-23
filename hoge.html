@@ -1,83 +1,67 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Copernicus SWH latest (CORS proxy)</title>
+<meta charset="UTF-8">
+<title>Copernicus SWH DEBUG</title>
 
-  <!-- PyScript -->
-  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
-  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+<link rel="stylesheet"
+  href="https://pyscript.net/releases/2025.2.4/core.css">
+<script type="module"
+  src="https://pyscript.net/releases/2025.2.4/core.js"></script>
 
-  <style>
-    body {
-      font-family: sans-serif;
-      margin: 20px;
-    }
-    #status {
-      margin-bottom: 10px;
-      font-weight: bold;
-    }
-  </style>
+<style>
+body { font-family: monospace; }
+pre { background:#eee; padding:10px; white-space:pre-wrap; }
+#status { font-weight:bold; color:#b00; }
+</style>
 
-  <py-config>
+<py-config>
 packages = ["xarray", "numpy", "matplotlib"]
-  </py-config>
+</py-config>
 </head>
 
 <body>
-<h2>Copernicus Significant Wave Height (SWH)</h2>
-<div id="status">initializing…</div>
 
-<!-- ============================= -->
-<!-- PyScript -->
-<!-- ============================= -->
+<h2>Copernicus SWH DEBUG</h2>
+<div id="status">booting…</div>
+<pre id="log"></pre>
+
 <py-script>
 import xarray as xr
 import matplotlib.pyplot as plt
+from js import document
 
 def load_and_plot(url):
-    from js import document
-    document.getElementById("status").innerText = "loading netCDF…"
-
+    document.getElementById("status").innerText = "PyScript: loading netCDF"
     ds = xr.open_dataset(url)
-
     swh = ds["VAVH"]
 
     plt.figure(figsize=(9,4))
-    swh.isel(time=0).plot(cmap="viridis")
-    plt.title("Significant Wave Height (m)")
-    plt.tight_layout()
+    swh.isel(time=0).plot()
+    plt.title("SWH")
     plt.show()
 
-    document.getElementById("status").innerText = "done"
+    document.getElementById("status").innerText = "PyScript: done"
 </py-script>
 
-<!-- ============================= -->
-<!-- JavaScript -->
-<!-- ============================= -->
 <script>
-/* ===== Cloudflare Worker CORS proxy ===== */
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
+const log = msg =>
+  document.getElementById("log").textContent += msg + "\n";
 
-function getLatestStartTimeUTC() {
-  const now = new Date();
-  const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-
-  // -6 hours
-  utc.setHours(utc.getHours() - 6);
-
-  // floor to 3-hour
-  const h = utc.getHours();
-  utc.setHours(Math.floor(h / 3) * 3, 0, 0, 0);
-
+function getLatestStartTimeUTC(offsetH) {
+  const d = new Date();
+  const utc = new Date(d.getTime() + d.getTimezoneOffset()*60000);
+  utc.setHours(utc.getHours() - offsetH);
+  utc.setHours(Math.floor(utc.getHours()/3)*3,0,0,0);
   return utc;
 }
 
 function fmt(dt) {
-  const p = n => String(n).padStart(2, "0");
+  const p=n=>String(n).padStart(2,"0");
   return (
     dt.getUTCFullYear() +
-    p(dt.getUTCMonth() + 1) +
+    p(dt.getUTCMonth()+1) +
     p(dt.getUTCDate()) +
     "T" +
     p(dt.getUTCHours()) +
@@ -85,15 +69,15 @@ function fmt(dt) {
   );
 }
 
-async function run() {
-  const status = document.getElementById("status");
-
-  const t0 = getLatestStartTimeUTC();
+async function tryOnce(offsetH) {
+  const t0 = getLatestStartTimeUTC(offsetH);
   const startStr = fmt(t0);
 
-  const y = t0.getUTCFullYear();
-  const m = String(t0.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(t0.getUTCDate()).padStart(2, "0");
+  const y=t0.getUTCFullYear();
+  const m=String(t0.getUTCMonth()+1).padStart(2,"0");
+  const d=String(t0.getUTCDate()).padStart(2,"0");
+
+  log(`--- TRY offset ${offsetH}h → ${startStr} ---`);
 
   const baseURL =
     "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files" +
@@ -101,35 +85,47 @@ async function run() {
     "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/" +
     `${y}/${m}/${d}/`;
 
-  status.innerText = "searching latest nc file…";
+  log("DIR URL:");
+  log(baseURL);
 
-  /* directory listing via CORS proxy */
-  const res = await fetch(PROXY + encodeURIComponent(baseURL));
-  const text = await res.text();
+  const r = await fetch(PROXY + encodeURIComponent(baseURL));
+  const txt = await r.text();
+
+  log("LISTING HEAD:");
+  log(txt.slice(0,500));
 
   const re = new RegExp(
-    `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_${startStr}_[0-9T]{15}_[0-9T]{15}\\.nc`
+    `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_${startStr}_[^"]+\\.nc`
   );
 
-  const match = text.match(re);
-  if (!match) {
-    status.innerText = "nc file not found";
-    throw "nc file not found";
+  const m2 = txt.match(re);
+  if(!m2) {
+    log("→ NOT FOUND");
+    return null;
   }
 
-  const ncURL = baseURL + match[0];
-  console.log("NC URL:", ncURL);
-
-  status.innerText = "loading nc…";
-
-  /* netCDF itself also via proxy */
-  const proxiedNC = PROXY + encodeURIComponent(ncURL);
-
-  pyscript.interpreter.globals.set("nc_url", proxiedNC);
-  pyscript.runPython("load_and_plot(nc_url)");
+  log("FOUND:");
+  log(m2[0]);
+  return PROXY + encodeURIComponent(baseURL + m2[0]);
 }
 
-run();
+async function run() {
+  document.getElementById("status").innerText = "JS: searching…";
+
+  for (const h of [6,9,12]) {
+    const url = await tryOnce(h);
+    if(url) {
+      document.getElementById("status").innerText = "JS: calling PyScript";
+      pyscript.interpreter.globals.set("nc_url", url);
+      pyscript.runPython("load_and_plot(nc_url)");
+      return;
+    }
+  }
+
+  document.getElementById("status").innerText = "ALL FAILED";
+}
+
+window.addEventListener("py:ready", run);
 </script>
 
 </body>
