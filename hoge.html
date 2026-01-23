@@ -1,165 +1,205 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<title>Copernicus SWH latest (ESM)</title>
+  <meta charset="UTF-8">
+  <title>波高地図（衛星＋観測点 色整合）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
-#map {
-  width: 100%;
-  height: 100%;
-}
-#info {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 1000;
-  background: rgba(255,255,255,0.9);
-  padding: 6px 10px;
-  font-family: monospace;
-  font-size: 12px;
-}
-</style>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100vh; width: 100vw; }
+
+    .legend {
+      background: white;
+      padding: 6px 8px;
+      font-size: 14px;
+      line-height: 18px;
+      color: #333;
+    }
+    .legend i {
+      width: 18px;
+      height: 18px;
+      float: left;
+      margin-right: 6px;
+      opacity: 0.8;
+    }
+  </style>
 </head>
 <body>
 
 <div id="map"></div>
-<div id="info">loading...</div>
 
-<script type="module">
-/* ==================================================
- * imports（ここが決定打）
- * ================================================== */
-import { NetCDFReader } from "https://cdn.skypack.dev/netcdfjs";
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* =====================================================
+   Map
+===================================================== */
+const map = L.map("map").setView([36, 138], 5);
 
-/* ==================================================
- * CORS proxy
- * ================================================== */
-const CORS_PROXY = "https://worker.ryohorita105.workers.dev/?url=";
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap contributors",
+  maxZoom: 8
+}).addTo(map);
 
-/* ==================================================
- * 時刻計算（UTC-6h → 3時間切り捨て）
- * ================================================== */
-function getLatestBaseTimeUTC() {
-  const now = new Date();
-  const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-  utc.setUTCHours(utc.getUTCHours() - 6);
-  utc.setUTCHours(Math.floor(utc.getUTCHours() / 3) * 3, 0, 0, 0);
-  return utc;
+/* =====================================================
+   時刻（UTC-6h → 3h切り捨て）
+===================================================== */
+function latestTimeISO() {
+  const d = new Date();
+  d.setUTCHours(d.getUTCHours() - 6);
+  d.setUTCHours(Math.floor(d.getUTCHours() / 3) * 3, 0, 0, 0);
+  return d.toISOString();
+}
+const timeISO = latestTimeISO();
+
+/* =====================================================
+   Copernicus WMS（衛星SWH）
+===================================================== */
+const WMS_URL =
+  "https://nrt.cmems-du.eu/thredds/wms/" +
+  "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211";
+
+function addSWHLayer(min, max) {
+  return L.tileLayer.wms(WMS_URL, {
+    layers: "VAVH",
+    styles: "boxfill",
+    format: "image/png",
+    transparent: true,
+    time: timeISO,
+    colorscalerange: `${min},${max}`,
+    numcolorbands: 1,
+    belowmincolor: "transparent",
+    abovemaxcolor: "transparent",
+    opacity: 0.55
+  }).addTo(map);
 }
 
-function fmt(dt) {
-  const z = n => String(n).padStart(2, "0");
-  return (
-    dt.getUTCFullYear() +
-    z(dt.getUTCMonth() + 1) +
-    z(dt.getUTCDate()) +
-    "T" +
-    z(dt.getUTCHours()) +
-    "0000"
-  );
+// 観測点と完全一致の色分け
+addSWHLayer(0.0, 0.5);  // dodgerblue
+addSWHLayer(0.5, 1.0);  // limegreen
+addSWHLayer(1.0, 1.5);  // greenyellow
+addSWHLayer(1.5, 2.0);  // gold
+addSWHLayer(2.0, 3.0);  // darkorange
+addSWHLayer(3.0, 8.0);  // orangered
+
+/* =====================================================
+   観測点 共通関数
+===================================================== */
+const proxy = "https://worker.ryohorita105.workers.dev/?url=";
+
+function getColor(h) {
+  if (h < 0.5) return "dodgerblue";
+  if (h < 1.0) return "limegreen";
+  if (h < 1.5) return "greenyellow";
+  if (h < 2.0) return "gold";
+  if (h < 3.0) return "darkorange";
+  return "orangered";
 }
 
-/* ==================================================
- * Copernicus URL
- * ================================================== */
-function buildCopernicusURL(baseTime) {
-  const y = baseTime.getUTCFullYear();
-  const m = String(baseTime.getUTCMonth() + 1).padStart(2, "0");
-  const t1 = fmt(baseTime);
-  const t2 = fmt(new Date(baseTime.getTime() + 3 * 3600 * 1000));
-  const t3 = fmt(new Date());
-
-  return (
-    "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files" +
-    "?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/" +
-    "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/" +
-    y + "/" + m + "/" +
-    "&subdataset=cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_" +
-    t1 + "_" + t2 + "_" + t3 + ".nc"
-  );
+function createCircleMarker(lat, lon, color, text) {
+  return L.circleMarker([lat, lon], {
+    radius: 7,
+    color,
+    fillColor: color,
+    fillOpacity: 0.85,
+    weight: 1
+  }).bindTooltip(text).addTo(map);
 }
 
-/* ==================================================
- * NetCDF → Canvas
- * ================================================== */
-async function loadAndRender(url) {
-  const res = await fetch(CORS_PROXY + url);
-  if (!res.ok) throw new Error("fetch failed");
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  return await r.json();
+}
+async function fetchXML(url) {
+  const r = await fetch(url);
+  const t = await r.text();
+  return new DOMParser().parseFromString(t, "application/xml");
+}
+async function fetchText(url) {
+  const r = await fetch(url);
+  return await r.text();
+}
 
-  const buf = await res.arrayBuffer();
-  const nc = new NetCDFReader(buf);
+/* =====================================================
+   観測点プロット
+===================================================== */
+async function plotWaveData() {
+  // --- NOWPHAS ---
+  const setupXML = await fetchXML(proxy + encodeURIComponent(
+    "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
+  ));
+  const dataXML = await fetchXML(proxy + encodeURIComponent(
+    "https://nowphas.mlit.go.jp/mapxml/DataMap.xml"
+  ));
 
-  const lon = nc.getDataVariable("longitude");
-  const lat = nc.getDataVariable("latitude");
-  const swh = nc.getDataVariable("VAVH"); // [time, lat, lon]
-
-  const nx = lon.length;
-  const ny = lat.length;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = nx;
-  canvas.height = ny;
-  const ctx = canvas.getContext("2d");
-  const img = ctx.createImageData(nx, ny);
-
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const v = swh[j * nx + i]; // time=0
-      const p = ((ny - 1 - j) * nx + i) * 4;
-
-      if (!isFinite(v)) {
-        img.data[p + 3] = 0;
-      } else {
-        const c = Math.min(255, v / 8 * 255);
-        img.data[p]     = c;
-        img.data[p + 1] = c;
-        img.data[p + 2] = 255;
-        img.data[p + 3] = 180;
-      }
-    }
+  const points = {};
+  for (const pt of setupXML.getElementsByTagName("point")) {
+    points[pt.getAttribute("code")] = {
+      name: pt.getAttribute("name"),
+      lat: +pt.getAttribute("lat"),
+      lon: +pt.getAttribute("lon")
+    };
   }
 
-  ctx.putImageData(img, 0, 0);
+  for (const md of dataXML.getElementsByTagName("mapdata")) {
+    const code = md.getAttribute("code");
+    const el = md.getElementsByTagName("yugiha")[0];
+    if (!el || !points[code]) continue;
+    const h = parseFloat(el.textContent);
+    if (h >= 100) continue;
+    const p = points[code];
+    createCircleMarker(p.lat, p.lon, getColor(h), `${p.name} (${h.toFixed(2)} m)`);
+  }
 
-  return {
-    canvas,
-    bounds: [
-      [lat[0], lon[0]],
-      [lat[lat.length - 1], lon[lon.length - 1]]
-    ]
-  };
+  // --- JMA SSVB ---
+  const ssvb = await fetchJSON("https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json");
+  const nowUTC = new Date();
+  const sixHoursAgo = new Date(nowUTC.getTime() - 6 * 3600 * 1000);
+
+  for (const id in ssvb) {
+    const entries = ssvb[id];
+    const times = Object.keys(entries)
+      .filter(t => new Date(t) >= sixHoursAgo)
+      .sort();
+    if (!times.length) continue;
+    const d = entries[times.at(-1)];
+    if (!d.latlon) continue;
+    createCircleMarker(
+      d.latlon[0], d.latlon[1],
+      getColor(d.wave_height),
+      `Buoy (${d.wave_height.toFixed(2)} m)`
+    );
+  }
 }
 
-/* ==================================================
- * Leaflet
- * ================================================== */
-const map = L.map("map").setView([0, 160], 2);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+/* =====================================================
+   凡例
+===================================================== */
+const legend = L.control({ position: "bottomright" });
+legend.onAdd = function () {
+  const div = L.DomUtil.create("div", "legend");
+  const grades = [0,0.5,1,1.5,2,3];
+  div.innerHTML += "<b>波高 (m)</b><br>";
+  for (let i=0;i<grades.length;i++) {
+    const from = grades[i];
+    const to = grades[i+1];
+    div.innerHTML +=
+      `<i style="background:${getColor(from+0.01)}"></i>` +
+      `${from}${to ? "–"+to : "+"}<br>`;
+  }
+  return div;
+};
+legend.addTo(map);
 
-const baseTime = getLatestBaseTimeUTC();
-const url = buildCopernicusURL(baseTime);
-
-document.getElementById("info").textContent =
-  "fetching: " + fmt(baseTime) + " UTC";
-
-try {
-  const { canvas, bounds } = await loadAndRender(url);
-  L.imageOverlay(canvas, bounds).addTo(map);
-  document.getElementById("info").textContent =
-    "SWH " + fmt(baseTime) + " UTC";
-} catch (e) {
-  document.getElementById("info").textContent = "ERROR";
+/* =====================================================
+   実行
+===================================================== */
+plotWaveData().catch(e => {
   console.error(e);
-}
+  alert("データ取得エラー");
+});
 </script>
 
 </body>
