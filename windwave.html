@@ -169,20 +169,20 @@ async function fetchAll() {
       if(p.length<8) return;
       const lat=+p[2], lon=+p[3];
       if(lat<15||lat>60||lon<90||lon>180) return;
-      const wdir=+p[4], wspd=+p[5];
+      const wdir=+p[4]+180, wspd=+p[5];
       const wv=+p[7]*0.3048;
       const key=pointKey(lat,lon);
       if(!pointData[key]) pointData[key]={lat,lon};
       if(Number.isFinite(wdir)&&Number.isFinite(wspd)) {
         pointData[key].windType="船舶";
-        pointData[key].windName="船舶";
+        pointData[key].windName="";
         pointData[key].iconAngle=wdir;
         pointData[key].iconSpeed=wspd.toFixed(1);
         pointData[key].iconColor=getArrowColor(wspd);
       }
       if(Number.isFinite(wv)) {
         pointData[key].waveType="船舶";
-        pointData[key].waveName="船舶";
+        pointData[key].waveName="";
         pointData[key].waveHeight=wv;
       }
     });
