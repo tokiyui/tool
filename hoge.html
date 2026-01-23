@@ -2,12 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>Copernicus SWH latest (CORS proxy)</title>
+<title>Copernicus SWH latest (ESM)</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<script src="https://unpkg.com/netcdfjs@0.7.0/dist/netcdfjs.min.js"></script>
 
 <style>
 html, body {
@@ -36,15 +34,20 @@ html, body {
 <div id="map"></div>
 <div id="info">loading...</div>
 
-<script>
-// ==================================================
-// CORS proxy
-// ==================================================
+<script type="module">
+/* ==================================================
+ * imports（ここが決定打）
+ * ================================================== */
+import { NetCDFReader } from "https://cdn.skypack.dev/netcdfjs";
+
+/* ==================================================
+ * CORS proxy
+ * ================================================== */
 const CORS_PROXY = "https://worker.ryohorita105.workers.dev/?url=";
 
-// ==================================================
-// 時刻計算（UTC-6h → 3時間切り捨て）
-// ==================================================
+/* ==================================================
+ * 時刻計算（UTC-6h → 3時間切り捨て）
+ * ================================================== */
 function getLatestBaseTimeUTC() {
   const now = new Date();
   const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
@@ -65,13 +68,12 @@ function fmt(dt) {
   );
 }
 
-// ==================================================
-// Copernicus URL
-// ==================================================
+/* ==================================================
+ * Copernicus URL
+ * ================================================== */
 function buildCopernicusURL(baseTime) {
   const y = baseTime.getUTCFullYear();
   const m = String(baseTime.getUTCMonth() + 1).padStart(2, "0");
-
   const t1 = fmt(baseTime);
   const t2 = fmt(new Date(baseTime.getTime() + 3 * 3600 * 1000));
   const t3 = fmt(new Date());
@@ -86,27 +88,22 @@ function buildCopernicusURL(baseTime) {
   );
 }
 
-// ==================================================
-// NetCDF fetch → Canvas
-// ==================================================
+/* ==================================================
+ * NetCDF → Canvas
+ * ================================================== */
 async function loadAndRender(url) {
   const res = await fetch(CORS_PROXY + url);
   if (!res.ok) throw new Error("fetch failed");
 
   const buf = await res.arrayBuffer();
-
-  // ★ ここが正解
-  const nc = new netcdfjs.NetCDFReader(buf);
+  const nc = new NetCDFReader(buf);
 
   const lon = nc.getDataVariable("longitude");
   const lat = nc.getDataVariable("latitude");
-  const swh = nc.getDataVariable("VAVH");
+  const swh = nc.getDataVariable("VAVH"); // [time, lat, lon]
 
   const nx = lon.length;
   const ny = lat.length;
-
-  // time=0 を使用
-  const stride = nx * ny;
 
   const canvas = document.createElement("canvas");
   canvas.width = nx;
@@ -116,9 +113,7 @@ async function loadAndRender(url) {
 
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
-      const idx = j * nx + i;
-      const v = swh[idx]; // time=0
-
+      const v = swh[j * nx + i]; // time=0
       const p = ((ny - 1 - j) * nx + i) * 4;
 
       if (!isFinite(v)) {
@@ -144,34 +139,27 @@ async function loadAndRender(url) {
   };
 }
 
-// ==================================================
-// Leaflet
-// ==================================================
-(async () => {
-  const map = L.map("map").setView([0, 160], 2);
+/* ==================================================
+ * Leaflet
+ * ================================================== */
+const map = L.map("map").setView([0, 160], 2);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-  L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    { maxZoom: 8 }
-  ).addTo(map);
+const baseTime = getLatestBaseTimeUTC();
+const url = buildCopernicusURL(baseTime);
 
-  const baseTime = getLatestBaseTimeUTC();
-  const url = buildCopernicusURL(baseTime);
+document.getElementById("info").textContent =
+  "fetching: " + fmt(baseTime) + " UTC";
 
+try {
+  const { canvas, bounds } = await loadAndRender(url);
+  L.imageOverlay(canvas, bounds).addTo(map);
   document.getElementById("info").textContent =
-    "fetching: " + fmt(baseTime) + " UTC";
-
-  try {
-    const { canvas, bounds } = await loadAndRender(url);
-    L.imageOverlay(canvas, bounds).addTo(map);
-
-    document.getElementById("info").textContent =
-      "SWH " + fmt(baseTime) + " UTC";
-  } catch (e) {
-    document.getElementById("info").textContent = "ERROR";
-    console.error(e);
-  }
-})();
+    "SWH " + fmt(baseTime) + " UTC";
+} catch (e) {
+  document.getElementById("info").textContent = "ERROR";
+  console.error(e);
+}
 </script>
 
 </body>
