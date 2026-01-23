@@ -5,33 +5,45 @@
 <title>風向・波高 統合マップ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
 <style>
 html, body { margin:0; height:100%; }
 #map { height:100vh; width:100vw; }
+
 .wind-speed-label {
-  font-size:18px; font-weight:bold; color:black;
+  font-size:18px;
+  font-weight:bold;
+  color:black;
   text-shadow:1px 1px 2px white;
-  position:absolute; top:50%; left:50%;
+  position:absolute;
+  top:50%; left:50%;
   transform:translate(-50%,-50%);
   pointer-events:none;
 }
+
 .legend {
-  background:white; padding:6px 8px;
-  font-size:14px; line-height:18px; color:#333;
+  background:white;
+  padding:6px 8px;
+  font-size:14px;
+  line-height:18px;
+  color:#333;
 }
 .legend i {
-  width:18px; height:18px;
-  float:left; margin-right:6px; opacity:0.8;
+  width:18px;
+  height:18px;
+  float:left;
+  margin-right:6px;
+  opacity:0.8;
 }
 </style>
 </head>
-<body>
 
+<body>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// ================= 地図 =================
+// ===================== 共通：地図 =====================
 const map = L.map("map").setView([36,138],5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
   attribution:"&copy; OpenStreetMap contributors"
@@ -39,7 +51,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
 
 const proxy = "https://corsproxy.io/?";
 
-// ================= 共通関数 =================
+// ===================== 共通関数 =====================
 const getArrowColor = s => s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
 
 const windDirToAngleText = dir => ({
@@ -80,28 +92,29 @@ const createCircleMarker=(lat,lon,color,html)=>
    fillOpacity:0.8,weight:1
  }).bindTooltip(html).addTo(map);
 
-// ================= 風：海保 =================
+// ===================== ① 風：海保 =====================
 fetch(proxy+encodeURIComponent(
  "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
  "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
-)).then(r=>r.json()).then(d=>{
- d.forEach(e=>{
+)).then(r=>r.json()).then(data=>{
+ data.forEach(e=>{
   if(!e.shp)return;
   const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
   if(!m)return;
   const lon=+m[1],lat=+m[2];
   const a=windDirToAngleText(e.fuukou);
   const s=parseFloat(e.fuusoku);
-  if(a==null||isNaN(s))return;
+  if(a===null||isNaN(s))return;
   L.marker([lat,lon],{
     icon:makeWindIcon(a,s,getArrowColor(s))
   }).addTo(map);
  });
 });
 
-// ================= 風：AMeDAS =================
+// ===================== ② 風：AMeDAS =====================
 const timeStr=(()=>{
- const d=new Date(); d.setMinutes(d.getMinutes()-10);
+ const d=new Date();
+ d.setMinutes(d.getMinutes()-10);
  d.setMinutes(Math.floor(d.getMinutes()/10)*10);
  return d.getFullYear()
  +String(d.getMonth()+1).padStart(2,"0")
@@ -113,13 +126,14 @@ const timeStr=(()=>{
 Promise.all([
  fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${timeStr}.json`).then(r=>r.json()),
  fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json").then(r=>r.json())
-]).then(([a,t])=>{
- Object.keys(a).forEach(c=>{
-  const o=a[c],m=t[c];
+]).then(([amedas,table])=>{
+ Object.keys(amedas).forEach(code=>{
+  const o=amedas[code], m=table[code];
   if(!m)return;
-  const s=o.wind?.[0],d=o.windDirection?.[0];
+  const s=o.wind?.[0], d=o.windDirection?.[0];
   if(s==null||d==null||s<10)return;
   const ang=windDir16ToAngle(d);
+  if(ang===null)return;
   const lat=m.lat[0]+m.lat[1]/60;
   const lon=m.lon[0]+m.lon[1]/60;
   L.marker([lat,lon],{
@@ -128,42 +142,110 @@ Promise.all([
  });
 });
 
-// ================= NOAA 風＋波 =================
+// ===================== ③ NOAA 風＋波 =====================
 fetch(proxy+encodeURIComponent(
  "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
-)).then(r=>r.text()).then(txt=>{
- (txt.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
+)).then(r=>r.text()).then(text=>{
+ (text.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
   const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
   if(p.length<8)return;
-  const lat=+p[2],lon=+p[3];
+  const lat=+p[2], lon=+p[3];
   if(lat<15||lat>60||lon<90||lon>180)return;
 
-  const wdir=+p[4],wspd=+p[5];
-  if(!isNaN(wdir)&&!isNaN(wspd)){
+  const wdir=+p[4], wspd=+p[5];
+  if(Number.isFinite(wdir)&&Number.isFinite(wspd)){
    L.marker([lat,lon],{
     icon:makeWindIcon(wdir,wspd.toFixed(1),getArrowColor(wspd))
    }).addTo(map);
   }
 
   const wv=+p[7]*0.3048;
-  if(!isNaN(wv)){
+  if(Number.isFinite(wv)){
    createCircleMarker(lat,lon,getColor(wv),
     `Ship (${wv.toFixed(2)} m)`);
   }
  });
 });
 
-// ================= 凡例 =================
+// ===================== 波：NOWPHAS =====================
+(async()=>{
+ const setupXML = await fetch(proxy+encodeURIComponent(
+  "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
+ )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+
+ const dataXML = await fetch(proxy+encodeURIComponent(
+  "https://nowphas.mlit.go.jp/mapxml/DataMap.xml"
+ )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+
+ const pts={};
+ [...setupXML.getElementsByTagName("point")].forEach(p=>{
+  pts[p.getAttribute("code")] = {
+    name:p.getAttribute("name"),
+    lat:+p.getAttribute("lat"),
+    lon:+p.getAttribute("lon")
+  };
+ });
+
+ [...dataXML.getElementsByTagName("mapdata")].forEach(md=>{
+  const code=md.getAttribute("code");
+  const y=md.getElementsByTagName("yugiha")[0]?.textContent;
+  if(!y||!pts[code])return;
+  const h=parseFloat(y);
+  if(h>=100)return;
+  const {name,lat,lon}=pts[code];
+  createCircleMarker(lat,lon,getColor(h),
+   `<a href="https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/" target="_blank">${name}</a><br>(${h.toFixed(2)} m)`);
+ });
+})();
+
+// ===================== 波：河川局 =====================
+async function plotRiverCoastWaves(){
+ const prefCodes=[ "102","103","104","105","201","301","401","501","601","701","801","901",
+ "1001","1101","1201","1301","1401","1501","1601","1701","1801","1901",
+ "2001","2101","2201","2301","2401","2501","2601","2701","2801","2901",
+ "3001","3101","3201","3301","3401","3501","3601","3701","3801","3901",
+ "4001","4101","4201","4301","4401","4501","4601","4701" ];
+
+ for(const code of prefCodes){
+  try{
+   const info=await fetch(proxy+encodeURIComponent(
+    `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/obs/coast/${code}.json`
+   )).then(r=>r.json());
+   const tm=await fetch(proxy+encodeURIComponent(
+    `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/tm/coast/${code}.json`
+   )).then(r=>r.json());
+
+   const pos={};
+   info.prefTwn?.forEach(t=>{
+    t.coast?.forEach(c=>{
+     if(c.lat&&c.lon)pos[c.obsFcd]={lat:+c.lat,lon:+c.lon,name:c.obsNm};
+    });
+   });
+
+   tm.prefTwn?.forEach(t=>{
+    t.coast?.forEach(c=>{
+     const p=pos[c.obsFcd];
+     if(!p||!c.onthwvHght||Number(c.onthwvHght)===0)return;
+     if(p.lat<20||p.lat>50||p.lon<120||p.lon>150)return;
+     createCircleMarker(p.lat,p.lon,getColor(+c.onthwvHght),
+      `${p.name} (${(+c.onthwvHght).toFixed(2)} m)`);
+    });
+   });
+  }catch(e){}
+ }
+}
+plotRiverCoastWaves();
+
+// ===================== 凡例 =====================
 const legend=L.control({position:"bottomright"});
 legend.onAdd=function(){
  const d=L.DomUtil.create("div","legend");
  const g=[0,0.5,1,1.5,2,3];
  d.innerHTML+="<b>波高 (m)</b><br>";
  for(let i=0;i<g.length;i++){
-  const f=g[i],t=g[i+1];
   d.innerHTML+=
-   `<i style="background:${getColor(f+0.01)}"></i>
-    ${f}${t?"–"+t:"+"}<br>`;
+   `<i style="background:${getColor(g[i]+0.01)}"></i>
+    ${g[i]}${g[i+1]?"–"+g[i+1]:"+"}<br>`;
  }
  return d;
 };
