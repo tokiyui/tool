@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Copernicus 最新ファイル確認</title>
+<title>Copernicus 最新ファイル確認 (JSON)</title>
 <style>
 body { font-family: monospace; }
 pre { background: #f0f0f0; padding: 10px; }
@@ -15,13 +15,11 @@ pre { background: #f0f0f0; padding: 10px; }
 
 <script>
 const debug = (msg) => {
-    const div = document.getElementById('debug');
-    div.innerHTML += msg + "\n";
+    document.getElementById('debug').innerHTML += msg + "\n";
 };
 
 const latestDiv = document.getElementById('latest');
 
-const proxies = "https://copernicus.ryohorita105.workers.dev/";
 const datasets = [
     "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S",
     "cmems_obs-wave_glo_phy-swh_nrt_c2-l3_PT1S",
@@ -40,7 +38,7 @@ function getTargetTime() {
     const now = new Date();
     const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
     utc.setHours(utc.getHours() - 1); // 1時間前
-    const h = Math.floor(utc.getHours() / 3) * 3; // 3時間単位
+    const h = Math.floor(utc.getHours() / 3) * 3;
     utc.setHours(h,0,0,0);
     return utc;
 }
@@ -60,15 +58,18 @@ debug("Target time UTC (3h rounded): " + targetTimeStr);
 
 async function fetchFileList(dataset) {
     try {
-        const url = `${proxies}${dataset}/`;
-        debug("Fetching: " + url);
-        const resp = await fetch(url);
-        if(!resp.ok) throw new Error(resp.statusText);
-        const text = await resp.text();
-        // Copernicus HTMLからリンク抽出
-        const files = [...text.matchAll(/href="([^"]+\.nc)"/g)].map(m=>m[1]);
-        debug(dataset + " files: " + files.join(", "));
-        return files;
+        // Copernicus URLを構築
+        const year = new Date().getUTCFullYear();
+        const month = (new Date().getUTCMonth()+1).toString().padStart(2,'0');
+        const baseUrl = `https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001%2F${dataset}_202211%2F${year}%2F${month}%2F&subdataset=${dataset}_202211`;
+        const proxyUrl = `${encodeURIComponent(baseUrl)}`;
+
+        debug("Fetching via proxy: " + proxyUrl);
+
+        const resp = await fetch(proxyUrl);
+        const data = await resp.json();
+        debug(dataset + " files: " + data.files.join(", "));
+        return data.files;
     } catch(e) {
         debug("Error fetching " + dataset + ": " + e);
         return [];
