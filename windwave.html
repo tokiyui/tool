@@ -85,23 +85,160 @@ const pointData = {};
 const pointKey = (lat, lon) => `${lat.toFixed(3)},${lon.toFixed(3)}`;
 
 // ---------------- データ取得 ----------------
+const pointData = {};
+const pointKey = (lat, lon) => `${lat.toFixed(3)},${lon.toFixed(3)}`;
+
+// ---------------- データ取得 ----------------
 async function fetchAllData(){
-  // ここに海保、AMeDAS、NOAA、NOWPHAS、河川局の取得コードを入れる
-  // 省略。pointData[key]に以下の形で格納
-  // {
-  //   lat, lon,
-  //   windHtml, iconAngle, iconSpeed, iconColor,
-  //   waveHtml, waveHeight
-  // }
-  // 今回のコード例では前回のコードをそのまま利用
-  // （ここでは省略）
-  await Promise.all([
-    // 海保取得処理
-    // AMeDAS取得処理
-    // NOAA取得処理
-    // NOWPHAS取得処理
-    // 河川局取得処理
-  ]);
+
+  // ----- ① 海保 -----
+  const kaiho = fetch(proxy+encodeURIComponent(
+   "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
+   "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
+  )).then(r=>r.json()).then(data=>{
+   data.forEach(e=>{
+    if(!e.shp) return;
+    const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
+    if(!m) return;
+    const lon=+m[1], lat=+m[2];
+    const a = windDirToAngleText(e.fuukou);
+    const s = parseFloat(e.fuusoku);
+    if(a===null||isNaN(s)) return;
+
+    const key = pointKey(lat, lon);
+    if(!pointData[key]) pointData[key] = { lat, lon };
+    pointData[key].windHtml = `<b>風 (海保)</b><br><a href="${e.url}" target="_blank">${e.kansokujo_mei}</a><br>風向: ${e.fuukou}`;
+    pointData[key].iconAngle = a;
+    pointData[key].iconSpeed = s;
+    pointData[key].iconColor = getArrowColor(s);
+   });
+  });
+
+  // ----- ② AMeDAS -----
+  const timeStr=(()=>{
+   const d=new Date();
+   d.setMinutes(d.getMinutes()-10);
+   d.setMinutes(Math.floor(d.getMinutes()/10)*10);
+   return d.getFullYear()
+   +String(d.getMonth()+1).padStart(2,"0")
+   +String(d.getDate()).padStart(2,"0")
+   +String(d.getHours()).padStart(2,"0")
+   +String(d.getMinutes()).padStart(2,"0")+"00";
+  })();
+  const amedas = Promise.all([
+    fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${timeStr}.json`).then(r=>r.json()),
+    fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json").then(r=>r.json())
+  ]).then(([amedas,table])=>{
+    Object.keys(amedas).forEach(code=>{
+      const o=amedas[code], m=table[code];
+      if(!m) return;
+      const s=o.wind?.[0], d=o.windDirection?.[0];
+      if(s==null||d==null||s<10) return;
+      const ang=windDir16ToAngle(d);
+      const dirText = windDir16ToText(d);
+      if(ang===null||!dirText) return;
+      const lat=m.lat[0]+m.lat[1]/60;
+      const lon=m.lon[0]+m.lon[1]/60;
+      const key = pointKey(lat, lon);
+      if(!pointData[key]) pointData[key] = { lat, lon };
+      pointData[key].windHtml = `<b>風 (AMeDAS)</b><br><a href="https://www.jma.go.jp/bosai/amedas/#amdno=${code}" target="_blank">${m.kjName}</a><br>風向: ${dirText}`;
+      pointData[key].iconAngle = ang;
+      pointData[key].iconSpeed = s.toFixed(1);
+      pointData[key].iconColor = getArrowColor(s);
+    });
+  });
+
+  // ----- ③ NOAA 風・波 -----
+  const noaa = fetch(proxy+encodeURIComponent(
+   "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
+  )).then(r=>r.text()).then(text=>{
+    (text.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
+      const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
+      if(p.length<8) return;
+      const lat=+p[2], lon=+p[3];
+      if(lat<15||lat>60||lon<90||lon>180) return;
+      const wdir=+p[4], wspd=+p[5];
+      if(Number.isFinite(wdir)&&Number.isFinite(wspd)){
+        const key = pointKey(lat, lon);
+        if(!pointData[key]) pointData[key] = { lat, lon };
+        pointData[key].windHtml = `<b>風 (NOAA)</b><br>風向: ${wdir}°`;
+        pointData[key].iconAngle = wdir + 180;
+        pointData[key].iconSpeed = wspd.toFixed(1);
+        pointData[key].iconColor = getArrowColor(wspd);
+      }
+      const wv=+p[7]*0.3048;
+      if(Number.isFinite(wv)){
+        const key = pointKey(lat, lon);
+        if(!pointData[key]) pointData[key] = { lat, lon };
+        pointData[key].waveHtml = `Ship (${wv.toFixed(2)} m)`;
+        pointData[key].waveHeight = wv;
+      }
+    });
+  });
+
+  // ----- ④ NOWPHAS 波 -----
+  const nowphas = (async()=>{
+    const setupXML = await fetch(proxy+encodeURIComponent(
+      "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
+    )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+    const dataXML = await fetch(proxy+encodeURIComponent(
+      "https://nowphas.mlit.go.jp/mapxml/DataMap.xml"
+    )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+    const pts={};
+    [...setupXML.getElementsByTagName("point")].forEach(p=>{
+      pts[p.getAttribute("code")]={name:p.getAttribute("name"),lat:+p.getAttribute("lat"),lon:+p.getAttribute("lon")};
+    });
+    [...dataXML.getElementsByTagName("mapdata")].forEach(md=>{
+      const code=md.getAttribute("code");
+      const y=md.getElementsByTagName("yugiha")[0]?.textContent;
+      if(!y||!pts[code]) return;
+      const h=parseFloat(y);
+      if(h>=100) return;
+      const {name,lat,lon}=pts[code];
+      const key = pointKey(lat, lon);
+      if(!pointData[key]) pointData[key] = { lat, lon };
+      pointData[key].waveHtml = `<a href="https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/" target="_blank">${name}</a><br>(${h.toFixed(2)} m)`;
+      pointData[key].waveHeight = h;
+    });
+  })();
+
+  // ----- ⑤ 河川局 -----
+  const river = (async()=>{
+    const prefCodes=[ "102","103","104","105","201","301","401","501","601","701","801","901",
+     "1001","1101","1201","1301","1401","1501","1601","1701","1801","1901",
+     "2001","2101","2201","2301","2401","2501","2601","2701","2801","2901",
+     "3001","3101","3201","3301","3401","3501","3601","3701","3801","3901",
+     "4001","4101","4201","4301","4401","4501","4601","4701" ];
+    for(const code of prefCodes){
+      try{
+        const info=await fetch(proxy+encodeURIComponent(
+          `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/obs/coast/${code}.json`
+        )).then(r=>r.json());
+        const tm=await fetch(proxy+encodeURIComponent(
+          `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/tm/coast/${code}.json`
+        )).then(r=>r.json());
+        const pos={};
+        info.prefTwn?.forEach(t=>{
+          t.coast?.forEach(c=>{
+            if(c.lat&&c.lon) pos[c.obsFcd]={lat:+c.lat,lon:+c.lon,name:c.obsNm};
+          });
+        });
+        tm.prefTwn?.forEach(t=>{
+          t.coast?.forEach(c=>{
+            const p=pos[c.obsFcd];
+            if(!p||!c.onthwvHght||Number(c.onthwvHght)===0) return;
+            if(p.lat<20||p.lat>50||p.lon<120||p.lon>150) return;
+            const key = pointKey(p.lat, p.lon);
+            if(!pointData[key]) pointData[key] = { lat:p.lat, lon:p.lon };
+            pointData[key].waveHtml = `${p.name} (${(+c.onthwvHght).toFixed(2)} m)`;
+            pointData[key].waveHeight = +c.onthwvHght;
+          });
+        });
+      }catch(e){}
+    }
+  })();
+
+  await Promise.all([kaiho, amedas, noaa, nowphas, river]);
   drawPoints();
 }
 
