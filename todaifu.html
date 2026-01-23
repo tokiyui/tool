@@ -72,7 +72,7 @@ const windDirToAngleText = (dir) => {
 };
 
 // ======================================
-// AMeDAS：16方位(1–16)→角度
+// AMeDAS：16方位→角度
 // ======================================
 const windDir16ToAngle = (dir) => {
   if (dir < 1 || dir > 16) return null;
@@ -80,7 +80,7 @@ const windDir16ToAngle = (dir) => {
 };
 
 // ======================================
-// AMeDAS 時刻生成（現在-10分）
+// AMeDAS 時刻
 // ======================================
 const getAmedasTimeString = () => {
   const d = new Date();
@@ -100,7 +100,7 @@ const getAmedasTimeString = () => {
 };
 
 // ======================================
-// SVGマーカー生成
+// SVGアイコン
 // ======================================
 const makeWindIcon = (angle, speed, color) => {
   return L.divIcon({
@@ -123,7 +123,7 @@ const makeWindIcon = (angle, speed, color) => {
 };
 
 // ======================================
-// ① 海保データ
+// ① 海保（灯台）データ ※リンク保持
 // ======================================
 const proxy = "https://api.allorigins.win/raw?url=";
 const kaihoUrl =
@@ -150,10 +150,12 @@ fetch(proxy + encodeURIComponent(kaihoUrl))
 
       L.marker([lat, lon], { icon }).addTo(map)
         .bindPopup(`
-          <b>${e.kansokujo_mei}</b><br>
+          <a href="${e.url}" target="_blank">
+            ${e.kansokujo_mei}
+          </a><br>
           風向: ${e.fuukou}<br>
           風速: ${e.fuusoku}<br>
-          観測: ${e.kansoku_date}
+          観測日時: ${e.kansoku_date}
         `);
     });
   });
