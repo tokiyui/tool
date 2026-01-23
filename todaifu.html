@@ -205,6 +205,71 @@ Promise.all([
       `);
   });
 });
+
+// ======================================
+// ③ NOAA 船舶観測（白色・リンクなし）
+// ======================================
+const ndbcUrl =
+  "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2";
+
+// NOAA も CORS 回避で allorigins 使用
+fetch(proxy + encodeURIComponent(ndbcUrl))
+  .then(r => r.text())
+  .then(text => {
+
+    // <pre> 内の <span> 行だけ抜き出す
+    const lines = text
+      .split("\n")
+      .filter(l => l.startsWith("<span>SHIP"));
+
+    lines.forEach(line => {
+      // HTMLタグ除去
+      const clean = line.replace(/<[^>]+>/g, "").trim();
+      const cols = clean.split(/\s+/);
+
+      /*
+        cols 構成（例）
+        0 SHIP
+        1 HOUR
+        2 LAT
+        3 LON
+        4 WDIR
+        5 WSPD
+      */
+      if (cols.length < 6) return;
+
+      const hour = cols[1];
+      const lat  = parseFloat(cols[2]);
+      const lon  = parseFloat(cols[3]);
+      const wdir = parseFloat(cols[4]);
+      const wspd = parseFloat(cols[5]);
+
+      // 欠損除外
+      if (
+        isNaN(lat) || isNaN(lon) ||
+        isNaN(wdir) || isNaN(wspd)
+      ) return;
+
+      // 範囲制限（北緯20–50、東経120–150）
+      if (
+        lat < 20 || lat > 50 ||
+        lon < 120 || lon > 150
+      ) return;
+
+      // NOAAは「風が吹いてくる方向」
+      const angle = wdir;
+
+      const icon = makeWindIcon(
+        angle,
+        wspd.toFixed(1),
+        getArrowColor(wspd),
+        "white"      // ← 船舶も白
+      );
+
+      L.marker([lat, lon], { icon }).addTo(map);
+    });
+  });
+
 </script>
 </body>
 </html>
