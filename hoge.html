@@ -2,24 +2,24 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>最新NCファイル取得サンプル</title>
+<title>最新NCファイル取得（自動ファイル名）</title>
 <script src="https://pyscript.net/latest/pyscript.js"></script>
 <style>
   body { font-family: sans-serif; padding: 20px; }
-  #status { margin-top: 10px; }
+  #status { margin-top: 10px; white-space: pre-wrap; }
+  button { margin-top: 10px; padding: 5px 10px; }
 </style>
 </head>
 <body>
 
-<h2>最新NCファイル取得テスト</h2>
+<h2>最新NCファイル取得（自動ファイル名抽出）</h2>
 
-<button id="fetchBtn">最新ファイル取得</button>
+<button id="fetchBtn">JSで最新ファイル取得</button>
 <div id="status"></div>
 
-<!-- JS部分 -->
 <script>
 const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/";
+const BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/global_vavh_l3_rt_cfo_";
 
 function getLatestTime() {
     const now = new Date();
@@ -27,29 +27,41 @@ function getLatestTime() {
     const minus6 = new Date(utcNow.getTime() - 6*60*60*1000);
     const hour = Math.floor(minus6.getUTCHours()/3)*3;
     const latest = new Date(Date.UTC(minus6.getUTCFullYear(), minus6.getUTCMonth(), minus6.getUTCDate(), hour));
-
     const y = latest.getUTCFullYear();
     const m = String(latest.getUTCMonth()+1).padStart(2,'0');
     const d = String(latest.getUTCDate()).padStart(2,'0');
     const H = String(latest.getUTCHours()).padStart(2,'0');
     const M = "00";
-    return { YYYYMMDDHHMM: `${y}${m}${d}${H}${M}`, y, m, d };
+    const S = "00";
+    return { YYYYMMDDTHHMMSS: `${y}${m}${d}T${H}${M}${S}`, y, m, d };
 }
 
 async function fetchLatestNC() {
     const t = getLatestTime();
-    const fileName = `cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_${t.YYYYMMDDHHMM}.nc`;
-    const url = `${PROXY}${BASE}${t.y}/${t.m}/${t.d}/${fileName}`;
-    document.getElementById("status").innerText = `取得URL: ${url}\n取得中...`;
+    const dirUrl = `${PROXY}${BASE}${t.y}/${t.m}/${t.d}/`;
+    const status = document.getElementById("status");
+    status.innerText = `ディレクトリ取得URL: ${dirUrl}\n取得中...`;
 
     try {
-        const resp = await fetch(url);
+        const resp = await fetch(dirUrl);
         if(!resp.ok) throw new Error(`HTTP error ${resp.status}`);
-        const blob = await resp.blob();
-        document.getElementById("status").innerText += `\n取得成功: ${blob.size} bytes`;
-        return blob;
+        const html = await resp.text();
+
+        // 正規表現でファイル名抽出
+        const regex = new RegExp(`global_vavh_l3_rt_cfo_${t.YYYYMMDDTHHMMSS}_[^"]+\\.nc`, "g");
+        const matches = html.match(regex);
+        if(!matches || matches.length === 0) throw new Error("ファイルが見つかりません");
+
+        const latestFile = matches[0];
+        status.innerText += `\n最新ファイル: ${latestFile}\n取得中...`;
+
+        // ファイル取得
+        const fileResp = await fetch(`${PROXY}${BASE}${t.y}/${t.m}/${t.d}/${latestFile}`);
+        if(!fileResp.ok) throw new Error(`HTTP error ${fileResp.status}`);
+        const blob = await fileResp.blob();
+        status.innerText += `\n取得成功: ${blob.size} bytes`;
     } catch(err) {
-        document.getElementById("status").innerText += `\n取得失敗: ${err}`;
+        status.innerText += `\n取得失敗: ${err}`;
         console.error(err);
     }
 }
@@ -57,47 +69,47 @@ async function fetchLatestNC() {
 document.getElementById("fetchBtn").addEventListener("click", fetchLatestNC);
 </script>
 
-<!-- PyScript部分 -->
 <py-script>
-import js
+import js, re, asyncio
 from pyodide.http import pyfetch
+import datetime
+
+PROXY = "https://worker.ryohorita105.workers.dev/?url="
+BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/global_vavh_l3_rt_cfo_"
 
 async def fetch_nc_py():
-    PROXY = "https://worker.ryohorita105.workers.dev/?url="
-    BASE = "https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L3_NRT_014_001/files?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/"
-    
-    import datetime
     now = datetime.datetime.utcnow()
     minus6 = now - datetime.timedelta(hours=6)
     hour = (minus6.hour // 3) * 3
     latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
+    YYYYMMDDTHHMMSS = latest.strftime("%Y%m%dT%H%M%S")
     
-    YYYYMMDDHHMM = f"{latest.year:04d}{latest.month:02d}{latest.day:02d}{latest.hour:02d}00"
-    fileName = f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_{YYYYMMDDHHMM}.nc"
-    url = f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/{fileName}"
-    
-    js.document.getElementById("status").innerText += f"\n[PyScript] URL: {url}\n取得中..."
+    dirUrl = f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/"
+    js.document.getElementById("status").innerText += f"\n[PyScript] ディレクトリURL: {dirUrl}\n取得中..."
     
     try:
-        response = await pyfetch(url)
-        if response.status != 200:
-            raise RuntimeError(f"HTTP error {response.status}")
-        data = await response.bytes()
+        resp = await pyfetch(dirUrl)
+        if resp.status != 200: raise RuntimeError(f"HTTP error {resp.status}")
+        html = await resp.string()
+        regex = re.compile(f"global_vavh_l3_rt_cfo_{YYYYMMDDTHHMMSS}_[^\"']+\\.nc")
+        matches = regex.findall(html)
+        if not matches: raise RuntimeError("ファイルが見つかりません")
+        latestFile = matches[0]
+        js.document.getElementById("status").innerText += f"\n[PyScript] 最新ファイル: {latestFile}\n取得中..."
+        
+        fileResp = await pyfetch(f"{PROXY}{BASE}{latest.year:04d}/{latest.month:02d}/{latest.day:02d}/{latestFile}")
+        if fileResp.status != 200: raise RuntimeError(f"HTTP error {fileResp.status}")
+        data = await fileResp.bytes()
         js.document.getElementById("status").innerText += f"\n[PyScript] 取得成功: {len(data)} bytes"
     except Exception as e:
         js.document.getElementById("status").innerText += f"\n[PyScript] 取得失敗: {e}"
 
-# PyScriptボタン
-from pyodide.ffi import create_proxy
-import asyncio
-
 async def setup_button():
     btn = js.document.createElement("button")
-    btn.innerText = "PyScriptで取得"
+    btn.innerText = "PyScriptで最新ファイル取得"
     js.document.body.appendChild(btn)
-    async def click_handler(event):
-        await fetch_nc_py()
-    btn.addEventListener("click", create_proxy(click_handler))
+    from pyodide.ffi import create_proxy
+    btn.addEventListener("click", create_proxy(lambda e: asyncio.ensure_future(fetch_nc_py())))
 
 asyncio.ensure_future(setup_button())
 </py-script>
