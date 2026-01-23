@@ -24,9 +24,13 @@ html, body { margin:0; height:100%; }
 .leaflet-div-icon {
   background: none;
   border: none;
+  pointer-events: auto;
 }
 
-
+.leaflet-div-icon * {
+  pointer-events: auto;
+}
+  
 .legend {
   background:white;
   padding:6px 8px;
