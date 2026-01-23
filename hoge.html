@@ -1,96 +1,122 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>PyScript CMEMS 最新NC取得</title>
-
-<link rel="stylesheet" href="https://pyscript.net/releases/2025.10.1/core.css" />
-<script type="module" src="https://pyscript.net/releases/2025.10.1/core.js"></script>
-
-<style>
-body { font-family: sans-serif; padding: 20px; }
-#status { white-space: pre-wrap; font-family: monospace; margin-top: 10px; }
-button { padding: 6px 12px; margin-top: 10px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Copernicus NRT 波高（SWH） デバッグ版</title>
+  <script src="https://cdn.jsdelivr.net/npm/netcdfjs@0.5.1/dist/netcdfjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.31.1/plotly.min.js"></script>
 </head>
 <body>
+<h1>Copernicus NRT 波高データ（デバッグ版）</h1>
+<div id="status" style="white-space: pre-wrap; background: #eee; padding: 10px; margin-bottom: 20px;"></div>
+<div id="plots"></div>
 
-<h2>PyScriptでCMEMS APIから最新NC取得</h2>
+<script>
+const statusDiv = document.getElementById('status');
 
-<div>
-  <label>Username: <input id="username" type="text"></label><br>
-  <label>Password: <input id="password" type="password"></label><br>
-  <button id="fetchBtn">最新NC取得</button>
-</div>
+function logStatus(msg){
+  console.log(msg);
+  statusDiv.textContent += msg + '\n';
+}
 
-<div id="status"></div>
+const datasets = [
+  "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_c2-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_h2b-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_h2c-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_al-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_s3a-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_s3b-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_s6a-l3_PT1S",
+  "cmems_obs-wave_glo_phy-swh_nrt_swon-l3_PT1S"
+];
 
-<script type="py">
-import asyncio
-import datetime
-from pyscript import display
-import micropip
+(async () => {
+  // UTC 6時間前 → 3時間単位で切り捨て
+  const now = new Date();
+  now.setUTCHours(now.getUTCHours() - 6);
+  const hour = Math.floor(now.getUTCHours()/3)*3;
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth()+1).padStart(2,'0');
+  const day = String(now.getUTCDate()).padStart(2,'0');
+  const hh = String(hour).padStart(2,'0');
 
-async def fetch_latest_nc(username: str, password: str):
-    out = ""
-    try:
-        out += "PyScript: motuclientをインストール中...\n"
-        await micropip.install("motuclient")
-        from motuclient import MotuClient
+  logStatus(`対象時刻: ${year}-${month}-${day}T${hh}:00 UTC`);
 
-        # 最新時刻計算 (UTC-6h, 3時間単位)
-        now = datetime.datetime.utcnow()
-        minus6 = now - datetime.timedelta(hours=6)
-        hour = (minus6.hour // 3) * 3
-        latest = datetime.datetime(minus6.year, minus6.month, minus6.day, hour)
+  for(const dataset of datasets){
+    try{
+      logStatus(`\n=== データセット: ${dataset} ===`);
 
-        start_time = latest.strftime("%Y-%m-%d %H:%M:%S")
-        end_time   = (latest + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-        output_file = f"global_vavh_l3_rt_j3_{latest.strftime('%Y%m%dT%H%M%S')}.nc"
+      const workerUrl = `https://copernicus.ryohorita105.workers.dev/?dataset=${dataset}&year=${year}&month=${month}`;
+      logStatus(`Worker URL: ${workerUrl}`);
 
-        out += f"取得範囲: {start_time} ～ {end_time}\n"
-        out += f"出力ファイル名: {output_file}\n"
+      const resp = await fetch(workerUrl);
+      if(!resp.ok) throw new Error(`Worker HTTP error ${resp.status}`);
+      const json = await resp.json();
 
-        # MOTU Client 設定
-        motu = MotuClient(
-            service_id='WAVE_GLO_PHY_SWH_L3_NRT_014_001',
-            product_id='cmems_obs-wave_glo_phy-swh_nrt_j3-l3_PT1S_202211',
-            date_min=start_time,
-            date_max=end_time,
-            depth_min='0.0',
-            depth_max='0.0',
-            longitude_min='-180',
-            longitude_max='180',
-            latitude_min='-90',
-            latitude_max='90',
-            variable=['swh'],
-            out_dir='.',
-            out_name=output_file,
-            user=username,
-            pwd=password,
-            format='netcdf'
-        )
+      if(json.error){
+        logStatus(`Worker returned error: ${json.error}`);
+        continue;
+      }
 
-        out += "PyScript: データ取得開始...\n"
-        motu.download()
-        out += f"取得完了: {output_file}\n"
+      const files = json.files;
+      logStatus(`取得ファイル数: ${files.length}`);
 
-    except Exception as e:
-        out += f"エラー: {e}"
+      const targetPrefix = `global_vavh_l3_rt_${dataset.split("_").pop()}_${year}${month}${day}T${hh}0000_`;
+      const latestFile = files.filter(f => f.startsWith(targetPrefix))
+                              .sort().reverse()[0];
 
-    display(out, target="status", append=True)
+      if(!latestFile){
+        logStatus(`最新ファイルが見つかりません`);
+        continue;
+      }
 
-# ボタンイベント設定
-from js import document
-import pyodide
+      logStatus(`最新ファイル: ${latestFile}`);
 
-def on_click(e):
-    username = document.getElementById("username").value
-    password = document.getElementById("password").value
-    asyncio.ensure_future(fetch_latest_nc(username, password))
+      const ncUrl = `https://s3.waw3-1.cloudferro.com/mdl-native-05/native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/${dataset}/${year}/${month}/${latestFile}`;
+      logStatus(`NC URL: ${ncUrl}`);
 
-document.getElementById("fetchBtn").addEventListener("click", pyodide.ffi.create_proxy(on_click))
+      const ncResp = await fetch(ncUrl);
+      if(!ncResp.ok) throw new Error(`NC HTTP error ${ncResp.status}`);
+      const arrayBuffer = await ncResp.arrayBuffer();
+
+      logStatus(`NCファイル取得成功 (${arrayBuffer.byteLength} bytes)`);
+
+      const nc = new NetCDF(arrayBuffer);
+      const swhVar = nc.root.variables.find(v => v.name === "swh");
+      const data = swhVar.readSlice(0, swhVar.dimensions[0].length, 0, swhVar.dimensions[1].length);
+
+      const latVar = nc.root.variables.find(v => v.name === "latitude");
+      const lonVar = nc.root.variables.find(v => v.name === "longitude");
+      const lats = latVar.readSlice(0, latVar.dimensions[0].length);
+      const lons = lonVar.readSlice(0, lonVar.dimensions[0].length);
+
+      // プロット用 div
+      const div = document.createElement('div');
+      div.id = `plot-${dataset}`;
+      div.style.height = "400px";
+      div.style.marginBottom = "40px";
+      document.getElementById('plots').appendChild(div);
+
+      Plotly.newPlot(div.id, [{
+        z: data,
+        x: lons,
+        y: lats,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        colorbar: { title: 'SWH (m)' }
+      }], {
+        title: `${dataset} SWH ${year}-${month}-${day} ${hh}:00 UTC`,
+        xaxis: { title: 'Longitude' },
+        yaxis: { title: 'Latitude' }
+      });
+
+      logStatus(`${dataset} 描画完了`);
+    }catch(e){
+      logStatus(`エラー: ${e}`);
+      console.error(e);
+    }
+  }
+})();
 </script>
-
-</body>
-</html>
