@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>風向・波高 統合マップ</title>
+<title>風・波統合マップ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
@@ -51,7 +51,6 @@ html, body { margin:0; height:100%; }
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// ===================== 共通：地図 =====================
 const map = L.map("map").setView([36,138],5);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
   attribution:"&copy; OpenStreetMap contributors"
@@ -59,9 +58,8 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
 
 const proxy = "https://corsproxy.io/?";
 
-// ===================== 共通関数 =====================
+// ---------------- 共通関数 ----------------
 const getArrowColor = s => s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
-
 const windDirToAngleText = dir => ({
  "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
  "西":90,"西北西":112.5,"北西":135,"北北西":157.5,
@@ -72,13 +70,10 @@ const windDirToAngleText = dir => ({
 const windDir16ToAngle = d => (d>=0&&d<=16)?d*22.5+180:null;
 
 const makeWindIcon = (angle,speed,color)=>L.divIcon({
-  html:`
-  <div style="position:relative;width:48px;height:48px;">
-    <svg width="48" height="48" viewBox="0 0 48 48"
-     style="transform:rotate(${angle}deg);position:absolute;">
+  html:`<div style="position:relative;width:48px;height:48px;">
+    <svg width="48" height="48" viewBox="0 0 48 48" style="transform:rotate(${angle}deg);position:absolute;">
       <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
-      <line x1="24" y1="2" x2="24" y2="28"
-       stroke="${color}" stroke-width="2"/>
+      <line x1="24" y1="2" x2="24" y2="28" stroke="${color}" stroke-width="2"/>
     </svg>
     <div class="wind-speed-label">${speed}</div>
   </div>`,
@@ -98,37 +93,42 @@ const createCircleMarker=(lat,lon,color,html)=>
  L.circleMarker([lat,lon],{
    radius:8,color,fillColor:color,
    fillOpacity:0.8,weight:1
- }).bindTooltip(html).addTo(map);
+ }).bindTooltip(html,{sticky:true}).addTo(map);
 
-// ===================== ① 風：海保 =====================
+// ---------------- 統合用データ ----------------
+const pointData = {}; // { "lat,lon": {lat, lon, windHtml?, waveHtml?, iconAngle?, iconSpeed?, iconColor?} }
+
+const pointKey = (lat, lon) => `${lat.toFixed(3)},${lon.toFixed(3)}`;
+
+// ---------------- ① 海保 風 ----------------
 fetch(proxy+encodeURIComponent(
  "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
  "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
 )).then(r=>r.json()).then(data=>{
  data.forEach(e=>{
-  if(!e.shp)return;
+  if(!e.shp) return;
   const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
-  if(!m)return;
-  const lon=+m[1],lat=+m[2];
-  const a=windDirToAngleText(e.fuukou);
-  const s=parseFloat(e.fuusoku);
-  if(a===null||isNaN(s))return;
-L.marker([lat, lon], {
-  icon: makeWindIcon(a, s, getArrowColor(s))
-})
-  .bindTooltip(
-    `<a href="${e.url}" target="_blank">
-       ${e.kansokujo_mei}
-     </a><br>
-     風向: ${e.fuukou}<br>
-     風速: ${e.fuusoku}`,
-    { sticky: true }
-  )
-  .addTo(map);
+  if(!m) return;
+  const lon=+m[1], lat=+m[2];
+  const a = windDirToAngleText(e.fuukou);
+  const s = parseFloat(e.fuusoku);
+  if(a===null||isNaN(s)) return;
+
+  const key = pointKey(lat, lon);
+  if(!pointData[key]) pointData[key] = { lat, lon };
+  pointData[key].windHtml = `
+    <b>風 (海保)</b><br>
+    <a href="${e.url}" target="_blank">${e.kansokujo_mei}</a><br>
+    風向: ${e.fuukou}<br>
+    風速: ${s} m/s
+  `;
+  pointData[key].iconAngle = a;
+  pointData[key].iconSpeed = s;
+  pointData[key].iconColor = getArrowColor(s);
  });
 });
 
-// ===================== ② 風：AMeDAS =====================
+// ---------------- ② AMeDAS 風 ----------------
 const timeStr=(()=>{
  const d=new Date();
  d.setMinutes(d.getMinutes()-10);
@@ -146,53 +146,61 @@ Promise.all([
 ]).then(([amedas,table])=>{
  Object.keys(amedas).forEach(code=>{
   const o=amedas[code], m=table[code];
-  if(!m)return;
+  if(!m) return;
   const s=o.wind?.[0], d=o.windDirection?.[0];
-  if(s==null||d==null||s<10)return;
+  if(s==null||d==null||s<10) return;
   const ang=windDir16ToAngle(d);
-  if(ang===null)return;
+  if(ang===null) return;
   const lat=m.lat[0]+m.lat[1]/60;
   const lon=m.lon[0]+m.lon[1]/60;
-  L.marker([lat, lon], {
-    icon: makeWindIcon(ang, s.toFixed(1), getArrowColor(s))
-  })
-  .bindTooltip(
-    `<a href="https://www.jma.go.jp/bosai/amedas/#amdno=${code}" target="_blank">
-       ${meta.kjName}
-     </a><br>
-     風速: ${s.toFixed(1)} m/s`,
-    { sticky: true }
-  )
-  .addTo(map);
+
+  const key = pointKey(lat, lon);
+  if(!pointData[key]) pointData[key] = { lat, lon };
+  pointData[key].windHtml = `
+    <b>風 (AMeDAS)</b><br>
+    <a href="https://www.jma.go.jp/bosai/amedas/#amdno=${code}" target="_blank">${m.kjName}</a><br>
+    風速: ${s.toFixed(1)} m/s
+  `;
+  pointData[key].iconAngle = ang;
+  pointData[key].iconSpeed = s.toFixed(1);
+  pointData[key].iconColor = getArrowColor(s);
  });
 });
 
-// ===================== ③ NOAA 風＋波 =====================
+// ---------------- ③ NOAA 風・波 ----------------
 fetch(proxy+encodeURIComponent(
  "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
 )).then(r=>r.text()).then(text=>{
  (text.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
   const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
-  if(p.length<8)return;
+  if(p.length<8) return;
   const lat=+p[2], lon=+p[3];
-  if(lat<15||lat>60||lon<90||lon>180)return;
+  if(lat<15||lat>60||lon<90||lon>180) return;
 
   const wdir=+p[4], wspd=+p[5];
   if(Number.isFinite(wdir)&&Number.isFinite(wspd)){
-   L.marker([lat,lon],{
-    icon:makeWindIcon(wdir,wspd.toFixed(1),getArrowColor(wspd))
-   }).addTo(map);
+   const key = pointKey(lat, lon);
+   if(!pointData[key]) pointData[key] = { lat, lon };
+   pointData[key].windHtml = `
+     <b>風 (NOAA)</b><br>
+     風速: ${wspd.toFixed(1)} m/s
+   `;
+   pointData[key].iconAngle = wdir + 180;
+   pointData[key].iconSpeed = wspd.toFixed(1);
+   pointData[key].iconColor = getArrowColor(wspd);
   }
 
   const wv=+p[7]*0.3048;
   if(Number.isFinite(wv)){
-   createCircleMarker(lat,lon,getColor(wv),
-    `Ship (${wv.toFixed(2)} m)`);
+   const key = pointKey(lat, lon);
+   if(!pointData[key]) pointData[key] = { lat, lon };
+   pointData[key].waveHtml = `Ship (${wv.toFixed(2)} m)`;
+   pointData[key].waveHeight = wv;
   }
  });
 });
 
-// ===================== 波：NOWPHAS =====================
+// ---------------- ④ NOWPHAS 波 ----------------
 (async()=>{
  const setupXML = await fetch(proxy+encodeURIComponent(
   "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
@@ -214,16 +222,19 @@ fetch(proxy+encodeURIComponent(
  [...dataXML.getElementsByTagName("mapdata")].forEach(md=>{
   const code=md.getAttribute("code");
   const y=md.getElementsByTagName("yugiha")[0]?.textContent;
-  if(!y||!pts[code])return;
+  if(!y||!pts[code]) return;
   const h=parseFloat(y);
-  if(h>=100)return;
+  if(h>=100) return;
   const {name,lat,lon}=pts[code];
-  createCircleMarker(lat,lon,getColor(h),
-   `<a href="https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/" target="_blank">${name}</a><br>(${h.toFixed(2)} m)`);
+
+  const key = pointKey(lat, lon);
+  if(!pointData[key]) pointData[key] = { lat, lon };
+  pointData[key].waveHtml = `<a href="https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/" target="_blank">${name}</a><br>(${h.toFixed(2)} m)`;
+  pointData[key].waveHeight = h;
  });
 })();
 
-// ===================== 波：河川局 =====================
+// ---------------- ⑤ 河川局 ----------------
 async function plotRiverCoastWaves(){
  const prefCodes=[ "102","103","104","105","201","301","401","501","601","701","801","901",
  "1001","1101","1201","1301","1401","1501","1601","1701","1801","1901",
@@ -243,17 +254,20 @@ async function plotRiverCoastWaves(){
    const pos={};
    info.prefTwn?.forEach(t=>{
     t.coast?.forEach(c=>{
-     if(c.lat&&c.lon)pos[c.obsFcd]={lat:+c.lat,lon:+c.lon,name:c.obsNm};
+     if(c.lat&&c.lon) pos[c.obsFcd]={lat:+c.lat,lon:+c.lon,name:c.obsNm};
     });
    });
 
    tm.prefTwn?.forEach(t=>{
     t.coast?.forEach(c=>{
      const p=pos[c.obsFcd];
-     if(!p||!c.onthwvHght||Number(c.onthwvHght)===0)return;
-     if(p.lat<20||p.lat>50||p.lon<120||p.lon>150)return;
-     createCircleMarker(p.lat,p.lon,getColor(+c.onthwvHght),
-      `${p.name} (${(+c.onthwvHght).toFixed(2)} m)`);
+     if(!p||!c.onthwvHght||Number(c.onthwvHght)===0) return;
+     if(p.lat<20||p.lat>50||p.lon<120||p.lon>150) return;
+
+     const key = pointKey(p.lat, p.lon);
+     if(!pointData[key]) pointData[key] = { lat:p.lat, lon:p.lon };
+     pointData[key].waveHtml = `${p.name} (${(+c.onthwvHght).toFixed(2)} m)`;
+     pointData[key].waveHeight = +c.onthwvHght;
     });
    });
   }catch(e){}
@@ -261,7 +275,42 @@ async function plotRiverCoastWaves(){
 }
 plotRiverCoastWaves();
 
-// ===================== 凡例 =====================
+// ---------------- ⑥ 描画 ----------------
+function drawPoints(){
+ Object.values(pointData).forEach(p=>{
+  const html = `
+   ${p.windHtml ?? ""}
+   ${p.waveHtml ? "<hr>"+p.waveHtml : ""}
+  `;
+
+  // レイヤーグループで1地点
+  const group = L.layerGroup().addTo(map);
+
+  // 波マーカー
+  if(p.waveHeight != null){
+    L.circleMarker([p.lat,p.lon],{
+      radius:8,
+      color:getColor(p.waveHeight),
+      fillColor:getColor(p.waveHeight),
+      fillOpacity:0.8,
+      weight:1
+    }).addTo(group);
+  }
+
+  // 風アイコン
+  if(p.iconAngle != null){
+    L.marker([p.lat,p.lon],{
+      icon: makeWindIcon(p.iconAngle,p.iconSpeed,p.iconColor)
+    }).addTo(group);
+  }
+
+  group.bindPopup(html, { maxWidth: 300 });
+}
+
+// 少し待ってから描画（非同期 fetch 完了後）
+setTimeout(drawPoints, 5000);
+
+// ---------------- ⑦ 凡例 ----------------
 const legend=L.control({position:"bottomright"});
 legend.onAdd=function(){
  const d=L.DomUtil.create("div","legend");
@@ -275,6 +324,7 @@ legend.onAdd=function(){
  return d;
 };
 legend.addTo(map);
+
 </script>
 </body>
 </html>
