@@ -288,8 +288,7 @@ function drawPoints(){
     if(p.iconAngle!=null){
       const m= L.marker([p.lat,p.lon],{icon:makeWindIcon(p.iconAngle,p.iconSpeed,p.iconColor)}).addTo(map);
       m.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
-      m.on("mouseover",e=>e.target.openPopup());
-      m.on("mouseout", e=>map.closePopup());
+      m.on("mouseover",e=>e.target.openPopup());;
     }
     if(p.waveHeight!=null){
       const c=L.circleMarker([p.lat,p.lon],{
@@ -298,7 +297,6 @@ function drawPoints(){
       }).addTo(map);
       c.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
       c.on("mouseover",e=>e.target.openPopup());
-      c.on("mouseout", e=>map.closePopup());
     }
   });
 }
