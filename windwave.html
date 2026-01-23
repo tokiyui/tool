@@ -278,7 +278,29 @@ plotRiverCoastWaves();
 // ---------------- ⑥ 描画 ----------------
 function drawPoints(){
   Object.values(pointData).forEach(p=>{
-    const html = (p.windHtml ?? "") + (p.waveHtml ? "<hr>" + p.waveHtml : "");
+    // Popup用HTMLを作る
+    let htmlParts = [];
+
+    // データ種別 + 地点名（リンク付きの場合あり）
+    if(p.windHtml){
+      htmlParts.push(p.windHtml); // 海保・アメダスなど、リンク入りで用意済み
+    }
+    if(p.waveHtml){
+      htmlParts.push(p.waveHtml); // 波データ、リンク入りならそのまま
+    }
+
+    // 風データがある場合のみ追加
+    if(p.iconAngle != null){
+      htmlParts.push(`風向: ${p.iconAngle}°`);
+      htmlParts.push(`風速: ${p.iconSpeed} m/s`);
+    }
+
+    // 波データがある場合のみ追加
+    if(p.waveHeight != null){
+      htmlParts.push(`波高: ${p.waveHeight.toFixed(2)} m`);
+    }
+
+    const html = htmlParts.join("<br>");
 
     // 風マーカー
     if(p.iconAngle != null){
@@ -298,15 +320,12 @@ function drawPoints(){
       }).addTo(map);
     }
 
-    // 透明マーカーでPopupを制御
+    // 透明マーカーでPopup表示制御
     L.marker([p.lat,p.lon], {opacity:0})
       .bindPopup(html, { maxWidth: 300, autoClose:false, closeOnClick:false })
       .addTo(map);
   });
 }
-
-// 少し待ってから描画（非同期 fetch 完了後）
-setTimeout(drawPoints, 5000);
 
 // ---------------- ⑦ 凡例 ----------------
 const legend=L.control({position:"bottomright"});
