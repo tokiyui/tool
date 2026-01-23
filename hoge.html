@@ -1,205 +1,162 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>波高地図（衛星＋観測点 色整合）</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<title>Copernicus SWH (netCDF4 via PyScript)</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <style>
-    html, body { height: 100%; margin: 0; }
-    #map { height: 100vh; width: 100vw; }
+<!-- PyScript -->
+<link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
+<script defer src="https://pyscript.net/latest/pyscript.js"></script>
 
-    .legend {
-      background: white;
-      padding: 6px 8px;
-      font-size: 14px;
-      line-height: 18px;
-      color: #333;
-    }
-    .legend i {
-      width: 18px;
-      height: 18px;
-      float: left;
-      margin-right: 6px;
-      opacity: 0.8;
-    }
-  </style>
+<style>
+html, body, #map {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+#status {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(255,255,255,0.9);
+  padding: 6px;
+  font-family: monospace;
+  z-index: 999;
+}
+</style>
 </head>
 <body>
 
 <div id="map"></div>
+<div id="status">initializing…</div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<py-config>
+packages = [
+  "numpy",
+  "netCDF4",
+  "pillow"
+]
+</py-config>
+
+<py-script>
+import numpy as np
+from netCDF4 import Dataset
+from PIL import Image
+import datetime
+import io
+import urllib.request
+import js
+import asyncio
+
+# ============================
+# 最新時刻計算
+# ============================
+def latest_base_time():
+    now = datetime.datetime.utcnow() - datetime.timedelta(hours=6)
+    hour = (now.hour // 3) * 3
+    return now.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+def fmt(t):
+    return t.strftime("%Y%m%dT%H0000")
+
+# ============================
+# URL生成
+# ============================
+def build_url():
+    t1 = latest_base_time()
+    t2 = t1 + datetime.timedelta(hours=3)
+    t3 = datetime.datetime.utcnow()
+
+    y = t1.year
+    m = f"{t1.month:02d}"
+
+    filename = (
+        f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211_"
+        f"{fmt(t1)}_{fmt(t2)}_{fmt(t3)}.nc"
+    )
+
+    return (
+        "https://data.marine.copernicus.eu/product/"
+        "WAVE_GLO_PHY_SWH_L3_NRT_014_001/files"
+        f"?path=WAVE_GLO_PHY_SWH_L3_NRT_014_001/"
+        f"cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211/"
+        f"{y}/{m}/"
+        f"&subdataset={filename}"
+    )
+
+# ============================
+# メイン処理
+# ============================
+async def main():
+    js.document.getElementById("status").innerText = "fetching netCDF…"
+
+    url = build_url()
+    raw = urllib.request.urlopen(url).read()
+
+    ds = Dataset("mem", memory=raw)
+
+    lon = ds.variables["longitude"][:]
+    lat = ds.variables["latitude"][:]
+    swh = ds.variables["VAVH"][:]
+
+    ny, nx = swh.shape
+
+    img = Image.new("RGBA", (nx, ny))
+    px = img.load()
+
+    # ---- カラールール（観測点と整合） ----
+    for j in range(ny):
+        for i in range(nx):
+            v = swh[j, i]
+            if np.isnan(v):
+                px[i, ny-1-j] = (0, 0, 0, 0)
+            elif v < 1.0:
+                px[i, ny-1-j] = (0, 120, 255, 160)
+            elif v < 2.0:
+                px[i, ny-1-j] = (0, 200, 0, 160)
+            elif v < 3.0:
+                px[i, ny-1-j] = (255, 200, 0, 160)
+            else:
+                px[i, ny-1-j] = (255, 0, 0, 160)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    png = buf.getvalue()
+
+    js.renderOverlay(
+        png,
+        float(lat.min()), float(lat.max()),
+        float(lon.min()), float(lon.max())
+    )
+
+    js.document.getElementById("status").innerText = "done"
+
+asyncio.ensure_future(main())
+</py-script>
+
 <script>
-/* =====================================================
-   Map
-===================================================== */
-const map = L.map("map").setView([36, 138], 5);
+const map = L.map("map").setView([30, 140], 3);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "&copy; OpenStreetMap contributors",
-  maxZoom: 8
-}).addTo(map);
+L.tileLayer(
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { attribution: "&copy; OpenStreetMap" }
+).addTo(map);
 
-/* =====================================================
-   時刻（UTC-6h → 3h切り捨て）
-===================================================== */
-function latestTimeISO() {
-  const d = new Date();
-  d.setUTCHours(d.getUTCHours() - 6);
-  d.setUTCHours(Math.floor(d.getUTCHours() / 3) * 3, 0, 0, 0);
-  return d.toISOString();
-}
-const timeISO = latestTimeISO();
+window.renderOverlay = function(pngBytes, latMin, latMax, lonMin, lonMax) {
+  const blob = new Blob([pngBytes], { type: "image/png" });
+  const url = URL.createObjectURL(blob);
 
-/* =====================================================
-   Copernicus WMS（衛星SWH）
-===================================================== */
-const WMS_URL =
-  "https://nrt.cmems-du.eu/thredds/wms/" +
-  "cmems_obs-wave_glo_phy-swh_nrt_cfo-l3_PT1S_202211";
-
-function addSWHLayer(min, max) {
-  return L.tileLayer.wms(WMS_URL, {
-    layers: "VAVH",
-    styles: "boxfill",
-    format: "image/png",
-    transparent: true,
-    time: timeISO,
-    colorscalerange: `${min},${max}`,
-    numcolorbands: 1,
-    belowmincolor: "transparent",
-    abovemaxcolor: "transparent",
-    opacity: 0.55
-  }).addTo(map);
-}
-
-// 観測点と完全一致の色分け
-addSWHLayer(0.0, 0.5);  // dodgerblue
-addSWHLayer(0.5, 1.0);  // limegreen
-addSWHLayer(1.0, 1.5);  // greenyellow
-addSWHLayer(1.5, 2.0);  // gold
-addSWHLayer(2.0, 3.0);  // darkorange
-addSWHLayer(3.0, 8.0);  // orangered
-
-/* =====================================================
-   観測点 共通関数
-===================================================== */
-const proxy = "https://worker.ryohorita105.workers.dev/?url=";
-
-function getColor(h) {
-  if (h < 0.5) return "dodgerblue";
-  if (h < 1.0) return "limegreen";
-  if (h < 1.5) return "greenyellow";
-  if (h < 2.0) return "gold";
-  if (h < 3.0) return "darkorange";
-  return "orangered";
-}
-
-function createCircleMarker(lat, lon, color, text) {
-  return L.circleMarker([lat, lon], {
-    radius: 7,
-    color,
-    fillColor: color,
-    fillOpacity: 0.85,
-    weight: 1
-  }).bindTooltip(text).addTo(map);
-}
-
-async function fetchJSON(url) {
-  const r = await fetch(url);
-  return await r.json();
-}
-async function fetchXML(url) {
-  const r = await fetch(url);
-  const t = await r.text();
-  return new DOMParser().parseFromString(t, "application/xml");
-}
-async function fetchText(url) {
-  const r = await fetch(url);
-  return await r.text();
-}
-
-/* =====================================================
-   観測点プロット
-===================================================== */
-async function plotWaveData() {
-  // --- NOWPHAS ---
-  const setupXML = await fetchXML(proxy + encodeURIComponent(
-    "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
-  ));
-  const dataXML = await fetchXML(proxy + encodeURIComponent(
-    "https://nowphas.mlit.go.jp/mapxml/DataMap.xml"
-  ));
-
-  const points = {};
-  for (const pt of setupXML.getElementsByTagName("point")) {
-    points[pt.getAttribute("code")] = {
-      name: pt.getAttribute("name"),
-      lat: +pt.getAttribute("lat"),
-      lon: +pt.getAttribute("lon")
-    };
-  }
-
-  for (const md of dataXML.getElementsByTagName("mapdata")) {
-    const code = md.getAttribute("code");
-    const el = md.getElementsByTagName("yugiha")[0];
-    if (!el || !points[code]) continue;
-    const h = parseFloat(el.textContent);
-    if (h >= 100) continue;
-    const p = points[code];
-    createCircleMarker(p.lat, p.lon, getColor(h), `${p.name} (${h.toFixed(2)} m)`);
-  }
-
-  // --- JMA SSVB ---
-  const ssvb = await fetchJSON("https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json");
-  const nowUTC = new Date();
-  const sixHoursAgo = new Date(nowUTC.getTime() - 6 * 3600 * 1000);
-
-  for (const id in ssvb) {
-    const entries = ssvb[id];
-    const times = Object.keys(entries)
-      .filter(t => new Date(t) >= sixHoursAgo)
-      .sort();
-    if (!times.length) continue;
-    const d = entries[times.at(-1)];
-    if (!d.latlon) continue;
-    createCircleMarker(
-      d.latlon[0], d.latlon[1],
-      getColor(d.wave_height),
-      `Buoy (${d.wave_height.toFixed(2)} m)`
-    );
-  }
-}
-
-/* =====================================================
-   凡例
-===================================================== */
-const legend = L.control({ position: "bottomright" });
-legend.onAdd = function () {
-  const div = L.DomUtil.create("div", "legend");
-  const grades = [0,0.5,1,1.5,2,3];
-  div.innerHTML += "<b>波高 (m)</b><br>";
-  for (let i=0;i<grades.length;i++) {
-    const from = grades[i];
-    const to = grades[i+1];
-    div.innerHTML +=
-      `<i style="background:${getColor(from+0.01)}"></i>` +
-      `${from}${to ? "–"+to : "+"}<br>`;
-  }
-  return div;
+  L.imageOverlay(
+    url,
+    [[latMin, lonMin], [latMax, lonMax]],
+    { opacity: 0.7 }
+  ).addTo(map);
 };
-legend.addTo(map);
-
-/* =====================================================
-   実行
-===================================================== */
-plotWaveData().catch(e => {
-  console.error(e);
-  alert("データ取得エラー");
-});
 </script>
 
 </body>
