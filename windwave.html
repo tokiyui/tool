@@ -287,7 +287,7 @@ function drawPoints(){
 
     if(p.iconAngle!=null){
       const m= L.marker([p.lat,p.lon],{icon:makeWindIcon(p.iconAngle,p.iconSpeed,p.iconColor)}).addTo(map);
-      m.bindPopup(popupHtml);
+      m.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
       m.on("mouseover",e=>e.target.openPopup());
       m.on("mouseout", e=>map.closePopup());
     }
@@ -296,7 +296,7 @@ function drawPoints(){
         radius:8,color:getColor(p.waveHeight),
         fillColor:getColor(p.waveHeight),fillOpacity:0.8,weight:1
       }).addTo(map);
-      c.bindPopup(popupHtml);
+      c.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
       c.on("mouseover",e=>e.target.openPopup());
       c.on("mouseout", e=>map.closePopup());
     }
