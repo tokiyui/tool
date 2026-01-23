@@ -4,11 +4,9 @@
 <meta charset="utf-8">
 <title>Copernicus SWH latest (CORS proxy)</title>
 
-<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<!-- NetCDF -->
 <script src="https://unpkg.com/netcdfjs@0.7.0/dist/netcdfjs.min.js"></script>
 
 <style>
@@ -50,11 +48,8 @@ const CORS_PROXY = "https://worker.ryohorita105.workers.dev/?url=";
 function getLatestBaseTimeUTC() {
   const now = new Date();
   const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-
   utc.setUTCHours(utc.getUTCHours() - 6);
-  const h = utc.getUTCHours();
-  utc.setUTCHours(Math.floor(h / 3) * 3, 0, 0, 0);
-
+  utc.setUTCHours(Math.floor(utc.getUTCHours() / 3) * 3, 0, 0, 0);
   return utc;
 }
 
@@ -71,7 +66,7 @@ function fmt(dt) {
 }
 
 // ==================================================
-// Copernicus URL 生成
+// Copernicus URL
 // ==================================================
 function buildCopernicusURL(baseTime) {
   const y = baseTime.getUTCFullYear();
@@ -92,14 +87,16 @@ function buildCopernicusURL(baseTime) {
 }
 
 // ==================================================
-// NetCDF fetch → Canvas 描画
+// NetCDF fetch → Canvas
 // ==================================================
 async function loadAndRender(url) {
   const res = await fetch(CORS_PROXY + url);
   if (!res.ok) throw new Error("fetch failed");
 
   const buf = await res.arrayBuffer();
-  const nc = new NetCDFReader(buf);
+
+  // ★ ここが正解
+  const nc = new netcdfjs.NetCDFReader(buf);
 
   const lon = nc.getDataVariable("longitude");
   const lat = nc.getDataVariable("latitude");
@@ -107,6 +104,9 @@ async function loadAndRender(url) {
 
   const nx = lon.length;
   const ny = lat.length;
+
+  // time=0 を使用
+  const stride = nx * ny;
 
   const canvas = document.createElement("canvas");
   canvas.width = nx;
@@ -116,13 +116,14 @@ async function loadAndRender(url) {
 
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
-      const v = swh[j * nx + i];
+      const idx = j * nx + i;
+      const v = swh[idx]; // time=0
+
       const p = ((ny - 1 - j) * nx + i) * 4;
 
-      if (isNaN(v)) {
+      if (!isFinite(v)) {
         img.data[p + 3] = 0;
       } else {
-        // 0–8m スケール
         const c = Math.min(255, v / 8 * 255);
         img.data[p]     = c;
         img.data[p + 1] = c;
@@ -137,8 +138,8 @@ async function loadAndRender(url) {
   return {
     canvas,
     bounds: [
-      [Math.min(...lat), Math.min(...lon)],
-      [Math.max(...lat), Math.max(...lon)]
+      [lat[0], lon[0]],
+      [lat[lat.length - 1], lon[lon.length - 1]]
     ]
   };
 }
@@ -160,8 +161,6 @@ async function loadAndRender(url) {
   document.getElementById("info").textContent =
     "fetching: " + fmt(baseTime) + " UTC";
 
-  console.log("URL:", url);
-
   try {
     const { canvas, bounds } = await loadAndRender(url);
     L.imageOverlay(canvas, bounds).addTo(map);
@@ -169,7 +168,7 @@ async function loadAndRender(url) {
     document.getElementById("info").textContent =
       "SWH " + fmt(baseTime) + " UTC";
   } catch (e) {
-    document.getElementById("info").textContent = "ERROR (CORS or fetch)";
+    document.getElementById("info").textContent = "ERROR";
     console.error(e);
   }
 })();
