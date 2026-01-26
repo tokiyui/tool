@@ -9,7 +9,7 @@
 # 気象関係
 - [ECMWF-AIFS初期値比較](https://tokiyui.github.io/tool/AIFS.html): AI気象モデルECMWF-AIFSの予想図を、米国の気象愛好家Ryan Maue氏が公開しているサイトから取得し、初期値比較ができるように表示しています。
 - [気象計算機](https://tokiyui.github.io/tool/metcalc.html): 露点・湿数・湿球温度・温位・相当温位・飽和相当温位を計算するツールです。
-- [波高実況](https://tokiyui.github.io/tool/waveobs.html): ナウファス、船舶観測、ブイ観測、衛星観測データを重ね合わせます。
+- [風速・波高実況](https://tokiyui.github.io/tool/windwave.html): アメダス風速、灯台風、ナウファス、船舶観測、ブイ観測などを重ね合わせます。
 - [衛星海上風](https://tokiyui.github.io/tool/ASCAT.html): dapiyaのページから取得した各衛星による海上風を一覧表示。
 - [水蒸気流入監視](https://tokiyui.github.io/tool/pwv.html): アメダスおよびそらまめくん（大気汚染監視）の風データとGNSS可降水量を表示します。
 - [予想エマグラム](https://tokiyui.github.io/tool/emagram.html): データ元はWM（察して）
