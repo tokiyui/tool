@@ -101,25 +101,36 @@ async function fetchAll() {
 
   // --- 風：海保 ---
   await fetch(proxy+encodeURIComponent(
-   "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
-   "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
+    "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
+    "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
   )).then(r=>r.json()).then(data=>{
     data.forEach(e=>{
       if(!e.shp) return;
       const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
       if(!m) return;
+
       const lon=+m[1], lat=+m[2];
-      const a=windDirJMA(e.fuukou);
-      const s=parseFloat(e.fuusoku);
-      if(a===null||isNaN(s)) return;
       const key=pointKey(lat,lon);
       if(!pointData[key]) pointData[key]={lat,lon};
-      pointData[key].windType="灯台";
-      pointData[key].windName=e.kansokujo_mei;
-      pointData[key].windUrl=e.url;
-      pointData[key].iconAngle=a;
-      pointData[key].iconSpeed=s;
-      pointData[key].iconColor=getArrowColor(s);
+
+      /* --- 波高（数値のみ） --- */
+      if(e.hakou && !isNaN(wv=parseFloat(e.hakou))){
+      pointData[key].windType  = "灯台";
+      pointData[key].windName  = e.kansokujo_mei;
+      pointData[key].waveHeight = wv;
+      }
+
+      /* --- 風（数値のみ） --- */
+      const a = windDirJMA(e.fuukou);
+      const s = e.fuusoku ? parseFloat(e.fuusoku) : NaN;
+      if(a===null || isNaN(s)) return;
+
+      pointData[key].windType  = "灯台";
+      pointData[key].windName  = e.kansokujo_mei;
+      pointData[key].windUrl   = e.url;
+      pointData[key].iconAngle = a;
+      pointData[key].iconSpeed = s;
+      pointData[key].iconColor = getArrowColor(s);
     });
   });
 
