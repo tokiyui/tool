@@ -115,8 +115,8 @@ async function fetchAll() {
 
       /* --- 波高（数値のみ） --- */
       if(e.hakou && !isNaN(wv=parseFloat(e.hakou))){
-      pointData[key].windType  = "灯台";
-      pointData[key].windName  = e.kansokujo_mei;
+      pointData[key].waveType  = "灯台";
+      pointData[key].waveName  = e.kansokujo_mei;
       pointData[key].waveHeight = wv;
       }
 
