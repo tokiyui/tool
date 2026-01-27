@@ -301,7 +301,7 @@ function drawPoints(){
     // 風マーカー
     if(p.iconAngle!=null){
       const m = L.marker([p.lat,p.lon], {icon: makeWindIcon(p.iconAngle, p.iconSpeed, p.iconColor)}).addTo(map);
-      m.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
+      m.bindPopup(popupHtml, { maxWidth: 200, autoClose:false, closeOnClick:false });
       m.on("mouseover", e=>{
         if(currentPopup) currentPopup.close();  // 前のポップアップを閉じる
         e.target.openPopup();
@@ -318,7 +318,7 @@ function drawPoints(){
         fillOpacity:0.8,
         weight:1
       }).addTo(map);
-      c.bindPopup(popupHtml, { maxWidth: 300, autoClose:false, closeOnClick:false });
+      c.bindPopup(popupHtml, { maxWidth: 200, autoClose:false, closeOnClick:false });
       c.on("mouseover", e=>{
         if(currentPopup) currentPopup.close();
         e.target.openPopup();
