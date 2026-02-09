@@ -171,6 +171,41 @@ async function fetchAll() {
     });
   });
 
+  // --- JMA SSVB 波（最新6時間以内のみ） ---
+  await (async()=>{
+    try {
+      const ssvb = await fetch(proxy+encodeURIComponent(
+        "https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json"
+      )).then(r=>r.json());
+
+      // 現在時刻UTC
+      const now = new Date();
+
+      Object.values(ssvb).forEach(station=>{
+        // stationは時間キーごとのオブジェクト
+        const times = Object.keys(station);
+        if(times.length===0) return;
+
+        // 最新時刻
+        const latestTimeStr = times.sort().reverse()[0];
+        const latestDate = new Date(latestTimeStr);
+        const diffHours = (now - latestDate)/36e5; // 時間差
+
+        if(diffHours>6 || diffHours<0) return; // 6時間以内のみ
+
+        const d = station[latestTimeStr];
+        if(!d.latlon || !d.wave_height) return;
+        const [lat, lon] = d.latlon;
+        const key = pointKey(lat, lon);
+        if(!pointData[key]) pointData[key]={lat, lon};
+        pointData[key].waveType = "気象庁ブイ";
+        pointData[key].waveName = `${d.id}`;
+        pointData[key].waveUrl = `https://www.jma.go.jp/bosai/wave/#code=${d.id}&type=buoy`;
+        pointData[key].waveHeight = d.wave_height;
+      });
+    } catch {}
+  })();
+  
   // --- NOAA 風＆波 ---
   await fetch(proxy+encodeURIComponent(
    "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
