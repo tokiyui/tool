@@ -28,6 +28,9 @@ const models = [
   "jma_gsm"
 ];
 
+// 補正対象モデル（部分一致）
+const correctionModels = ["icon", "ukmo", "gem"];
+
 const hPaLevels = ["400", "500", "700", "850", "925"];
 const latitude  = 35.75;
 const longitude = 139.75;
@@ -46,9 +49,12 @@ function sumPrecipitation(hourIndex, precipitation) {
     .reduce((a, b) => a + b, 0);
 }
 
-// 相対湿度の温度補正
-function correctedRH(rh, T) {
-  if (T >= 0) return rh;
+// RH補正（モデル判定込み）
+function applyRHCorrection(model, rh, T) {
+  const needCorrection = correctionModels.some(m => model.includes(m));
+  if (!needCorrection) return rh;     // 補正不要モデル
+  if (T >= 0) return rh;              // 0℃以上は補正なし
+
   const factor = Math.pow(
     10,
     (7.5 * T / (T + 237.3)) - (9.5 * T / (T + 265.5))
@@ -111,7 +117,7 @@ temperature_400hPa
 
     const tbody = document.createElement("tbody");
 
-    // ===== 各気圧面RH（補正後を表示） =====
+    // ===== 各気圧面RH（モデル依存補正） =====
     for (const level of hPaLevels) {
       const tr = document.createElement("tr");
       tr.appendChild(document.createElement("td")).textContent = `${level}hPa`;
@@ -121,7 +127,7 @@ temperature_400hPa
 
         const rh0 = hourly[`relative_humidity_${level}hPa`][hourIndex];
         const T   = hourly[`temperature_${level}hPa`][hourIndex];
-        const rh  = correctedRH(rh0, T);
+        const rh  = applyRHCorrection(model, rh0, T);
 
         const td = document.createElement("td");
         td.textContent = Math.round(rh);
@@ -146,7 +152,7 @@ temperature_400hPa
 
     tbody.appendChild(trP);
 
-    // ===== 天気判定（補正RH使用） =====
+    // ===== 天気判定 =====
     const trW = document.createElement("tr");
     trW.appendChild(document.createElement("td")).textContent = "天気判定";
 
@@ -156,7 +162,7 @@ temperature_400hPa
       const rhValues = hPaLevels.map(level => {
         const rh0 = hourly[`relative_humidity_${level}hPa`][hourIndex];
         const T   = hourly[`temperature_${level}hPa`][hourIndex];
-        return correctedRH(rh0, T);
+        return applyRHCorrection(model, rh0, T);
       });
 
       const precipSum = sumPrecipitation(hourIndex, hourly.precipitation);
