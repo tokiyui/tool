@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>気象モデル比較表</title>
+<style>
+  table { border-collapse: collapse; width: 100%; margin-bottom: 40px; }
+  th, td { border: 1px solid #999; padding: 5px; text-align: center; }
+  th { background-color: #eee; }
+  .green { background-color: #9f9; }
+  td { width: 4%; }
+</style>
+</head>
+<body>
+
+<h1>気象モデル比較表</h1>
+<div id="tables"></div>
+
+<script>
+// ================= 設定 =================
+const models = [
+  "ecmwf_ifs025",
+  "gfs_global",
+  "icon_global",
+  "gem_global",
+  "meteofrance_arpege_world",
+  "ukmo_global_deterministic_10km",
+  "jma_gsm"
+];
+
+const hPaLevels = ["400", "500", "700", "850", "925"];
+const latitude  = 35.75;
+const longitude = 139.75;
+
+// 表示時刻（3時間刻み）
+const hours = Array.from({length: 24}, (_, i) =>
+  ((3 + i * 3) % 24).toString().padStart(2, "0")
+);
+
+// ================= 計算関数 =================
+
+// 3時間降水量
+function sumPrecipitation(hourIndex, precipitation) {
+  return precipitation
+    .slice(hourIndex - 2, hourIndex + 1)
+    .reduce((a, b) => a + b, 0);
+}
+
+// 相対湿度の温度補正
+function correctedRH(rh, T) {
+  if (T >= 0) return rh;
+  const factor = Math.pow(
+    10,
+    (7.5 * T / (T + 237.3)) - (9.5 * T / (T + 265.5))
+  );
+  return rh * factor;
+}
+
+// 天気判定
+function judgeWeather(rhValues, precipSum) {
+  if (precipSum >= 3) return "●";
+  const hasGreen = rhValues.some(v => v >= 80);
+  let mark = hasGreen ? "◎" : "〇";
+  if (precipSum > 0 && precipSum < 3) mark += "[●]";
+  return mark;
+}
+
+// ================= 表作成 =================
+async function createTables() {
+  const container = document.getElementById("tables");
+
+  for (const model of models) {
+
+    const url = `https://api.open-meteo.com/v1/forecast
+?latitude=${latitude}
+&longitude=${longitude}
+&cell_selection=nearest
+&hourly=
+precipitation,
+relative_humidity_925hPa,relative_humidity_850hPa,
+relative_humidity_700hPa,relative_humidity_500hPa,
+relative_humidity_400hPa,
+temperature_925hPa,temperature_850hPa,
+temperature_700hPa,temperature_500hPa,
+temperature_400hPa
+&models=${model}
+&timezone=Asia%2FTokyo
+&forecast_days=3`.replace(/\s+/g, "");
+
+    const res = await fetch(url);
+    const data = await res.json();
+    const hourly = data.hourly;
+
+    // ===== タイトル =====
+    const title = document.createElement("h2");
+    title.textContent = model;
+    container.appendChild(title);
+
+    const table = document.createElement("table");
+    container.appendChild(table);
+
+    // ===== ヘッダ =====
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    trh.appendChild(document.createElement("th")).textContent = "時刻";
+    hours.forEach(h => {
+      trh.appendChild(document.createElement("th")).textContent = h;
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+
+    // ===== 各気圧面RH（補正後を表示） =====
+    for (const level of hPaLevels) {
+      const tr = document.createElement("tr");
+      tr.appendChild(document.createElement("td")).textContent = `${level}hPa`;
+
+      hours.forEach((h, i) => {
+        const hourIndex = i * 3 + 2;
+
+        const rh0 = hourly[`relative_humidity_${level}hPa`][hourIndex];
+        const T   = hourly[`temperature_${level}hPa`][hourIndex];
+        const rh  = correctedRH(rh0, T);
+
+        const td = document.createElement("td");
+        td.textContent = Math.round(rh);
+        if (rh >= 80) td.classList.add("green");
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    }
+
+    // ===== 3時間降水量 =====
+    const trP = document.createElement("tr");
+    trP.appendChild(document.createElement("td")).textContent = "3時間降水量";
+
+    hours.forEach((h, i) => {
+      const hourIndex = i * 3 + 2;
+      const sum = sumPrecipitation(hourIndex, hourly.precipitation);
+      const td = document.createElement("td");
+      td.textContent = sum.toFixed(1);
+      trP.appendChild(td);
+    });
+
+    tbody.appendChild(trP);
+
+    // ===== 天気判定（補正RH使用） =====
+    const trW = document.createElement("tr");
+    trW.appendChild(document.createElement("td")).textContent = "天気判定";
+
+    hours.forEach((h, i) => {
+      const hourIndex = i * 3 + 2;
+
+      const rhValues = hPaLevels.map(level => {
+        const rh0 = hourly[`relative_humidity_${level}hPa`][hourIndex];
+        const T   = hourly[`temperature_${level}hPa`][hourIndex];
+        return correctedRH(rh0, T);
+      });
+
+      const precipSum = sumPrecipitation(hourIndex, hourly.precipitation);
+      const td = document.createElement("td");
+      td.textContent = judgeWeather(rhValues, precipSum);
+      trW.appendChild(td);
+    });
+
+    tbody.appendChild(trW);
+    table.appendChild(tbody);
+  }
+}
+
+// 実行
+createTables();
+</script>
+
+</body>
+</html>
