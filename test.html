@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星観測 海上風・波高（完全版）</title>
+<title>衛星観測 海上風・波高（CORS Proxy完全版）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -23,7 +23,7 @@ position:absolute;
 z-index:1000;
 top:10px;
 left:10px;
-width:460px;
+width:470px;
 max-height:94%;
 overflow:auto;
 background:rgba(10,16,28,.95);
@@ -47,7 +47,7 @@ background:#08101d;
 padding:10px;
 border-radius:8px;
 font-size:12px;
-max-height:260px;
+max-height:280px;
 overflow:auto;
 }
 .small{
@@ -63,13 +63,12 @@ line-height:1.45;
 <h2 style="margin-top:0;">衛星観測 海上風＋波高</h2>
 
 <div class="small">
-ブラウザのみ / GitHub Pages可 / APIキー不要<br>
-NetCDF4(HDF5) 対応 / h5wasm 使用<br><br>
+ブラウザのみ / APIキー不要 / GitHub Pages可<br>
+CORS回避済み（Cloudflare Worker使用）<br>
+NetCDF4(HDF5) 読込対応<br><br>
 
-海上風：ASCAT scatterometer 観測<br>
-波高：Copernicus altimeter SWH 観測<br><br>
-
-最新ファイル一覧から自動取得します。
+海上風：ASCAT scatterometer<br>
+波高：Sentinel / Jason altimeter SWH
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -90,6 +89,17 @@ import * as h5wasm from "https://esm.sh/h5wasm";
 await h5wasm.ready;
 
 /* =====================================================
+   CORS Proxy
+===================================================== */
+
+const CORS_PROXY =
+"https://worker.ryohorita105.workers.dev/?url=";
+
+function prox(url){
+return CORS_PROXY + encodeURIComponent(url);
+}
+
+/* =====================================================
    地図
 ===================================================== */
 
@@ -97,7 +107,7 @@ const map = L.map("map").setView([28,140],4);
 
 L.tileLayer(
 "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-{ attribution:"© OpenStreetMap" }
+{attribution:"© OpenStreetMap"}
 ).addTo(map);
 
 const windLayer = L.layerGroup().addTo(map);
@@ -118,26 +128,15 @@ log("消去しました");
 };
 
 async function fetchText(url){
-const r = await fetch(url);
+const r = await fetch(prox(url));
 if(!r.ok) throw new Error("HTTP "+r.status);
 return await r.text();
 }
 
 async function fetchBuffer(url){
-const r = await fetch(url);
+const r = await fetch(prox(url));
 if(!r.ok) throw new Error("HTTP "+r.status);
 return await r.arrayBuffer();
-}
-
-function readVar(file,names){
-
-for(const n of names){
-try{
-return file.get(n).value;
-}catch(e){}
-}
-
-return null;
 }
 
 async function openNc(url){
@@ -152,12 +151,24 @@ new Uint8Array(buf)
 return new h5wasm.File("/tmp.nc","r");
 }
 
+function readVar(file,names){
+
+for(const n of names){
+try{
+return file.get(n).value;
+}catch(e){}
+}
+
+return null;
+}
+
 /* =====================================================
-   NOAA ASCAT 最新nc自動検索
+   海上風URL（実在公開NetCDF）
 ===================================================== */
 
 async function latestWindURL(){
 
+/* NOAA STAR ASCAT */
 const base =
 "https://manati.star.nesdis.noaa.gov/datasets/ASCATBNetCDF/";
 
@@ -167,7 +178,7 @@ const files = [...html.matchAll(
 /href="([^"]+\.nc)"/g
 )].map(v=>v[1]);
 
-if(!files.length) throw "ncファイルなし";
+if(!files.length) throw "海上風ncなし";
 
 files.sort();
 
@@ -175,14 +186,15 @@ return base + files[files.length-1];
 }
 
 /* =====================================================
-   Copernicus altimeter 最新nc自動検索
+   波高URL（実在公開NetCDF）
 ===================================================== */
 
 async function latestWaveURL(){
 
+/* IFREMER / CMEMS mirror example */
 const base =
-"https://nrt.cmems-du.eu/thredds/catalog/" +
-"radar_altimeter/catalog.html";
+"https://tds.aviso.altimetry.fr/thredds/catalog/data/" +
+"alongtrack/catalog.html";
 
 const html = await fetchText(base);
 
@@ -190,11 +202,13 @@ const files = [...html.matchAll(
 /href="([^"]+\.nc)"/g
 )].map(v=>v[1]);
 
-if(!files.length) throw "ncファイルなし";
+if(!files.length) throw "波高ncなし";
 
 files.sort();
 
-return files[files.length-1];
+return files[files.length-1].startsWith("http")
+? files[files.length-1]
+: base.replace("catalog.html","") + files[files.length-1];
 }
 
 /* =====================================================
@@ -215,18 +229,10 @@ log("取得中...\n"+url);
 
 const file = await openNc(url);
 
-const lat = readVar(file,[
-"lat","latitude"
-]);
-
-const lon = readVar(file,[
-"lon","longitude"
-]);
-
-const ws = readVar(file,[
-"wind_speed",
-"windspeed",
-"ws"
+const lat = readVar(file,["lat","latitude"]);
+const lon = readVar(file,["lon","longitude"]);
+const ws  = readVar(file,[
+"wind_speed","windspeed","ws"
 ]);
 
 if(!lat||!lon||!ws)
@@ -285,14 +291,8 @@ log("取得中...\n"+url);
 
 const file = await openNc(url);
 
-const lat = readVar(file,[
-"lat","latitude"
-]);
-
-const lon = readVar(file,[
-"lon","longitude"
-]);
-
+const lat = readVar(file,["lat","latitude"]);
+const lon = readVar(file,["lon","longitude"]);
 const swh = readVar(file,[
 "swh",
 "significant_wave_height",
