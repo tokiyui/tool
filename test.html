@@ -27,7 +27,7 @@
 
     <div id="ui-layer">
         <h3 style="margin:0; font-size:16px;">ASCAT (KNMI Thredds)</h3>
-        <div id="status" style="font-size:12px; color:#d32f2f; margin-top:5px;">最新ファイル探索中...</div>
+        <div id="status" style="font-size:12px; color:#d32f2f; margin-top:5px;">サーバー接続中...</div>
         <div id="file-info" style="font-size:9px; color:#888; margin-top:4px; word-break: break-all;"></div>
     </div>
     <div id="map"></div>
@@ -36,11 +36,6 @@
 
     <script>
         const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-        const now = new Date();
-        const y = now.getUTCFullYear();
-        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-        const THREDDS_CATALOG = `https://thredds.knmi.nl/thredds/catalog/osisaf/metop_b/ascat_coastal/${y}/${m}/catalog.xml`;
-        const THREDDS_DODS = `https://thredds.knmi.nl/thredds/dodsC/osisaf/metop_b/ascat_coastal/${y}/${m}/`;
 
         const map = L.map('map').setView([35.0, 138.0], 5);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -51,14 +46,13 @@
             return v > 15 ? '#d73027' : v > 10 ? '#f46d43' : v > 7 ? '#fdae61' : v > 4 ? '#fee08b' : v > 2 ? '#d9ef8b' : '#66bd63';
         }
 
-        // OPeNDAPのASCIIテキストから数値を抽出する
         function parseOpendapAscii(text) {
             const lines = text.split('\n');
             const data = [];
             let start = false;
             for (let line of lines) {
                 if (line.includes('[0]')) { start = true; continue; }
-                if (start && line.trim() !== "") {
+                if (start && line.trim() !== "" && !line.includes('----------------')) {
                     const vals = line.split(',').map(v => parseFloat(v.trim()));
                     data.push(...vals.filter(v => !isNaN(v)));
                 }
@@ -66,51 +60,63 @@
             return data;
         }
 
+        async function getFiles(year, month) {
+            const catalogUrl = `https://thredds.knmi.nl/thredds/catalog/osisaf/metop_b/ascat_coastal/${year}/${month}/catalog.xml`;
+            const res = await fetch(PROXY + encodeURIComponent(catalogUrl));
+            if (!res.ok) return null;
+            const text = await res.text();
+            return text.match(/ascat_[0-9_]+_metopb_[0-9]+_coastal\.nc/g);
+        }
+
         async function init() {
             const status = document.getElementById('status');
             const fileInfo = document.getElementById('file-info');
 
             try {
-                // 1. カタログから最新ファイル名を取得
-                const catRes = await fetch(PROXY + encodeURIComponent(THREDDS_CATALOG));
-                const catText = await catRes.text();
-                const fileMatches = catText.match(/ascat_[0-9_]+_metopb_[0-9]+_coastal\.nc/g);
-                if (!fileMatches) throw new Error("最新の観測ファイルが見つかりません。");
+                let now = new Date();
+                let y = now.getUTCFullYear();
+                let m = String(now.getUTCMonth() + 1).padStart(2, '0');
+
+                // 1. 今月のフォルダを確認
+                let fileMatches = await getFiles(y, m);
+
+                // 2. なければ先月のフォルダを確認 (月跨ぎ直後の対策)
+                if (!fileMatches) {
+                    now.setUTCMonth(now.getUTCMonth() - 1);
+                    y = now.getUTCFullYear();
+                    m = String(now.getUTCMonth() + 1).padStart(2, '0');
+                    fileMatches = await getFiles(y, m);
+                }
+
+                if (!fileMatches) throw new Error("最新ファイルが見つかりません。サーバーの保守中の可能性があります。");
                 
                 const latestFile = fileMatches[fileMatches.length - 1];
+                const dataPath = `https://thredds.knmi.nl/thredds/dodsC/osisaf/metop_b/ascat_coastal/${y}/${m}/`;
+                
                 fileInfo.innerText = "Loading: " + latestFile;
-                status.innerText = "データダウンロード中...";
+                status.innerText = "データ解析中...";
 
-                // 2. 風速、緯度、経度を同時に取得 (間引き率 10)
-                // [0:1:0]は時間, [0:10:3263]は緯度方向, [0:10:1623]は経度方向
+                // 3. データ取得 (間引き率 10)
                 const stride = 10;
                 const query = `.ascii?wind_speed[0:1:0][0:${stride}:3263][0:${stride}:1623],lat[0:${stride}:3263][0:${stride}:1623],lon[0:${stride}:3263][0:${stride}:1623]`;
-                const dataRes = await fetch(PROXY + encodeURIComponent(THREDDS_DODS + latestFile + query));
+                const dataRes = await fetch(PROXY + encodeURIComponent(dataPath + latestFile + query));
                 const dataText = await dataRes.text();
 
-                // 3. データの分割パース
-                // ASCII内では各変数がセクションに分かれている
                 const sections = dataText.split('-------------------------------------------');
                 const windData = parseOpendapAscii(sections[0]);
                 const latData = parseOpendapAscii(sections[1]);
                 const lonData = parseOpendapAscii(sections[2]);
 
-                status.innerText = "地図に描画中...";
                 let count = 0;
-
-                // 4. マッピング (緯度経度を紐付けてプロット)
                 for (let i = 0; i < windData.length; i++) {
                     const s = windData[i];
                     const lt = latData[i];
                     let ln = lonData[i];
-
-                    // 経度修正 (-180~180を0~360等)
                     if (ln < 0) ln += 360; 
                     
-                    // 日本近海のみに絞り込んで描画負荷を軽減
-                    if (lt > 20 && lt < 50 && ln > 120 && ln < 160 && s < 100) {
+                    if (lt > 15 && lt < 55 && ln > 110 && ln < 170 && s < 100) {
                         L.circleMarker([lt, ln], {
-                            radius: 2,
+                            radius: 2.5,
                             fillColor: getColor(s),
                             color: "#000",
                             weight: 0,
@@ -121,7 +127,7 @@
                 }
 
                 status.style.color = "#28a745";
-                status.innerText = `完了: ${count} 地点を表示`;
+                status.innerText = (count > 0) ? `完了: ${count} 地点を表示` : "最新パスに日本近海のデータがありません";
 
             } catch (err) {
                 console.error(err);
