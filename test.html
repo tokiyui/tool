@@ -1,62 +1,59 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>衛星観測 海上風・波高（h5wasm / NetCDF4対応）</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>衛星観測 海上風・波高（完全版）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 html,body{
-  margin:0;
-  height:100%;
-  font-family:sans-serif;
+margin:0;
+height:100%;
+font-family:sans-serif;
 }
 #map{
-  width:100%;
-  height:100%;
+width:100%;
+height:100%;
 }
 .panel{
-  position:absolute;
-  z-index:1000;
-  top:10px;
-  left:10px;
-  width:440px;
-  max-height:94%;
-  overflow:auto;
-  background:rgba(10,16,28,.95);
-  color:#fff;
-  padding:14px;
-  border-radius:12px;
+position:absolute;
+z-index:1000;
+top:10px;
+left:10px;
+width:460px;
+max-height:94%;
+overflow:auto;
+background:rgba(10,16,28,.95);
+color:#fff;
+padding:14px;
+border-radius:12px;
 }
 button{
-  padding:8px 12px;
-  margin:4px 4px 8px 0;
-  border:none;
-  border-radius:8px;
-  background:#2d8cff;
-  color:#fff;
-  cursor:pointer;
+padding:8px 12px;
+margin:4px 4px 8px 0;
+border:none;
+border-radius:8px;
+background:#2d8cff;
+color:#fff;
+cursor:pointer;
 }
 pre{
-  white-space:pre-wrap;
-  word-break:break-word;
-  background:#08101d;
-  padding:10px;
-  border-radius:8px;
-  font-size:12px;
-  max-height:260px;
-  overflow:auto;
+white-space:pre-wrap;
+word-break:break-word;
+background:#08101d;
+padding:10px;
+border-radius:8px;
+font-size:12px;
+max-height:260px;
+overflow:auto;
 }
 .small{
-  font-size:12px;
-  color:#b8c5d9;
-  line-height:1.45;
-}
-code{
-  color:#7dd3fc;
+font-size:12px;
+color:#b8c5d9;
+line-height:1.45;
 }
 </style>
 </head>
@@ -67,11 +64,12 @@ code{
 
 <div class="small">
 ブラウザのみ / GitHub Pages可 / APIキー不要<br>
-NetCDF4(HDF5) を <code>h5wasm</code> で直接読む構成。<br><br>
+NetCDF4(HDF5) 対応 / h5wasm 使用<br><br>
 
-<strong>重要:</strong><br>
-実際にはここを最新NRTの.nc URLへ変更してください。<br>
-（URLが正しければそのまま動きます）
+海上風：ASCAT scatterometer 観測<br>
+波高：Copernicus altimeter SWH 観測<br><br>
+
+最新ファイル一覧から自動取得します。
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -86,225 +84,263 @@ NetCDF4(HDF5) を <code>h5wasm</code> で直接読む構成。<br><br>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script type="module">
-import * as h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.8.7/dist/esm/index.js";
 
-window.h5wasm = h5wasm;
+import * as h5wasm from "https://esm.sh/h5wasm";
 
-/* ======================================================
+await h5wasm.ready;
+
+/* =====================================================
    地図
-====================================================== */
+===================================================== */
 
 const map = L.map("map").setView([28,140],4);
 
 L.tileLayer(
- "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
- { attribution:"© OpenStreetMap" }
+"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+{ attribution:"© OpenStreetMap" }
 ).addTo(map);
 
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-/* ======================================================
+/* =====================================================
    共通
-====================================================== */
+===================================================== */
 
 function log(t){
- document.getElementById("log").textContent = t;
+document.getElementById("log").textContent=t;
 }
-window.log = log;
 
-window.clearAll = function(){
- windLayer.clearLayers();
- waveLayer.clearLayers();
- log("消去しました");
+window.clearAll=function(){
+windLayer.clearLayers();
+waveLayer.clearLayers();
+log("消去しました");
 };
 
-function findDataset(file,names){
-
- for(const n of names){
-   try{
-     const ds = file.get(n);
-     if(ds) return ds;
-   }catch(e){}
- }
-
- return null;
+async function fetchText(url){
+const r = await fetch(url);
+if(!r.ok) throw new Error("HTTP "+r.status);
+return await r.text();
 }
 
-async function openRemoteNc(url){
-
- const res = await fetch(url);
- if(!res.ok) throw new Error("HTTP " + res.status);
-
- const buf = await res.arrayBuffer();
-
- const bytes = new Uint8Array(buf);
-
- const name = "/work.nc";
-
- h5wasm.FS.writeFile(name, bytes);
-
- return new h5wasm.File(name, "r");
+async function fetchBuffer(url){
+const r = await fetch(url);
+if(!r.ok) throw new Error("HTTP "+r.status);
+return await r.arrayBuffer();
 }
 
-/* ======================================================
-   実際にはここを最新NRT URLへ変更
-====================================================== */
+function readVar(file,names){
 
-const WIND_URL =
-"https://example.com/latest_ascat.nc";
+for(const n of names){
+try{
+return file.get(n).value;
+}catch(e){}
+}
 
-const WAVE_URL =
-"https://example.com/latest_sentinel6.nc";
+return null;
+}
 
-/* ======================================================
+async function openNc(url){
+
+const buf = await fetchBuffer(url);
+
+h5wasm.FS.writeFile(
+"/tmp.nc",
+new Uint8Array(buf)
+);
+
+return new h5wasm.File("/tmp.nc","r");
+}
+
+/* =====================================================
+   NOAA ASCAT 最新nc自動検索
+===================================================== */
+
+async function latestWindURL(){
+
+const base =
+"https://manati.star.nesdis.noaa.gov/datasets/ASCATBNetCDF/";
+
+const html = await fetchText(base);
+
+const files = [...html.matchAll(
+/href="([^"]+\.nc)"/g
+)].map(v=>v[1]);
+
+if(!files.length) throw "ncファイルなし";
+
+files.sort();
+
+return base + files[files.length-1];
+}
+
+/* =====================================================
+   Copernicus altimeter 最新nc自動検索
+===================================================== */
+
+async function latestWaveURL(){
+
+const base =
+"https://nrt.cmems-du.eu/thredds/catalog/" +
+"radar_altimeter/catalog.html";
+
+const html = await fetchText(base);
+
+const files = [...html.matchAll(
+/href="([^"]+\.nc)"/g
+)].map(v=>v[1]);
+
+if(!files.length) throw "ncファイルなし";
+
+files.sort();
+
+return files[files.length-1];
+}
+
+/* =====================================================
    海上風
-====================================================== */
+===================================================== */
 
 window.loadWind = async function(){
 
- windLayer.clearLayers();
- log("海上風取得中...");
+windLayer.clearLayers();
 
- try{
+try{
 
-   await h5wasm.ready;
+log("海上風URL検索中...");
 
-   const file = await openRemoteNc(WIND_URL);
+const url = await latestWindURL();
 
-   const latDs = findDataset(file,[
-     "lat","latitude","/lat","/latitude"
-   ]);
+log("取得中...\n"+url);
 
-   const lonDs = findDataset(file,[
-     "lon","longitude","/lon","/longitude"
-   ]);
+const file = await openNc(url);
 
-   const spdDs = findDataset(file,[
-     "wind_speed","windspeed","ws","/wind_speed"
-   ]);
+const lat = readVar(file,[
+"lat","latitude"
+]);
 
-   if(!latDs || !lonDs || !spdDs){
-     throw new Error("必要変数未検出");
-   }
+const lon = readVar(file,[
+"lon","longitude"
+]);
 
-   const lat = latDs.value;
-   const lon = lonDs.value;
-   const spd = spdDs.value;
+const ws = readVar(file,[
+"wind_speed",
+"windspeed",
+"ws"
+]);
 
-   let n = 0;
+if(!lat||!lon||!ws)
+throw "変数未検出";
 
-   for(let i=0;i<lat.length;i+=20){
+let n=0;
 
-     if(
-       lat[i]==null ||
-       lon[i]==null ||
-       spd[i]==null
-     ) continue;
+for(let i=0;i<lat.length;i+=20){
 
-     L.circleMarker([lat[i],lon[i]],{
-       radius:3 + spd[i]/8,
-       color:"#2ea8ff",
-       fillColor:"#2ea8ff",
-       fillOpacity:.8,
-       weight:1
-     })
-     .bindPopup(
-       "海上風<br>" +
-       spd[i].toFixed(1)+" m/s"
-     )
-     .addTo(windLayer);
+if(
+lat[i]==null||
+lon[i]==null||
+ws[i]==null
+) continue;
 
-     n++;
-   }
+L.circleMarker([lat[i],lon[i]],{
+radius:3+ws[i]/8,
+color:"#2ea8ff",
+fillColor:"#2ea8ff",
+fillOpacity:.85,
+weight:1
+})
+.bindPopup(
+"海上風<br>"+ws[i].toFixed(1)+" m/s"
+)
+.addTo(windLayer);
 
-   file.close();
+n++;
+}
 
-   log("海上風完了: " + n + " 点");
+file.close();
 
- }catch(e){
+log("海上風完了 "+n+"点");
 
-   log("海上風失敗\n" + e);
- }
+}catch(e){
+
+log("海上風失敗\n"+e);
+}
 };
 
-/* ======================================================
+/* =====================================================
    波高
-====================================================== */
+===================================================== */
 
 window.loadWave = async function(){
 
- waveLayer.clearLayers();
- log("波高取得中...");
+waveLayer.clearLayers();
 
- try{
+try{
 
-   await h5wasm.ready;
+log("波高URL検索中...");
 
-   const file = await openRemoteNc(WAVE_URL);
+const url = await latestWaveURL();
 
-   const latDs = findDataset(file,[
-     "lat","latitude"
-   ]);
+log("取得中...\n"+url);
 
-   const lonDs = findDataset(file,[
-     "lon","longitude"
-   ]);
+const file = await openNc(url);
 
-   const swhDs = findDataset(file,[
-     "swh",
-     "significant_wave_height",
-     "wave_height"
-   ]);
+const lat = readVar(file,[
+"lat","latitude"
+]);
 
-   if(!latDs || !lonDs || !swhDs){
-     throw new Error("必要変数未検出");
-   }
+const lon = readVar(file,[
+"lon","longitude"
+]);
 
-   const lat = latDs.value;
-   const lon = lonDs.value;
-   const swh = swhDs.value;
+const swh = readVar(file,[
+"swh",
+"significant_wave_height",
+"wave_height"
+]);
 
-   let n = 0;
+if(!lat||!lon||!swh)
+throw "変数未検出";
 
-   for(let i=0;i<lat.length;i+=10){
+let n=0;
 
-     if(
-       lat[i]==null ||
-       lon[i]==null ||
-       swh[i]==null
-     ) continue;
+for(let i=0;i<lat.length;i+=10){
 
-     let c="#00bfff";
-     if(swh[i]>2)c="#00ff88";
-     if(swh[i]>4)c="#ffee00";
-     if(swh[i]>6)c="#ff8800";
-     if(swh[i]>8)c="#ff0000";
+if(
+lat[i]==null||
+lon[i]==null||
+swh[i]==null
+) continue;
 
-     L.circleMarker([lat[i],lon[i]],{
-       radius:3 + swh[i],
-       color:c,
-       fillColor:c,
-       fillOpacity:.85,
-       weight:1
-     })
-     .bindPopup(
-       "波高<br>" +
-       swh[i].toFixed(1)+" m"
-     )
-     .addTo(waveLayer);
+let c="#00bfff";
+if(swh[i]>2)c="#00ff88";
+if(swh[i]>4)c="#ffee00";
+if(swh[i]>6)c="#ff8800";
+if(swh[i]>8)c="#ff0000";
 
-     n++;
-   }
+L.circleMarker([lat[i],lon[i]],{
+radius:3+swh[i],
+color:c,
+fillColor:c,
+fillOpacity:.85,
+weight:1
+})
+.bindPopup(
+"波高<br>"+swh[i].toFixed(1)+" m"
+)
+.addTo(waveLayer);
 
-   file.close();
+n++;
+}
 
-   log("波高完了: " + n + " 点");
+file.close();
 
- }catch(e){
+log("波高完了 "+n+"点");
 
-   log("波高失敗\n" + e);
- }
+}catch(e){
+
+log("波高失敗\n"+e);
+}
 };
 
 </script>
