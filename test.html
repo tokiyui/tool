@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>衛星NRT API（直近6時間）海上風・波高</title>
+
+<style>
+:root{
+  --bg:#0b1220;
+  --card:#172033;
+  --panel:#0d1526;
+  --text:#ffffff;
+  --sub:#b7c3d8;
+  --btn:#2d8cff;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  padding:20px;
+  font-family:sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+h1{margin:0 0 18px}
+.card{
+  background:var(--card);
+  padding:16px;
+  border-radius:12px;
+  margin-bottom:18px;
+}
+.small{
+  color:var(--sub);
+  font-size:13px;
+  line-height:1.5;
+}
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:12px 0;
+}
+button{
+  padding:10px 16px;
+  border:none;
+  border-radius:8px;
+  background:var(--btn);
+  color:#fff;
+  cursor:pointer;
+  font-weight:bold;
+}
+button:disabled{
+  opacity:.6;
+  cursor:not-allowed;
+}
+pre{
+  margin:0;
+  white-space:pre-wrap;
+  word-break:break-word;
+  background:var(--panel);
+  padding:12px;
+  border-radius:8px;
+  max-height:520px;
+  overflow:auto;
+  line-height:1.45;
+}
+.footer{
+  color:var(--sub);
+  font-size:12px;
+  margin-top:20px;
+}
+</style>
+</head>
+<body>
+
+<h1>衛星 Near Real Time API（直近6時間）</h1>
+
+<div class="card">
+  <h2>① 海上風（ASCAT / Scatterometer）</h2>
+  <div class="small">
+    NASA CMR APIから、直近6時間以内の海上風関連 granule を検索します。
+  </div>
+  <div class="row">
+    <button id="windBtn" onclick="loadWind()">取得</button>
+    <button onclick="clearBox('windOut')">消去</button>
+  </div>
+  <pre id="windOut">待機中...</pre>
+</div>
+
+<div class="card">
+  <h2>② 波高（Altimeter / Significant Wave Height）</h2>
+  <div class="small">
+    NASA CMR APIから、直近6時間以内の衛星高度計・波高関連 granule を検索します。
+  </div>
+  <div class="row">
+    <button id="waveBtn" onclick="loadWave()">取得</button>
+    <button onclick="clearBox('waveOut')">消去</button>
+  </div>
+  <pre id="waveOut">待機中...</pre>
+</div>
+
+<div class="footer">
+  ※ 公開APIの応答内容・公開状況に依存します。検索結果0件でもコードは正常です。<br>
+  ※ CORS制限があるデータ配布先リンクは、ブラウザ直接取得できない場合があります。
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   設定
+========================================================= */
+const HOURS_BACK = 6;
+const PAGE_SIZE = 20;
+const CMR_BASE = "https://cmr.earthdata.nasa.gov/search/granules.json";
+
+/* =========================================================
+   共通
+========================================================= */
+function $(id){
+  return document.getElementById(id);
+}
+
+function clearBox(id){
+  $(id).textContent = "待機中...";
+}
+
+function setLoading(btnId, flag){
+  const btn = $(btnId);
+  btn.disabled = flag;
+  btn.textContent = flag ? "取得中..." : "取得";
+}
+
+function toIsoUTC(date){
+  return date.toISOString();
+}
+
+function isoHoursAgo(hours){
+  return toIsoUTC(new Date(Date.now() - hours * 3600 * 1000));
+}
+
+function nowIso(){
+  return toIsoUTC(new Date());
+}
+
+function esc(v){
+  return (v ?? "").toString();
+}
+
+/* =========================================================
+   URL生成
+========================================================= */
+function buildSearchUrl(keyword){
+
+  const params = new URLSearchParams();
+  params.set("page_size", PAGE_SIZE);
+  params.append("sort_key[]", "-start_date");
+
+  const temporal = `${isoHoursAgo(HOURS_BACK)},${nowIso()}`;
+  params.append("temporal[]", temporal);
+
+  params.set("keyword", keyword);
+
+  return `${CMR_BASE}?${params.toString()}`;
+}
+
+/* =========================================================
+   API取得
+========================================================= */
+async function searchGranules(keyword){
+
+  const url = buildSearchUrl(keyword);
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Accept": "application/json"
+    }
+  });
+
+  if(!res.ok){
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  }
+
+  const json = await res.json();
+
+  if(
+    !json ||
+    !json.feed ||
+    !Array.isArray(json.feed.entry)
+  ){
+    throw new Error("API応答形式が想定外です");
+  }
+
+  return {
+    url,
+    entries: json.feed.entry
+  };
+}
+
+/* =========================================================
+   表示整形
+========================================================= */
+function findNcLink(links){
+
+  if(!Array.isArray(links)) return "";
+
+  const nc = links.find(x => {
+    const href = (x && x.href) ? x.href : "";
+    return /\.nc($|\?)/i.test(href);
+  });
+
+  return nc ? nc.href : "";
+}
+
+function findAnyDataLink(links){
+
+  if(!Array.isArray(links)) return "";
+
+  const good = links.find(x => {
+    const href = (x && x.href) ? x.href : "";
+    return /^https?:\/\//i.test(href);
+  });
+
+  return good ? good.href : "";
+}
+
+function formatEntries(entries, requestUrl){
+
+  let txt = "";
+  txt += "検索URL:\n" + requestUrl + "\n\n";
+  txt += "件数: " + entries.length + "\n\n";
+
+  if(entries.length === 0){
+    txt += "直近6時間に該当データが見つかりませんでした。";
+    return txt;
+  }
+
+  entries.forEach((e, i) => {
+
+    const title = esc(e.title);
+    const time  = esc(e.time_start);
+    const id    = esc(e.id);
+
+    const ncUrl = findNcLink(e.links);
+    const anyUrl = findAnyDataLink(e.links);
+
+    txt += "【" + (i + 1) + "】\n";
+    txt += "title : " + title + "\n";
+    txt += "time  : " + time + "\n";
+    txt += "id    : " + id + "\n";
+
+    if(ncUrl){
+      txt += "ncURL : " + ncUrl + "\n";
+    }else if(anyUrl){
+      txt += "link  : " + anyUrl + "\n";
+    }else{
+      txt += "link  : (リンクなし)\n";
+    }
+
+    txt += "\n";
+  });
+
+  return txt;
+}
+
+/* =========================================================
+   実行
+========================================================= */
+async function runSearch({
+  buttonId,
+  outputId,
+  keyword
+}){
+
+  setLoading(buttonId, true);
+  $(outputId).textContent = "検索中...";
+
+  try{
+
+    const result = await searchGranules(keyword);
+
+    $(outputId).textContent =
+      formatEntries(result.entries, result.url);
+
+  }catch(err){
+
+    $(outputId).textContent =
+      "取得失敗\n\n" +
+      "理由: " + err.message + "\n\n" +
+      "ネットワーク / CORS / API混雑 の可能性があります。";
+
+  }finally{
+
+    setLoading(buttonId, false);
+  }
+}
+
+/* =========================================================
+   ボタン
+========================================================= */
+function loadWind(){
+
+  runSearch({
+    buttonId:"windBtn",
+    outputId:"windOut",
+    keyword:"ASCAT scatterometer wind"
+  });
+}
+
+function loadWave(){
+
+  runSearch({
+    buttonId:"waveBtn",
+    outputId:"waveOut",
+    keyword:"significant wave height altimeter"
+  });
+}
+
+</script>
+</body>
+</html>
