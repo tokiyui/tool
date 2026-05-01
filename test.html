@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>衛星 海上風・波高（実動版）</title>
+<title>海上風・波高（実在データ安定版）</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
@@ -11,13 +11,13 @@
 html,body{margin:0;height:100%;font-family:sans-serif;}
 #map{width:100%;height:100%;}
 .panel{
-position:absolute;z-index:1000;top:10px;left:10px;
+position:absolute;top:10px;left:10px;z-index:1000;
 width:420px;max-height:92%;overflow:auto;
 background:rgba(10,16,28,.95);color:#fff;
 padding:12px;border-radius:10px;
 }
 button{
-margin:4px;padding:8px 10px;border:0;border-radius:6px;
+margin:4px;padding:8px;border:0;border-radius:6px;
 background:#2d8cff;color:#fff;cursor:pointer;
 }
 pre{
@@ -30,7 +30,7 @@ white-space:pre-wrap;
 <body>
 
 <div class="panel">
-<h3>衛星 海上風 / 波高</h3>
+<h3>海上風・波高（実データ）</h3>
 
 <button onclick="loadWind()">海上風</button>
 <button onclick="loadWave()">波高</button>
@@ -44,9 +44,10 @@ white-space:pre-wrap;
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-const CORS_PROXY='https://worker.ryohorita105.workers.dev/?url=';
+const CORS_PROXY="https://worker.ryohorita105.workers.dev/?url=";
 
 const map=L.map("map").setView([25,140],4);
+
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
 {attribution:"© OSM"}).addTo(map);
 
@@ -61,11 +62,9 @@ waveLayer.clearLayers();
 log("cleared");
 }
 
-/* =========================
-   ERDDAP（安定JSON）
-========================= */
-
-/* 海上風：ASCAT系 ERDDAP */
+/* ===========================
+   海上風（ASCATグリッド）
+=========================== */
 async function loadWind(){
 
 windLayer.clearLayers();
@@ -74,20 +73,17 @@ log("loading wind...");
 const url =
 CORS_PROXY +
 encodeURIComponent(
-"https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdQMwind1day.json?" +
+"https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdQMwind1day.json?" +
 "latitude,longitude,windspeed"
 );
 
 try{
 
-const res=await fetch(url);
-const json=await res.json();
-
-const rows=json.table.rows;
+const j=await (await fetch(url)).json();
 
 let n=0;
 
-for(const r of rows){
+for(const r of j.table.rows){
 
 const lat=r[0],lon=r[1],w=r[2];
 
@@ -98,8 +94,7 @@ radius:3+w/2,
 color:"#2ea8ff",
 fillColor:"#2ea8ff",
 fillOpacity:0.8
-}).bindPopup("wind "+w.toFixed(1)+" m/s")
-.addTo(windLayer);
+}).addTo(windLayer);
 
 n++;
 }
@@ -111,10 +106,9 @@ log("wind error: "+e);
 }
 }
 
-/* =========================
-   波高（衛星同化SWH）
-========================= */
-
+/* ===========================
+   波高（WW3グローバル）
+=========================== */
 async function loadWave(){
 
 waveLayer.clearLayers();
@@ -123,20 +117,17 @@ log("loading wave...");
 const url =
 CORS_PROXY +
 encodeURIComponent(
-"https://coastwatch.pfeg.noaa.gov/erddap/tabledap/ww3_global.json?" +
+"https://coastwatch.pfeg.noaa.gov/erddap/griddap/ww3_global.json?" +
 "latitude,longitude,significant_wave_height"
 );
 
 try{
 
-const res=await fetch(url);
-const json=await res.json();
-
-const rows=json.table.rows;
+const j=await (await fetch(url)).json();
 
 let n=0;
 
-for(const r of rows){
+for(const r of j.table.rows){
 
 const lat=r[0],lon=r[1],h=r[2];
 
@@ -153,8 +144,7 @@ radius:3+h,
 color:c,
 fillColor:c,
 fillOpacity:0.85
-}).bindPopup("wave "+h.toFixed(1)+" m")
-.addTo(waveLayer);
+}).addTo(waveLayer);
 
 n++;
 }
