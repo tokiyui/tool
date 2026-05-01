@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NASA CMR準拠 衛星NRT検索（直近6時間）</title>
+<title>NASA CMR 正式準拠版（400修正済）</title>
 
 <style>
 body{
@@ -36,9 +36,8 @@ pre{
   background:#0d1526;
   padding:12px;
   border-radius:8px;
-  max-height:540px;
+  max-height:560px;
   overflow:auto;
-  line-height:1.45;
 }
 .small{
   color:#b7c3d8;
@@ -48,25 +47,23 @@ pre{
 </head>
 <body>
 
-<h1>NASA CMR API準拠（直近6時間）</h1>
+<h1>NASA CMR API 正式準拠（Collection指定版）</h1>
 
 <div class="card">
-<h2>① 海上風（ASCAT / Scatterometer）</h2>
+<h2>① 海上風（ASCAT）</h2>
 <div class="small">
-CMR Search API granules.json を公式仕様で使用<br>
-temporal=開始,終了 / sort_key[]=-start_date
+まず collections.json を検索し、collection_concept_id を取得してから granules 検索<br>
+NASA CMR の正式要件に準拠
 </div>
-<br>
 <button id="windBtn" onclick="loadWind()">取得</button>
 <pre id="windOut">待機中...</pre>
 </div>
 
 <div class="card">
-<h2>② 波高（Altimeter / Significant Wave Height）</h2>
+<h2>② 波高（Altimeter）</h2>
 <div class="small">
-Jason / Sentinel-6 等の衛星高度計関連 granule を検索
+Jason / Sentinel-6 等の波高コレクションを検索後 granules 検索
 </div>
-<br>
 <button id="waveBtn" onclick="loadWave()">取得</button>
 <pre id="waveOut">待機中...</pre>
 </div>
@@ -74,20 +71,9 @@ Jason / Sentinel-6 等の衛星高度計関連 granule を検索
 <script>
 "use strict";
 
-/* =====================================================
-   NASA CMR Search API 公式仕様
-   https://cmr.earthdata.nasa.gov/search/site/docs/search/api
-===================================================== */
-
-const BASE =
-"https://cmr.earthdata.nasa.gov/search/granules.json";
-
-const HOURS = 6;
-const PAGE_SIZE = 20;
-
-/* =====================================================
-   時刻
-===================================================== */
+/* ==========================================
+   共通
+========================================== */
 
 function nowISO(){
   return new Date().toISOString().replace(/\.\d+Z$/,"Z");
@@ -99,119 +85,131 @@ function agoISO(h){
          .replace(/\.\d+Z$/,"Z");
 }
 
-/* =====================================================
-   URL生成（公式準拠）
-===================================================== */
-
-function buildURL(keyword){
-
-  const p = new URLSearchParams();
-
-  p.set("page_size", PAGE_SIZE);
-
-  // 配列パラメータ
-  p.append("sort_key[]","-start_date");
-
-  // 公式 temporal=開始,終了
-  p.set(
-    "temporal",
-    agoISO(HOURS) + "," + nowISO()
-  );
-
-  // free text search
-  p.set("keyword", keyword);
-
-  return BASE + "?" + p.toString();
+function qs(obj){
+  return new URLSearchParams(obj).toString();
 }
 
-/* =====================================================
-   検索
-===================================================== */
+/* ==========================================
+   1. Collection検索
+========================================== */
 
-async function search(keyword){
+async function findCollection(keyword){
 
-  const url = buildURL(keyword);
+  const url =
+    "https://cmr.earthdata.nasa.gov/search/collections.json?" +
+    qs({
+      page_size:5,
+      keyword:keyword
+    });
 
   const res = await fetch(url,{
-    headers:{
-      "Accept":"application/json"
-    }
+    headers:{Accept:"application/json"}
   });
 
   if(!res.ok){
-    const txt = await res.text();
-    throw new Error("HTTP " + res.status + "\n" + txt);
+    throw new Error("collections HTTP " + res.status);
   }
 
   const json = await res.json();
 
-  if(!json.feed || !Array.isArray(json.feed.entry)){
-    throw new Error("レスポンス形式異常");
+  const rows = json.feed?.entry || [];
+
+  if(rows.length===0){
+    throw new Error("collectionが見つかりません");
   }
+
+  return rows[0];
+}
+
+/* ==========================================
+   2. Granules検索
+========================================== */
+
+async function findGranules(collectionId){
+
+  const url =
+    "https://cmr.earthdata.nasa.gov/search/granules.json?" +
+    qs({
+      page_size:20,
+      collection_concept_id:collectionId,
+      temporal:agoISO(6)+","+nowISO()
+    });
+
+  const res = await fetch(url,{
+    headers:{Accept:"application/json"}
+  });
+
+  if(!res.ok){
+
+    const t = await res.text();
+    throw new Error("granules HTTP " + res.status + "\n" + t);
+  }
+
+  const json = await res.json();
 
   return {
     url,
-    rows: json.feed.entry
+    rows: json.feed?.entry || []
   };
 }
 
-/* =====================================================
+/* ==========================================
    リンク抽出
-===================================================== */
+========================================== */
 
-function bestLink(links){
+function getLink(links){
 
   if(!Array.isArray(links)) return "";
 
-  // NetCDF優先
   for(const x of links){
-    const h = x.href || "";
-    if(/\.nc($|\?)/i.test(h)) return h;
-  }
 
-  // それ以外
-  for(const x of links){
     const h = x.href || "";
-    if(/^https?:\/\//i.test(h)) return h;
+
+    if(/^https?:\/\//.test(h)){
+      return h;
+    }
   }
 
   return "";
 }
 
-/* =====================================================
+/* ==========================================
    表示
-===================================================== */
+========================================== */
 
-function render(result){
+function render(col,result){
 
   let txt = "";
-  txt += "検索URL:\n" + result.url + "\n\n";
+
+  txt += "Collection:\n";
+  txt += col.title + "\n";
+  txt += col.id + "\n\n";
+
+  txt += "Granule検索URL:\n";
+  txt += result.url + "\n\n";
+
   txt += "件数: " + result.rows.length + "\n\n";
 
   if(result.rows.length===0){
-    txt += "直近6時間の該当データなし";
+    txt += "直近6時間のデータなし";
     return txt;
   }
 
   result.rows.forEach((r,i)=>{
 
-    txt += "【" + (i+1) + "】\n";
-    txt += "title : " + (r.title || "") + "\n";
-    txt += "time  : " + (r.time_start || "") + "\n";
-    txt += "id    : " + (r.id || "") + "\n";
-
-    const link = bestLink(r.links);
-
-    txt += "link  : " + link + "\n\n";
+    txt += "【"+(i+1)+"】\n";
+    txt += "title : " + (r.title||"") + "\n";
+    txt += "time  : " + (r.time_start||"") + "\n";
+    txt += "link  : " + getLink(r.links) + "\n\n";
 
   });
 
   return txt;
 }
 
-/* =====================================================
-   共通実行
-===================================================== */
+/* ==========================================
+   実行
+========================================== */
 
 async function run(btnId,outId,keyword){
 
@@ -223,29 +221,33 @@ async function run(btnId,outId,keyword){
 
   try{
 
-    const r = await search(keyword);
-    out.textContent = render(r);
+    const col = await findCollection(keyword);
+
+    const result =
+      await findGranules(col.id);
+
+    out.textContent =
+      render(col,result);
 
   }catch(e){
 
     out.textContent =
       "取得失敗\n\n" + e.message;
-
   }
 
   btn.disabled = false;
 }
 
-/* =====================================================
+/* ==========================================
    個別
-===================================================== */
+========================================== */
 
 function loadWind(){
 
   run(
     "windBtn",
     "windOut",
-    "ASCAT scatterometer wind ocean"
+    "ASCAT wind"
   );
 }
 
@@ -254,7 +256,7 @@ function loadWave(){
   run(
     "waveBtn",
     "waveOut",
-    "significant wave height altimeter Jason Sentinel-6"
+    "significant wave height Jason Sentinel"
   );
 }
 
