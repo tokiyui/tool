@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星観測 海上風・波高（NetCDF実読込版）</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>衛星観測 海上風・波高（h5wasm / NetCDF4対応）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -23,7 +23,7 @@ html,body{
   z-index:1000;
   top:10px;
   left:10px;
-  width:430px;
+  width:440px;
   max-height:94%;
   overflow:auto;
   background:rgba(10,16,28,.95);
@@ -55,6 +55,9 @@ pre{
   color:#b8c5d9;
   line-height:1.45;
 }
+code{
+  color:#7dd3fc;
+}
 </style>
 </head>
 <body>
@@ -63,15 +66,12 @@ pre{
 <h2 style="margin-top:0;">衛星観測 海上風＋波高</h2>
 
 <div class="small">
-APIキー不要 / HTML単体 / GitHub Pages可<br><br>
+ブラウザのみ / GitHub Pages可 / APIキー不要<br>
+NetCDF4(HDF5) を <code>h5wasm</code> で直接読む構成。<br><br>
 
-海上風（衛星散乱計）<br>
-ASCAT MetOp-B NRT NetCDF<br><br>
-
-波高（衛星高度計）<br>
-Sentinel-6 / Jason 系 NRT NetCDF<br><br>
-
-NetCDFをブラウザで直接読み込みます。
+<strong>重要:</strong><br>
+実際にはここを最新NRTの.nc URLへ変更してください。<br>
+（URLが正しければそのまま動きます）
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -84,14 +84,15 @@ NetCDFをブラウザで直接読み込みます。
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/netcdfjs@1.0.0/dist/netcdfjs.min.js"></script>
 
-<script>
-"use strict";
+<script type="module">
+import * as h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.8.7/dist/esm/index.js";
 
-/* ===================================================
+window.h5wasm = h5wasm;
+
+/* ======================================================
    地図
-=================================================== */
+====================================================== */
 
 const map = L.map("map").setView([28,140],4);
 
@@ -103,76 +104,106 @@ L.tileLayer(
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-/* ===================================================
+/* ======================================================
    共通
-=================================================== */
+====================================================== */
 
 function log(t){
- document.getElementById("log").textContent=t;
+ document.getElementById("log").textContent = t;
 }
+window.log = log;
 
-function clearAll(){
+window.clearAll = function(){
  windLayer.clearLayers();
  waveLayer.clearLayers();
  log("消去しました");
-}
+};
 
-async function loadNc(url){
-
- const res = await fetch(url);
- const buf = await res.arrayBuffer();
- return new netcdfjs(buf);
-}
-
-function readVar(nc,names){
+function findDataset(file,names){
 
  for(const n of names){
    try{
-     return nc.getDataVariable(n);
+     const ds = file.get(n);
+     if(ds) return ds;
    }catch(e){}
  }
+
  return null;
 }
 
-/* ===================================================
-   海上風
-   ASCAT MetOp-B
-=================================================== */
+async function openRemoteNc(url){
 
-async function loadWind(){
+ const res = await fetch(url);
+ if(!res.ok) throw new Error("HTTP " + res.status);
+
+ const buf = await res.arrayBuffer();
+
+ const bytes = new Uint8Array(buf);
+
+ const name = "/work.nc";
+
+ h5wasm.FS.writeFile(name, bytes);
+
+ return new h5wasm.File(name, "r");
+}
+
+/* ======================================================
+   実際にはここを最新NRT URLへ変更
+====================================================== */
+
+const WIND_URL =
+"https://example.com/latest_ascat.nc";
+
+const WAVE_URL =
+"https://example.com/latest_sentinel6.nc";
+
+/* ======================================================
+   海上風
+====================================================== */
+
+window.loadWind = async function(){
 
  windLayer.clearLayers();
- log("海上風 NetCDF取得中...");
+ log("海上風取得中...");
 
  try{
 
-   const url =
-   "https://thredds.met.no/thredds/fileServer/" +
-   "remotesensing/ascat/2026/05/01/" +
-   "ascatb_20260501.nc";
+   await h5wasm.ready;
 
-   const nc = await loadNc(url);
+   const file = await openRemoteNc(WIND_URL);
 
-   const lat = readVar(nc,["lat","latitude"]);
-   const lon = readVar(nc,["lon","longitude"]);
-   const wsp = readVar(nc,["wind_speed","windspeed","ws"]);
+   const latDs = findDataset(file,[
+     "lat","latitude","/lat","/latitude"
+   ]);
 
-   if(!lat || !lon || !wsp){
-     throw "変数未検出";
+   const lonDs = findDataset(file,[
+     "lon","longitude","/lon","/longitude"
+   ]);
+
+   const spdDs = findDataset(file,[
+     "wind_speed","windspeed","ws","/wind_speed"
+   ]);
+
+   if(!latDs || !lonDs || !spdDs){
+     throw new Error("必要変数未検出");
    }
 
-   let n=0;
+   const lat = latDs.value;
+   const lon = lonDs.value;
+   const spd = spdDs.value;
+
+   let n = 0;
 
    for(let i=0;i<lat.length;i+=20){
 
      if(
        lat[i]==null ||
        lon[i]==null ||
-       wsp[i]==null
+       spd[i]==null
      ) continue;
 
      L.circleMarker([lat[i],lon[i]],{
-       radius:3 + wsp[i]/8,
+       radius:3 + spd[i]/8,
        color:"#2ea8ff",
        fillColor:"#2ea8ff",
        fillOpacity:.8,
@@ -180,53 +211,61 @@ async function loadWind(){
      })
      .bindPopup(
        "海上風<br>" +
-       wsp[i].toFixed(1)+" m/s"
+       spd[i].toFixed(1)+" m/s"
      )
      .addTo(windLayer);
 
      n++;
    }
 
-   log("海上風完了: "+n+" 点");
+   file.close();
+
+   log("海上風完了: " + n + " 点");
 
  }catch(e){
 
-   log("海上風失敗\n"+e);
+   log("海上風失敗\n" + e);
  }
-}
+};
 
-/* ===================================================
+/* ======================================================
    波高
-   Sentinel-6 / Jason
-=================================================== */
+====================================================== */
 
-async function loadWave(){
+window.loadWave = async function(){
 
  waveLayer.clearLayers();
- log("波高 NetCDF取得中...");
+ log("波高取得中...");
 
  try{
 
-   const url =
-   "https://thredds.met.no/thredds/fileServer/" +
-   "remotesensing/altimeter/2026/05/01/" +
-   "sentinel6_20260501.nc";
+   await h5wasm.ready;
 
-   const nc = await loadNc(url);
+   const file = await openRemoteNc(WAVE_URL);
 
-   const lat = readVar(nc,["lat","latitude"]);
-   const lon = readVar(nc,["lon","longitude"]);
-   const swh = readVar(nc,[
+   const latDs = findDataset(file,[
+     "lat","latitude"
+   ]);
+
+   const lonDs = findDataset(file,[
+     "lon","longitude"
+   ]);
+
+   const swhDs = findDataset(file,[
      "swh",
      "significant_wave_height",
      "wave_height"
    ]);
 
-   if(!lat || !lon || !swh){
-     throw "変数未検出";
+   if(!latDs || !lonDs || !swhDs){
+     throw new Error("必要変数未検出");
    }
 
-   let n=0;
+   const lat = latDs.value;
+   const lon = lonDs.value;
+   const swh = swhDs.value;
+
+   let n = 0;
 
    for(let i=0;i<lat.length;i+=10){
 
@@ -246,7 +285,7 @@ async function loadWave(){
        radius:3 + swh[i],
        color:c,
        fillColor:c,
-       fillOpacity:.8,
+       fillOpacity:.85,
        weight:1
      })
      .bindPopup(
@@ -258,13 +297,15 @@ async function loadWave(){
      n++;
    }
 
-   log("波高完了: "+n+" 点");
+   file.close();
+
+   log("波高完了: " + n + " 点");
 
  }catch(e){
 
-   log("波高失敗\n"+e);
+   log("波高失敗\n" + e);
  }
-}
+};
 
 </script>
 </body>
