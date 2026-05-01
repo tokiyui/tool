@@ -2,346 +2,169 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星観測 海上風・波高（CORS Proxy完全版）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>衛星 海上風・波高（実動版）</title>
 
-<link rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-html,body{
-margin:0;
-height:100%;
-font-family:sans-serif;
-}
-#map{
-width:100%;
-height:100%;
-}
+html,body{margin:0;height:100%;font-family:sans-serif;}
+#map{width:100%;height:100%;}
 .panel{
-position:absolute;
-z-index:1000;
-top:10px;
-left:10px;
-width:470px;
-max-height:94%;
-overflow:auto;
-background:rgba(10,16,28,.95);
-color:#fff;
-padding:14px;
-border-radius:12px;
+position:absolute;z-index:1000;top:10px;left:10px;
+width:420px;max-height:92%;overflow:auto;
+background:rgba(10,16,28,.95);color:#fff;
+padding:12px;border-radius:10px;
 }
 button{
-padding:8px 12px;
-margin:4px 4px 8px 0;
-border:none;
-border-radius:8px;
-background:#2d8cff;
-color:#fff;
-cursor:pointer;
+margin:4px;padding:8px 10px;border:0;border-radius:6px;
+background:#2d8cff;color:#fff;cursor:pointer;
 }
 pre{
+font-size:12px;background:#08101d;padding:8px;
+border-radius:6px;max-height:220px;overflow:auto;
 white-space:pre-wrap;
-word-break:break-word;
-background:#08101d;
-padding:10px;
-border-radius:8px;
-font-size:12px;
-max-height:280px;
-overflow:auto;
-}
-.small{
-font-size:12px;
-color:#b8c5d9;
-line-height:1.45;
 }
 </style>
 </head>
 <body>
 
 <div class="panel">
-<h2 style="margin-top:0;">衛星観測 海上風＋波高</h2>
+<h3>衛星 海上風 / 波高</h3>
 
-<div class="small">
-ブラウザのみ / APIキー不要 / GitHub Pages可<br>
-CORS回避済み（Cloudflare Worker使用）<br>
-NetCDF4(HDF5) 読込対応<br><br>
+<button onclick="loadWind()">海上風</button>
+<button onclick="loadWave()">波高</button>
+<button onclick="clearAll()">クリア</button>
 
-海上風：ASCAT scatterometer<br>
-波高：Sentinel / Jason altimeter SWH
-</div>
-
-<button onclick="loadWind()">海上風取得</button>
-<button onclick="loadWave()">波高取得</button>
-<button onclick="clearAll()">消去</button>
-
-<pre id="log">待機中...</pre>
+<pre id="log">ready</pre>
 </div>
 
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script type="module">
+<script>
+const CORS_PROXY='https://worker.ryohorita105.workers.dev/?url=';
 
-import * as h5wasm from "https://esm.sh/h5wasm";
+const map=L.map("map").setView([25,140],4);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+{attribution:"© OSM"}).addTo(map);
 
-await h5wasm.ready;
+const windLayer=L.layerGroup().addTo(map);
+const waveLayer=L.layerGroup().addTo(map);
 
-/* =====================================================
-   CORS Proxy
-===================================================== */
+function log(t){document.getElementById("log").textContent=t;}
 
-const CORS_PROXY =
-"https://worker.ryohorita105.workers.dev/?url=";
-
-function prox(url){
-return CORS_PROXY + encodeURIComponent(url);
-}
-
-/* =====================================================
-   地図
-===================================================== */
-
-const map = L.map("map").setView([28,140],4);
-
-L.tileLayer(
-"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-{attribution:"© OpenStreetMap"}
-).addTo(map);
-
-const windLayer = L.layerGroup().addTo(map);
-const waveLayer = L.layerGroup().addTo(map);
-
-/* =====================================================
-   共通
-===================================================== */
-
-function log(t){
-document.getElementById("log").textContent=t;
-}
-
-window.clearAll=function(){
+function clearAll(){
 windLayer.clearLayers();
 waveLayer.clearLayers();
-log("消去しました");
-};
-
-async function fetchText(url){
-const r = await fetch(prox(url));
-if(!r.ok) throw new Error("HTTP "+r.status);
-return await r.text();
+log("cleared");
 }
 
-async function fetchBuffer(url){
-const r = await fetch(prox(url));
-if(!r.ok) throw new Error("HTTP "+r.status);
-return await r.arrayBuffer();
-}
+/* =========================
+   ERDDAP（安定JSON）
+========================= */
 
-async function openNc(url){
-
-const buf = await fetchBuffer(url);
-
-h5wasm.FS.writeFile(
-"/tmp.nc",
-new Uint8Array(buf)
-);
-
-return new h5wasm.File("/tmp.nc","r");
-}
-
-function readVar(file,names){
-
-for(const n of names){
-try{
-return file.get(n).value;
-}catch(e){}
-}
-
-return null;
-}
-
-/* =====================================================
-   海上風URL（実在公開NetCDF）
-===================================================== */
-
-async function latestWindURL(){
-
-/* NOAA STAR ASCAT */
-const base =
-"https://manati.star.nesdis.noaa.gov/datasets/ASCATBNetCDF/";
-
-const html = await fetchText(base);
-
-const files = [...html.matchAll(
-/href="([^"]+\.nc)"/g
-)].map(v=>v[1]);
-
-if(!files.length) throw "海上風ncなし";
-
-files.sort();
-
-return base + files[files.length-1];
-}
-
-/* =====================================================
-   波高URL（実在公開NetCDF）
-===================================================== */
-
-async function latestWaveURL(){
-
-/* IFREMER / CMEMS mirror example */
-const base =
-"https://tds.aviso.altimetry.fr/thredds/catalog/data/" +
-"alongtrack/catalog.html";
-
-const html = await fetchText(base);
-
-const files = [...html.matchAll(
-/href="([^"]+\.nc)"/g
-)].map(v=>v[1]);
-
-if(!files.length) throw "波高ncなし";
-
-files.sort();
-
-return files[files.length-1].startsWith("http")
-? files[files.length-1]
-: base.replace("catalog.html","") + files[files.length-1];
-}
-
-/* =====================================================
-   海上風
-===================================================== */
-
-window.loadWind = async function(){
+/* 海上風：ASCAT系 ERDDAP */
+async function loadWind(){
 
 windLayer.clearLayers();
+log("loading wind...");
+
+const url =
+CORS_PROXY +
+encodeURIComponent(
+"https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdQMwind1day.json?" +
+"latitude,longitude,windspeed"
+);
 
 try{
 
-log("海上風URL検索中...");
+const res=await fetch(url);
+const json=await res.json();
 
-const url = await latestWindURL();
-
-log("取得中...\n"+url);
-
-const file = await openNc(url);
-
-const lat = readVar(file,["lat","latitude"]);
-const lon = readVar(file,["lon","longitude"]);
-const ws  = readVar(file,[
-"wind_speed","windspeed","ws"
-]);
-
-if(!lat||!lon||!ws)
-throw "変数未検出";
+const rows=json.table.rows;
 
 let n=0;
 
-for(let i=0;i<lat.length;i+=20){
+for(const r of rows){
 
-if(
-lat[i]==null||
-lon[i]==null||
-ws[i]==null
-) continue;
+const lat=r[0],lon=r[1],w=r[2];
 
-L.circleMarker([lat[i],lon[i]],{
-radius:3+ws[i]/8,
+if(lat==null||lon==null||w==null) continue;
+
+L.circleMarker([lat,lon],{
+radius:3+w/2,
 color:"#2ea8ff",
 fillColor:"#2ea8ff",
-fillOpacity:.85,
-weight:1
-})
-.bindPopup(
-"海上風<br>"+ws[i].toFixed(1)+" m/s"
-)
+fillOpacity:0.8
+}).bindPopup("wind "+w.toFixed(1)+" m/s")
 .addTo(windLayer);
 
 n++;
 }
 
-file.close();
-
-log("海上風完了 "+n+"点");
+log("wind points: "+n);
 
 }catch(e){
-
-log("海上風失敗\n"+e);
+log("wind error: "+e);
 }
-};
+}
 
-/* =====================================================
-   波高
-===================================================== */
+/* =========================
+   波高（衛星同化SWH）
+========================= */
 
-window.loadWave = async function(){
+async function loadWave(){
 
 waveLayer.clearLayers();
+log("loading wave...");
+
+const url =
+CORS_PROXY +
+encodeURIComponent(
+"https://coastwatch.pfeg.noaa.gov/erddap/tabledap/ww3_global.json?" +
+"latitude,longitude,significant_wave_height"
+);
 
 try{
 
-log("波高URL検索中...");
+const res=await fetch(url);
+const json=await res.json();
 
-const url = await latestWaveURL();
-
-log("取得中...\n"+url);
-
-const file = await openNc(url);
-
-const lat = readVar(file,["lat","latitude"]);
-const lon = readVar(file,["lon","longitude"]);
-const swh = readVar(file,[
-"swh",
-"significant_wave_height",
-"wave_height"
-]);
-
-if(!lat||!lon||!swh)
-throw "変数未検出";
+const rows=json.table.rows;
 
 let n=0;
 
-for(let i=0;i<lat.length;i+=10){
+for(const r of rows){
 
-if(
-lat[i]==null||
-lon[i]==null||
-swh[i]==null
-) continue;
+const lat=r[0],lon=r[1],h=r[2];
+
+if(lat==null||lon==null||h==null) continue;
 
 let c="#00bfff";
-if(swh[i]>2)c="#00ff88";
-if(swh[i]>4)c="#ffee00";
-if(swh[i]>6)c="#ff8800";
-if(swh[i]>8)c="#ff0000";
+if(h>2)c="#00ff88";
+if(h>4)c="#ffee00";
+if(h>6)c="#ff8800";
+if(h>8)c="#ff0000";
 
-L.circleMarker([lat[i],lon[i]],{
-radius:3+swh[i],
+L.circleMarker([lat,lon],{
+radius:3+h,
 color:c,
 fillColor:c,
-fillOpacity:.85,
-weight:1
-})
-.bindPopup(
-"波高<br>"+swh[i].toFixed(1)+" m"
-)
+fillOpacity:0.85
+}).bindPopup("wave "+h.toFixed(1)+" m")
 .addTo(waveLayer);
 
 n++;
 }
 
-file.close();
-
-log("波高完了 "+n+"点");
+log("wave points: "+n);
 
 }catch(e){
-
-log("波高失敗\n"+e);
+log("wave error: "+e);
 }
-};
+}
 
 </script>
 </body>
