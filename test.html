@@ -3,77 +3,121 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NASA CMR 正式準拠版（400修正済）</title>
+<title>衛星NRT 海上風・波高マップ</title>
+
+<link
+ rel="stylesheet"
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
 <style>
-body{
+html,body{
   margin:0;
-  padding:20px;
+  height:100%;
   font-family:sans-serif;
-  background:#0b1220;
-  color:#fff;
 }
-h1{margin-top:0}
-.card{
-  background:#172033;
-  padding:16px;
+#map{
+  width:100%;
+  height:100%;
+}
+.panel{
+  position:absolute;
+  z-index:1000;
+  top:10px;
+  left:10px;
+  width:360px;
+  max-height:92%;
+  overflow:auto;
+  background:rgba(15,22,38,.95);
+  color:#fff;
+  padding:14px;
   border-radius:12px;
-  margin-bottom:18px;
 }
 button{
-  padding:10px 16px;
+  padding:8px 12px;
   border:none;
   border-radius:8px;
   background:#2d8cff;
   color:#fff;
   cursor:pointer;
-  margin-right:8px;
-}
-button:disabled{opacity:.6}
-pre{
-  white-space:pre-wrap;
-  word-break:break-word;
-  background:#0d1526;
-  padding:12px;
-  border-radius:8px;
-  max-height:560px;
-  overflow:auto;
+  margin:4px 4px 8px 0;
 }
 .small{
+  font-size:12px;
   color:#b7c3d8;
-  font-size:13px;
+  line-height:1.45;
+}
+pre{
+  white-space:pre-wrap;
+  font-size:12px;
+  background:#0d1526;
+  padding:10px;
+  border-radius:8px;
+  max-height:220px;
+  overflow:auto;
+}
+.legend{
+  margin-top:8px;
+  font-size:12px;
 }
 </style>
 </head>
 <body>
 
-<h1>NASA CMR API 正式準拠（Collection指定版）</h1>
+<div class="panel">
+<h2 style="margin-top:0;">衛星NRT 海上風・波高</h2>
 
-<div class="card">
-<h2>① 海上風（ASCAT）</h2>
 <div class="small">
-まず collections.json を検索し、collection_concept_id を取得してから granules 検索<br>
-NASA CMR の正式要件に準拠
-</div>
-<button id="windBtn" onclick="loadWind()">取得</button>
-<pre id="windOut">待機中...</pre>
+直近6時間の NASA CMR API から複数衛星を検索し、取得位置を地図描画。<br>
+海上風：ASCAT / OSCAT / Scatterometer 系<br>
+波高：Jason / Sentinel-6 / Altimeter 系
 </div>
 
-<div class="card">
-<h2>② 波高（Altimeter）</h2>
-<div class="small">
-Jason / Sentinel-6 等の波高コレクションを検索後 granules 検索
+<div style="margin-top:10px;">
+<button onclick="loadWind()">海上風取得</button>
+<button onclick="loadWave()">波高取得</button>
+<button onclick="clearMap()">消去</button>
 </div>
-<button id="waveBtn" onclick="loadWave()">取得</button>
-<pre id="waveOut">待機中...</pre>
+
+<pre id="log">待機中...</pre>
+
+<div class="legend">
+● 青 = 海上風衛星<br>
+● 赤 = 波高衛星
 </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 "use strict";
 
-/* ==========================================
+/* =====================================================
+   地図
+===================================================== */
+
+const map = L.map("map").setView([25,140],4);
+
+L.tileLayer(
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {
+    maxZoom:19,
+    attribution:"© OpenStreetMap"
+  }
+).addTo(map);
+
+const layerWind = L.layerGroup().addTo(map);
+const layerWave = L.layerGroup().addTo(map);
+
+/* =====================================================
    共通
-========================================== */
+===================================================== */
+
+function log(txt){
+  document.getElementById("log").textContent = txt;
+}
 
 function nowISO(){
   return new Date().toISOString().replace(/\.\d+Z$/,"Z");
@@ -89,175 +133,198 @@ function qs(obj){
   return new URLSearchParams(obj).toString();
 }
 
-/* ==========================================
-   1. Collection検索
-========================================== */
+function clearMap(){
+  layerWind.clearLayers();
+  layerWave.clearLayers();
+  log("消去しました");
+}
 
-async function findCollection(keyword){
+/* =====================================================
+   Collection検索
+===================================================== */
+
+async function searchCollection(keyword){
 
   const url =
-    "https://cmr.earthdata.nasa.gov/search/collections.json?" +
-    qs({
-      page_size:5,
-      keyword:keyword
-    });
+   "https://cmr.earthdata.nasa.gov/search/collections.json?" +
+   qs({
+     page_size:10,
+     keyword:keyword
+   });
 
   const res = await fetch(url,{
     headers:{Accept:"application/json"}
   });
 
-  if(!res.ok){
-    throw new Error("collections HTTP " + res.status);
-  }
-
   const json = await res.json();
 
-  const rows = json.feed?.entry || [];
-
-  if(rows.length===0){
-    throw new Error("collectionが見つかりません");
-  }
-
-  return rows[0];
+  return json.feed?.entry || [];
 }
 
-/* ==========================================
-   2. Granules検索
-========================================== */
+/* =====================================================
+   Granule検索
+===================================================== */
 
-async function findGranules(collectionId){
+async function searchGranules(collectionId){
 
   const url =
-    "https://cmr.earthdata.nasa.gov/search/granules.json?" +
-    qs({
-      page_size:20,
-      collection_concept_id:collectionId,
-      temporal:agoISO(6)+","+nowISO()
-    });
+   "https://cmr.earthdata.nasa.gov/search/granules.json?" +
+   qs({
+     page_size:20,
+     collection_concept_id:collectionId,
+     temporal:agoISO(6)+","+nowISO()
+   });
 
   const res = await fetch(url,{
     headers:{Accept:"application/json"}
   });
 
-  if(!res.ok){
-
-    const t = await res.text();
-    throw new Error("granules HTTP " + res.status + "\n" + t);
-  }
-
   const json = await res.json();
 
-  return {
-    url,
-    rows: json.feed?.entry || []
-  };
+  return json.feed?.entry || [];
 }
 
-/* ==========================================
-   リンク抽出
-========================================== */
+/* =====================================================
+   座標抽出
+===================================================== */
 
-function getLink(links){
+function parsePoint(granule){
 
-  if(!Array.isArray(links)) return "";
+  /* polygons 優先 */
+  if(granule.polygons && granule.polygons.length){
 
-  for(const x of links){
+    const p = granule.polygons[0][0].trim().split(/\s+/).map(Number);
 
-    const h = x.href || "";
-
-    if(/^https?:\/\//.test(h)){
-      return h;
+    if(p.length >= 2){
+      return [p[1], p[0]];
     }
   }
 
-  return "";
-}
+  /* boxes */
+  if(granule.boxes && granule.boxes.length){
 
-/* ==========================================
-   表示
-========================================== */
+    const b = granule.boxes[0].split(/\s+/).map(Number);
 
-function render(col,result){
+    if(b.length === 4){
 
-  let txt = "";
+      const lat = (b[0]+b[2])/2;
+      const lon = (b[1]+b[3])/2;
 
-  txt += "Collection:\n";
-  txt += col.title + "\n";
-  txt += col.id + "\n\n";
-
-  txt += "Granule検索URL:\n";
-  txt += result.url + "\n\n";
-
-  txt += "件数: " + result.rows.length + "\n\n";
-
-  if(result.rows.length===0){
-    txt += "直近6時間のデータなし";
-    return txt;
+      return [lat,lon];
+    }
   }
 
-  result.rows.forEach((r,i)=>{
-
-    txt += "【"+(i+1)+"】\n";
-    txt += "title : " + (r.title||"") + "\n";
-    txt += "time  : " + (r.time_start||"") + "\n";
-    txt += "link  : " + getLink(r.links) + "\n\n";
-
-  });
-
-  return txt;
+  return null;
 }
 
-/* ==========================================
-   実行
-========================================== */
+/* =====================================================
+   描画
+===================================================== */
 
-async function run(btnId,outId,keyword){
+function drawEntries(entries,color,layer,label){
 
-  const btn = document.getElementById(btnId);
-  const out = document.getElementById(outId);
+  let n = 0;
 
-  btn.disabled = true;
-  out.textContent = "検索中...";
+  entries.forEach(g=>{
+
+    const pt = parsePoint(g);
+
+    if(!pt) return;
+
+    L.circleMarker(pt,{
+      radius:5,
+      color:color,
+      fillColor:color,
+      fillOpacity:0.8,
+      weight:1
+    })
+    .bindPopup(
+      "<b>"+label+"</b><br>" +
+      (g.title||"") + "<br>" +
+      (g.time_start||"")
+    )
+    .addTo(layer);
+
+    n++;
+  });
+
+  return n;
+}
+
+/* =====================================================
+   海上風
+===================================================== */
+
+async function loadWind(){
+
+  log("海上風検索中...");
+
+  layerWind.clearLayers();
 
   try{
 
-    const col = await findCollection(keyword);
+    const cols = await searchCollection(
+      "ASCAT OSCAT scatterometer wind ocean"
+    );
 
-    const result =
-      await findGranules(col.id);
+    let total = 0;
 
-    out.textContent =
-      render(col,result);
+    for(const c of cols.slice(0,5)){
+
+      const gs = await searchGranules(c.id);
+
+      total += drawEntries(
+        gs,
+        "#33aaff",
+        layerWind,
+        "海上風"
+      );
+    }
+
+    log("海上風描画完了: " + total + " 点");
 
   }catch(e){
 
-    out.textContent =
-      "取得失敗\n\n" + e.message;
+    log("失敗\n" + e);
   }
-
-  btn.disabled = false;
 }
 
-/* ==========================================
-   個別
-========================================== */
+/* =====================================================
+   波高
+===================================================== */
 
-function loadWind(){
+async function loadWave(){
 
-  run(
-    "windBtn",
-    "windOut",
-    "ASCAT wind"
-  );
-}
+  log("波高検索中...");
 
-function loadWave(){
+  layerWave.clearLayers();
 
-  run(
-    "waveBtn",
-    "waveOut",
-    "significant wave height Jason Sentinel"
-  );
+  try{
+
+    const cols = await searchCollection(
+      "Jason Sentinel-6 altimeter significant wave height"
+    );
+
+    let total = 0;
+
+    for(const c of cols.slice(0,5)){
+
+      const gs = await searchGranules(c.id);
+
+      total += drawEntries(
+        gs,
+        "#ff5555",
+        layerWave,
+        "波高"
+      );
+    }
+
+    log("波高描画完了: " + total + " 点");
+
+  }catch(e){
+
+    log("失敗\n" + e);
+  }
 }
 
 </script>
