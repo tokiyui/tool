@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASCAT Real-time Wind Monitor</title>
-    <!-- Leaflet CSS -->
+    <title>ASCAT Real-time Wind Monitor (CORS Proxy)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -30,29 +29,31 @@
 
     <div id="info-panel">
         <h3>ASCAT NRT Wind</h3>
-        <p id="status">データ読み込み中...</p>
+        <p id="status">プロキシ経由で接続中...</p>
         <div id="meta-info"></div>
     </div>
     <div id="map"></div>
 
-    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
         // --- 設定 ---
-        // 関東近海 (緯度: 30-40, 経度: 135-145) の範囲を指定
         const LAT_RANGE = "[(30.0):(40.0)]";
         const LON_RANGE = "[(135.0):(145.0)]";
         const DATASET_ID = "noaacwMetopAascatGlobalNrt";
-        const ERDDAP_URL = `https://coastwatch.noaa.gov/erddap/griddap/${DATASET_ID}.json?wind_speed[(last)]${LAT_RANGE}${LON_RANGE}`;
+        
+        // 元のURL
+        const targetUrl = `https://coastwatch.noaa.gov/erddap/griddap/${DATASET_ID}.json?wind_speed[(last)]${LAT_RANGE}${LON_RANGE}`;
+        
+        // CORS回避用プロキシ
+        const proxy = "https://worker.ryohorita105.workers.dev/?url=";
+        const FINAL_URL = proxy + encodeURIComponent(targetUrl);
 
-        // 地図の初期化 (東京中心)
         const map = L.map('map').setView([35.68, 139.76], 6);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        // 風速に応じた色を返す
         function getColor(v) {
             return v > 15 ? '#bd0026' :
                    v > 10 ? '#f03b20' :
@@ -63,8 +64,9 @@
 
         async function fetchASCAT() {
             try {
-                const response = await fetch(ERDDAP_URL);
-                if (!response.ok) throw new Error('Network response was not ok');
+                // プロキシ経由でfetchを実行
+                const response = await fetch(FINAL_URL);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
                 const json = await response.json();
                 const rows = json.table.rows;
@@ -78,11 +80,8 @@
 
                 statusEl.innerText = `最新データ取得完了 (${rows.length} 地点)`;
                 
-                // データのマッピング
                 rows.forEach(row => {
                     const [time, lat, lon, speed] = row;
-                    
-                    // 風速がnullでない場合のみ表示
                     if (speed !== null) {
                         L.circleMarker([lat, lon], {
                             radius: 4,
@@ -96,17 +95,15 @@
                     }
                 });
 
-                // 最新の観測時刻を表示
                 const latestTime = new Date(rows[0][0]).toLocaleString('ja-JP');
-                metaEl.innerHTML = `<small>最新観測: ${latestTime}</small>`;
+                metaEl.innerHTML = `<small>最終更新: ${latestTime}</small>`;
 
             } catch (error) {
                 console.error('Error:', error);
-                document.getElementById('status').innerText = "エラー: データ取得に失敗しました。";
+                document.getElementById('status').innerText = "エラー: データの取得または解析に失敗しました。";
             }
         }
 
-        // 凡例の追加
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function (map) {
             const div = L.DomUtil.create('div', 'info legend');
@@ -121,7 +118,6 @@
         };
         legend.addTo(map);
 
-        // 実行
         fetchASCAT();
     </script>
 </body>
