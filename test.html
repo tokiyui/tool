@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星NRT 海上風・波高マップ（名称見直し版）</title>
+<title>衛星NRT 海上風・波高（正式名称版）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -23,7 +23,7 @@ html,body{
   z-index:1000;
   top:10px;
   left:10px;
-  width:390px;
+  width:440px;
   max-height:94%;
   overflow:auto;
   background:rgba(15,22,38,.96);
@@ -47,7 +47,7 @@ pre{
   background:#0d1526;
   padding:10px;
   border-radius:8px;
-  max-height:260px;
+  max-height:280px;
   overflow:auto;
 }
 .small{
@@ -60,12 +60,21 @@ pre{
 <body>
 
 <div class="panel">
-<h2 style="margin-top:0;">衛星 海上風・波高（名称見直し版）</h2>
+<h2 style="margin-top:0;">衛星 海上風・波高（正式名称版）</h2>
 
 <div class="small">
-NASA CMRは曖昧語句では拾えないため、実在しやすい正式名称へ修正。<br>
-海上風：ASCAT / METOP / scatterometer<br>
-波高：JASON-3 / SENTINEL-6 / POSEIDON-4 / altimeter
+NASA CMR の曖昧検索ではなく、正式な衛星・センサー名称へ修正。<br><br>
+
+海上風：<br>
+ASCAT Level 2 Coastal Ocean Surface Winds<br>
+ASCATB Level 2 Ocean Surface Wind Vectors<br>
+MetOp-A / MetOp-B / MetOp-C ASCAT<br><br>
+
+波高：<br>
+OSTM/Jason-2 Geophysical Data Record<br>
+Jason-3 Geophysical Data Record<br>
+Sentinel-6 Michael Freilich Poseidon-4<br>
+Sentinel-3 SRAL Altimeter
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -82,246 +91,222 @@ NASA CMRは曖昧語句では拾えないため、実在しやすい正式名称
 <script>
 "use strict";
 
-/* =====================================================
+/* ======================================================
    地図
-===================================================== */
+====================================================== */
 
 const map = L.map("map").setView([25,140],4);
 
 L.tileLayer(
  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
- {
-   attribution:"© OpenStreetMap"
- }
+ { attribution:"© OpenStreetMap" }
 ).addTo(map);
 
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-/* =====================================================
+/* ======================================================
    共通
-===================================================== */
+====================================================== */
 
 function log(t){
-  document.getElementById("log").textContent = t;
+ document.getElementById("log").textContent=t;
 }
 
 function nowISO(){
-  return new Date().toISOString().replace(/\.\d+Z$/,"Z");
+ return new Date().toISOString().replace(/\.\d+Z$/,"Z");
 }
 
 function agoISO(h){
-  return new Date(Date.now()-h*3600*1000)
-         .toISOString()
-         .replace(/\.\d+Z$/,"Z");
+ return new Date(Date.now()-h*3600*1000)
+  .toISOString()
+  .replace(/\.\d+Z$/,"Z");
 }
 
-function qs(obj){
-  return new URLSearchParams(obj).toString();
+function qs(o){
+ return new URLSearchParams(o).toString();
 }
 
 function clearAll(){
-  windLayer.clearLayers();
-  waveLayer.clearLayers();
-  log("消去しました");
+ windLayer.clearLayers();
+ waveLayer.clearLayers();
+ log("消去しました");
 }
 
-/* =====================================================
+/* ======================================================
    Collection検索
-===================================================== */
+====================================================== */
 
 async function collections(keyword){
 
-  const url =
-   "https://cmr.earthdata.nasa.gov/search/collections.json?" +
-   qs({
-     page_size:10,
-     keyword:keyword
-   });
+ const url =
+ "https://cmr.earthdata.nasa.gov/search/collections.json?" +
+ qs({
+   page_size:10,
+   keyword:keyword
+ });
 
-  const res = await fetch(url,{
-    headers:{Accept:"application/json"}
-  });
+ const res = await fetch(url,{
+   headers:{Accept:"application/json"}
+ });
 
-  const json = await res.json();
+ const json = await res.json();
 
-  return json.feed?.entry || [];
+ return json.feed?.entry || [];
 }
 
-/* =====================================================
+/* ======================================================
    Granule検索
-===================================================== */
+====================================================== */
 
-async function granules(collectionId){
+async function granules(id){
 
-  const url =
-   "https://cmr.earthdata.nasa.gov/search/granules.json?" +
-   qs({
-     page_size:20,
-     collection_concept_id:collectionId,
-     temporal:agoISO(6)+","+nowISO()
-   });
+ const url =
+ "https://cmr.earthdata.nasa.gov/search/granules.json?" +
+ qs({
+   page_size:200,
+   collection_concept_id:id,
+   temporal:agoISO(6)+","+nowISO()
+ });
 
-  const res = await fetch(url,{
-    headers:{Accept:"application/json"}
-  });
+ const res = await fetch(url,{
+   headers:{Accept:"application/json"}
+ });
 
-  const json = await res.json();
+ const json = await res.json();
 
-  return json.feed?.entry || [];
+ return json.feed?.entry || [];
 }
 
-/* =====================================================
+/* ======================================================
    座標抽出
-===================================================== */
+====================================================== */
 
 function point(g){
 
-  if(g.boxes && g.boxes.length){
+ if(g.boxes && g.boxes.length){
 
-    const b = g.boxes[0].split(/\s+/).map(Number);
+   const b = g.boxes[0].split(/\s+/).map(Number);
 
-    if(b.length===4){
-      return [
-        (b[0]+b[2])/2,
-        (b[1]+b[3])/2
-      ];
-    }
-  }
+   if(b.length===4){
+     return [
+       (b[0]+b[2])/2,
+       (b[1]+b[3])/2
+     ];
+   }
+ }
 
-  if(g.polygons && g.polygons.length){
+ if(g.polygons && g.polygons.length){
 
-    const p = g.polygons[0][0].trim().split(/\s+/).map(Number);
+   const p =
+    g.polygons[0][0]
+    .trim()
+    .split(/\s+/)
+    .map(Number);
 
-    if(p.length>=2){
-      return [p[1],p[0]];
-    }
-  }
+   if(p.length>=2){
+     return [p[1],p[0]];
+   }
+ }
 
-  return null;
+ return null;
 }
 
-/* =====================================================
+/* ======================================================
    描画
-===================================================== */
+====================================================== */
 
 function draw(rows,color,layer,label){
 
-  let n = 0;
+ let n=0;
 
-  rows.forEach(g=>{
+ rows.forEach(g=>{
 
-    const pt = point(g);
+   const pt = point(g);
+   if(!pt) return;
 
-    if(!pt) return;
+   L.circleMarker(pt,{
+     radius:4,
+     color:color,
+     fillColor:color,
+     fillOpacity:0.85,
+     weight:1
+   })
+   .bindPopup(
+     "<b>"+label+"</b><br>" +
+     (g.title||"") + "<br>" +
+     (g.time_start||"")
+   )
+   .addTo(layer);
 
-    L.circleMarker(pt,{
-      radius:5,
-      color:color,
-      fillColor:color,
-      fillOpacity:0.85,
-      weight:1
-    })
-    .bindPopup(
-      "<b>"+label+"</b><br>" +
-      (g.title||"") + "<br>" +
-      (g.time_start||"")
-    )
-    .addTo(layer);
+   n++;
+ });
 
-    n++;
-  });
-
-  return n;
+ return n;
 }
 
-/* =====================================================
+/* ======================================================
+   実行
+====================================================== */
+
+async function run(keywords,color,layer,label){
+
+ let total=0;
+ const used = new Set();
+
+ for(const key of keywords){
+
+   log(label + " collection検索:\n" + key);
+
+   const cols = await collections(key);
+
+   for(const c of cols){
+
+     if(used.has(c.id)) continue;
+     used.add(c.id);
+
+     const gs = await granules(c.id);
+
+     total += draw(gs,color,layer,label);
+   }
+ }
+
+ log(label + " 完了: " + total + " 点");
+}
+
+/* ======================================================
    海上風
-===================================================== */
+====================================================== */
 
-async function loadWind(){
+function loadWind(){
 
-  log("海上風検索中...");
-  windLayer.clearLayers();
+ windLayer.clearLayers();
 
-  try{
+ run([
+   "ASCAT Level 2 Ocean Surface Wind Vectors",
+   "ASCATB Level 2 Ocean Surface Wind Vectors",
+   "ASCATC Level 2 Ocean Surface Wind Vectors",
+   "MetOp ASCAT surface wind"
+ ],"#2ea8ff",windLayer,"海上風");
 
-    const keys = [
-      "ASCAT",
-      "METOP ASCAT",
-      "scatterometer wind"
-    ];
-
-    let total = 0;
-
-    for(const k of keys){
-
-      const cols = await collections(k);
-
-      for(const c of cols.slice(0,2)){
-
-        const gs = await granules(c.id);
-
-        total += draw(
-          gs,
-          "#2da8ff",
-          windLayer,
-          "海上風"
-        );
-      }
-    }
-
-    log("海上風取得完了: " + total + " 点");
-
-  }catch(e){
-
-    log("海上風失敗\n" + e);
-  }
 }
 
-/* =====================================================
+/* ======================================================
    波高
-===================================================== */
+====================================================== */
 
-async function loadWave(){
+function loadWave(){
 
-  log("波高検索中...");
-  waveLayer.clearLayers();
+ waveLayer.clearLayers();
 
-  try{
+ run([
+   "Jason-3 Geophysical Data Record",
+   "OSTM Jason-2 Geophysical Data Record",
+   "Sentinel-6 Michael Freilich Poseidon-4",
+   "Sentinel-3 SRAL Altimeter",
+   "significant wave height altimeter"
+ ],"#ff4d4d",waveLayer,"波高");
 
-    const keys = [
-      "JASON-3",
-      "SENTINEL-6",
-      "POSEIDON-4",
-      "altimeter wave height"
-    ];
-
-    let total = 0;
-
-    for(const k of keys){
-
-      const cols = await collections(k);
-
-      for(const c of cols.slice(0,2)){
-
-        const gs = await granules(c.id);
-
-        total += draw(
-          gs,
-          "#ff4d4d",
-          waveLayer,
-          "波高"
-        );
-      }
-    }
-
-    log("波高取得完了: " + total + " 点");
-
-  }catch(e){
-
-    log("波高失敗\n" + e);
-  }
 }
 
 </script>
