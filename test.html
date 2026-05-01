@@ -3,35 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASCAT Real-time Wind Monitor</title>
+    <title>ASCAT Wind Real-time Monitor</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
-        #map { height: 100vh; width: 100%; background: #aad3df; }
-        #info-panel {
-            position: absolute; top: 10px; right: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 15px; border-radius: 8px;
-            z-index: 1000; box-shadow: 0 0 10px rgba(0,0,0,0.2);
-            max-width: 250px;
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        #map { height: 100vh; width: 100%; background: #222; }
+        #ui-layer {
+            position: absolute; top: 15px; left: 60px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 20px; border-radius: 4px;
+            z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            border-left: 5px solid #0078ff;
         }
         .legend {
-            line-height: 18px; color: #555;
-            background: white; padding: 10px; border-radius: 5px;
-            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            line-height: 20px; color: #333;
+            background: white; padding: 10px; border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2); font-size: 12px;
         }
-        .legend i {
-            width: 18px; height: 18px; float: left;
-            margin-right: 8px; opacity: 0.8;
-        }
+        .legend i { width: 20px; height: 10px; float: left; margin: 5px 8px 0 0; opacity: 0.8; }
     </style>
 </head>
 <body>
 
-    <div id="info-panel">
-        <h3 style="margin-top:0">ASCAT Wind NRT</h3>
-        <p id="status" style="font-size: 0.9em;">接続中...</p>
-        <div id="meta-info" style="font-size: 0.8em; color: #666;"></div>
+    <div id="ui-layer">
+        <h3 style="margin:0 0 5px 0; font-size: 16px;">ASCAT (MetOp-B/C) Wind</h3>
+        <div id="status" style="font-size: 13px; color: #d32f2f;">データ取得中...</div>
+        <div id="timestamp" style="font-size: 11px; color: #666; margin-top: 4px;"></div>
     </div>
     <div id="map"></div>
 
@@ -39,99 +36,95 @@
 
     <script>
         // --- 設定 ---
-        // 最新の稼働中データセットID (MetOp-B/C 統合)
-        const DATASET_ID = "noaacwMetopBcascatGlobalNrt"; 
+        // 2026年現在、稼働率が最も高いNRTデータセットID
+        const DATASET_ID = "nesdisascatBC25kmV2"; 
         
-        // 日本近海の範囲
-        const LAT = "[(30.0):(40.0)]";
-        const LON = "[(130.0):(150.0)]";
+        // 日本周辺エリア
+        const LAT = "[(20.0):(50.0)]";
+        const LON = "[(120.0):(155.0)]";
         
-        // 取得する変数 (wind_speed, wind_dir, lat, lon など)
-        const VARIABLES = "wind_speed[(last)]" + LAT + LON;
+        // 変数指定: wind_speed, latitude, longitude
+        const queryVars = `wind_speed[(last)]${LAT}${LON}`;
+        const BASE_URL = `https://coastwatch.noaa.gov/erddap/griddap/${DATASET_ID}.json?${queryVars}`;
         
-        const BASE_URL = `https://coastwatch.noaa.gov/erddap/griddap/${DATASET_ID}.json?${VARIABLES}`;
+        // 指定されたCORSプロキシ
         const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
 
-        // 地図の初期化
-        const map = L.map('map').setView([35.0, 139.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap'
+        // 地図初期化（暗めの地図を採用して風速を見やすく）
+        const map = L.map('map').setView([35.0, 138.0], 5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap, NOAA CoastWatch'
         }).addTo(map);
 
-        // 風速の色分け定義
         function getColor(v) {
-            return v > 15 ? '#d73027' : // 非常に強い
-                   v > 10 ? '#f46d43' : // 強い
-                   v > 7  ? '#fdae61' : // やや強い
-                   v > 4  ? '#fee090' : // 穏やか
-                   v > 2  ? '#e0f3f8' : // 弱い
-                            '#4575b4';   // 無風に近い
+            return v > 20 ? '#800026' :
+                   v > 15 ? '#bd0026' :
+                   v > 10 ? '#e31a1c' :
+                   v > 7  ? '#fc4e2a' :
+                   v > 4  ? '#fd8d3c' :
+                   v > 2  ? '#feb24c' :
+                            '#fed976';
         }
 
-        async function loadData() {
-            const statusEl = document.getElementById('status');
-            const metaEl = document.getElementById('meta-info');
+        async function init() {
+            const status = document.getElementById('status');
+            const ts = document.getElementById('timestamp');
 
             try {
-                // 特殊文字を含むURLを安全にエンコードしてプロキシ経由で送出
-                const response = await fetch(PROXY + encodeURIComponent(BASE_URL));
+                // ERDDAP URLをエンコードしてプロキシを通す
+                const finalUrl = PROXY + encodeURIComponent(BASE_URL);
+                const res = await fetch(finalUrl);
                 
-                if (!response.ok) {
-                    const errorJson = await response.json().catch(() => ({}));
-                    throw new Error(errorJson.message || `HTTP ${response.status}`);
-                }
-
-                const data = await response.json();
+                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+                
+                const data = await res.json();
                 const rows = data.table.rows;
 
                 if (!rows || rows.length === 0) {
-                    statusEl.innerText = "現在、この範囲に観測データがありません。";
+                    status.innerText = "現在このエリアに観測パスがありません";
                     return;
                 }
 
-                statusEl.innerText = `${rows.length} 地点のデータを表示中`;
-                
-                // プロット処理
+                status.style.color = "#2e7d32";
+                status.innerText = `観測点: ${rows.length} pts`;
+                ts.innerText = `最新観測: ${new Date(rows[0][0]).toLocaleString('ja-JP')}`;
+
                 rows.forEach(row => {
                     const [time, lat, lon, speed] = row;
-                    if (speed !== null) {
+                    if (speed !== null && speed !== undefined) {
                         L.circleMarker([lat, lon], {
                             radius: 3,
                             fillColor: getColor(speed),
-                            color: "#333",
-                            weight: 0.3,
-                            opacity: 1,
-                            fillOpacity: 0.7
-                        }).bindPopup(`時刻: ${new Date(time).toLocaleString('ja-JP')}<br>風速: ${speed.toFixed(1)} m/s`)
+                            color: "white",
+                            weight: 0.2,
+                            fillOpacity: 0.8
+                        }).bindPopup(`<b>風速:</b> ${speed.toFixed(1)} m/s<br><b>時刻:</b> ${new Date(time).toLocaleTimeString()}`)
                           .addTo(map);
                     }
                 });
 
-                const latestDate = new Date(rows[0][0]);
-                metaEl.innerHTML = `データセット: ${DATASET_ID}<br>最新観測: ${latestDate.toLocaleString('ja-JP')}`;
-
             } catch (err) {
                 console.error(err);
-                statusEl.innerHTML = `<span style="color:red">エラー: ${err.message}</span><br><small>データセットがメンテナンス中の可能性があります</small>`;
+                status.innerText = "エラー: データセット未検出";
+                ts.innerText = "ID: " + DATASET_ID + " の稼働状況を確認してください";
             }
         }
 
-        // 凡例
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function () {
-            const div = L.DomUtil.create('div', 'info legend');
-            const grades = [0, 2, 4, 7, 10, 15];
-            div.innerHTML += '<b>Wind Speed (m/s)</b><br>';
+            const div = L.DomUtil.create('div', 'legend');
+            const grades = [0, 2, 4, 7, 10, 15, 20];
+            div.innerHTML = '<b>Wind (m/s)</b><br>';
             for (let i = 0; i < grades.length; i++) {
                 div.innerHTML +=
                     '<i style="background:' + getColor(grades[i] + 0.1) + '"></i> ' +
-                    grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+                    grades[i] + (grades[i+1] ? '&ndash;' + grades[i+1] + '<br>' : '+');
             }
             return div;
         };
         legend.addTo(map);
 
-        loadData();
+        init();
     </script>
 </body>
 </html>
