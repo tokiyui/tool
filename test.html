@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCAT Real-time Wind Monitor</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        #info-panel {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px; border-radius: 8px;
+            z-index: 1000; box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            max-width: 300px;
+        }
+        .legend {
+            line-height: 18px; color: #555;
+            background: white; padding: 6px 8px; border-radius: 5px;
+        }
+        .legend i {
+            width: 18px; height: 18px; float: left;
+            margin-right: 8px; opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="info-panel">
+        <h3>ASCAT NRT Wind</h3>
+        <p id="status">データ読み込み中...</p>
+        <div id="meta-info"></div>
+    </div>
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- 設定 ---
+        // 関東近海 (緯度: 30-40, 経度: 135-145) の範囲を指定
+        const LAT_RANGE = "[(30.0):(40.0)]";
+        const LON_RANGE = "[(135.0):(145.0)]";
+        const DATASET_ID = "noaacwMetopAascatGlobalNrt";
+        const ERDDAP_URL = `https://coastwatch.noaa.gov/erddap/griddap/${DATASET_ID}.json?wind_speed[(last)]${LAT_RANGE}${LON_RANGE}`;
+
+        // 地図の初期化 (東京中心)
+        const map = L.map('map').setView([35.68, 139.76], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 風速に応じた色を返す
+        function getColor(v) {
+            return v > 15 ? '#bd0026' :
+                   v > 10 ? '#f03b20' :
+                   v > 5  ? '#feb24c' :
+                   v > 2  ? '#ffeda0' :
+                            '#3288bd';
+        }
+
+        async function fetchASCAT() {
+            try {
+                const response = await fetch(ERDDAP_URL);
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const json = await response.json();
+                const rows = json.table.rows;
+                const statusEl = document.getElementById('status');
+                const metaEl = document.getElementById('meta-info');
+
+                if (rows.length === 0) {
+                    statusEl.innerText = "指定範囲内に最新データがありません。";
+                    return;
+                }
+
+                statusEl.innerText = `最新データ取得完了 (${rows.length} 地点)`;
+                
+                // データのマッピング
+                rows.forEach(row => {
+                    const [time, lat, lon, speed] = row;
+                    
+                    // 風速がnullでない場合のみ表示
+                    if (speed !== null) {
+                        L.circleMarker([lat, lon], {
+                            radius: 4,
+                            fillColor: getColor(speed),
+                            color: "#000",
+                            weight: 0.5,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        }).bindPopup(`<b>風速:</b> ${speed.toFixed(2)} m/s<br><b>時刻:</b> ${new Date(time).toLocaleString('ja-JP')}`)
+                          .addTo(map);
+                    }
+                });
+
+                // 最新の観測時刻を表示
+                const latestTime = new Date(rows[0][0]).toLocaleString('ja-JP');
+                metaEl.innerHTML = `<small>最新観測: ${latestTime}</small>`;
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('status').innerText = "エラー: データ取得に失敗しました。";
+            }
+        }
+
+        // 凡例の追加
+        const legend = L.control({position: 'bottomright'});
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'info legend');
+            const grades = [0, 2, 5, 10, 15];
+            div.innerHTML += '<b>Wind (m/s)</b><br>';
+            for (let i = 0; i < grades.length; i++) {
+                div.innerHTML +=
+                    '<i style="background:' + getColor(grades[i] + 1) + '"></i> ' +
+                    grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+            }
+            return div;
+        };
+        legend.addTo(map);
+
+        // 実行
+        fetchASCAT();
+    </script>
+</body>
+</html>
