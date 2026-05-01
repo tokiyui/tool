@@ -3,318 +3,259 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星NRT API（直近6時間）海上風・波高</title>
+<title>NASA CMR準拠 衛星NRT検索（直近6時間）</title>
 
 <style>
-:root{
-  --bg:#0b1220;
-  --card:#172033;
-  --panel:#0d1526;
-  --text:#ffffff;
-  --sub:#b7c3d8;
-  --btn:#2d8cff;
-}
-*{box-sizing:border-box}
 body{
   margin:0;
   padding:20px;
   font-family:sans-serif;
-  background:var(--bg);
-  color:var(--text);
+  background:#0b1220;
+  color:#fff;
 }
-h1{margin:0 0 18px}
+h1{margin-top:0}
 .card{
-  background:var(--card);
+  background:#172033;
   padding:16px;
   border-radius:12px;
   margin-bottom:18px;
-}
-.small{
-  color:var(--sub);
-  font-size:13px;
-  line-height:1.5;
-}
-.row{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  margin:12px 0;
 }
 button{
   padding:10px 16px;
   border:none;
   border-radius:8px;
-  background:var(--btn);
+  background:#2d8cff;
   color:#fff;
   cursor:pointer;
-  font-weight:bold;
+  margin-right:8px;
 }
-button:disabled{
-  opacity:.6;
-  cursor:not-allowed;
-}
+button:disabled{opacity:.6}
 pre{
-  margin:0;
   white-space:pre-wrap;
   word-break:break-word;
-  background:var(--panel);
+  background:#0d1526;
   padding:12px;
   border-radius:8px;
-  max-height:520px;
+  max-height:540px;
   overflow:auto;
   line-height:1.45;
 }
-.footer{
-  color:var(--sub);
-  font-size:12px;
-  margin-top:20px;
+.small{
+  color:#b7c3d8;
+  font-size:13px;
 }
 </style>
 </head>
 <body>
 
-<h1>衛星 Near Real Time API（直近6時間）</h1>
+<h1>NASA CMR API準拠（直近6時間）</h1>
 
 <div class="card">
-  <h2>① 海上風（ASCAT / Scatterometer）</h2>
-  <div class="small">
-    NASA CMR APIから、直近6時間以内の海上風関連 granule を検索します。
-  </div>
-  <div class="row">
-    <button id="windBtn" onclick="loadWind()">取得</button>
-    <button onclick="clearBox('windOut')">消去</button>
-  </div>
-  <pre id="windOut">待機中...</pre>
+<h2>① 海上風（ASCAT / Scatterometer）</h2>
+<div class="small">
+CMR Search API granules.json を公式仕様で使用<br>
+temporal=開始,終了 / sort_key[]=-start_date
+</div>
+<br>
+<button id="windBtn" onclick="loadWind()">取得</button>
+<pre id="windOut">待機中...</pre>
 </div>
 
 <div class="card">
-  <h2>② 波高（Altimeter / Significant Wave Height）</h2>
-  <div class="small">
-    NASA CMR APIから、直近6時間以内の衛星高度計・波高関連 granule を検索します。
-  </div>
-  <div class="row">
-    <button id="waveBtn" onclick="loadWave()">取得</button>
-    <button onclick="clearBox('waveOut')">消去</button>
-  </div>
-  <pre id="waveOut">待機中...</pre>
+<h2>② 波高（Altimeter / Significant Wave Height）</h2>
+<div class="small">
+Jason / Sentinel-6 等の衛星高度計関連 granule を検索
 </div>
-
-<div class="footer">
-  ※ 公開APIの応答内容・公開状況に依存します。検索結果0件でもコードは正常です。<br>
-  ※ CORS制限があるデータ配布先リンクは、ブラウザ直接取得できない場合があります。
+<br>
+<button id="waveBtn" onclick="loadWave()">取得</button>
+<pre id="waveOut">待機中...</pre>
 </div>
 
 <script>
 "use strict";
 
-/* =========================================================
-   設定
-========================================================= */
-const HOURS_BACK = 6;
+/* =====================================================
+   NASA CMR Search API 公式仕様
+   https://cmr.earthdata.nasa.gov/search/site/docs/search/api
+===================================================== */
+
+const BASE =
+"https://cmr.earthdata.nasa.gov/search/granules.json";
+
+const HOURS = 6;
 const PAGE_SIZE = 20;
-const CMR_BASE = "https://cmr.earthdata.nasa.gov/search/granules.json";
 
-/* =========================================================
-   共通
-========================================================= */
-function $(id){
-  return document.getElementById(id);
+/* =====================================================
+   時刻
+===================================================== */
+
+function nowISO(){
+  return new Date().toISOString().replace(/\.\d+Z$/,"Z");
 }
 
-function clearBox(id){
-  $(id).textContent = "待機中...";
+function agoISO(h){
+  return new Date(Date.now()-h*3600*1000)
+         .toISOString()
+         .replace(/\.\d+Z$/,"Z");
 }
 
-function setLoading(btnId, flag){
-  const btn = $(btnId);
-  btn.disabled = flag;
-  btn.textContent = flag ? "取得中..." : "取得";
+/* =====================================================
+   URL生成（公式準拠）
+===================================================== */
+
+function buildURL(keyword){
+
+  const p = new URLSearchParams();
+
+  p.set("page_size", PAGE_SIZE);
+
+  // 配列パラメータ
+  p.append("sort_key[]","-start_date");
+
+  // 公式 temporal=開始,終了
+  p.set(
+    "temporal",
+    agoISO(HOURS) + "," + nowISO()
+  );
+
+  // free text search
+  p.set("keyword", keyword);
+
+  return BASE + "?" + p.toString();
 }
 
-function toIsoUTC(date){
-  return date.toISOString();
-}
+/* =====================================================
+   検索
+===================================================== */
 
-function isoHoursAgo(hours){
-  return toIsoUTC(new Date(Date.now() - hours * 3600 * 1000));
-}
+async function search(keyword){
 
-function nowIso(){
-  return toIsoUTC(new Date());
-}
+  const url = buildURL(keyword);
 
-function esc(v){
-  return (v ?? "").toString();
-}
-
-/* =========================================================
-   URL生成
-========================================================= */
-function buildSearchUrl(keyword){
-
-  const params = new URLSearchParams();
-  params.set("page_size", PAGE_SIZE);
-  params.append("sort_key[]", "-start_date");
-
-  const temporal = `${isoHoursAgo(HOURS_BACK)},${nowIso()}`;
-  params.append("temporal[]", temporal);
-
-  params.set("keyword", keyword);
-
-  return `${CMR_BASE}?${params.toString()}`;
-}
-
-/* =========================================================
-   API取得
-========================================================= */
-async function searchGranules(keyword){
-
-  const url = buildSearchUrl(keyword);
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Accept": "application/json"
+  const res = await fetch(url,{
+    headers:{
+      "Accept":"application/json"
     }
   });
 
   if(!res.ok){
-    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const txt = await res.text();
+    throw new Error("HTTP " + res.status + "\n" + txt);
   }
 
   const json = await res.json();
 
-  if(
-    !json ||
-    !json.feed ||
-    !Array.isArray(json.feed.entry)
-  ){
-    throw new Error("API応答形式が想定外です");
+  if(!json.feed || !Array.isArray(json.feed.entry)){
+    throw new Error("レスポンス形式異常");
   }
 
   return {
     url,
-    entries: json.feed.entry
+    rows: json.feed.entry
   };
 }
 
-/* =========================================================
-   表示整形
-========================================================= */
-function findNcLink(links){
+/* =====================================================
+   リンク抽出
+===================================================== */
+
+function bestLink(links){
 
   if(!Array.isArray(links)) return "";
 
-  const nc = links.find(x => {
-    const href = (x && x.href) ? x.href : "";
-    return /\.nc($|\?)/i.test(href);
-  });
+  // NetCDF優先
+  for(const x of links){
+    const h = x.href || "";
+    if(/\.nc($|\?)/i.test(h)) return h;
+  }
 
-  return nc ? nc.href : "";
+  // それ以外
+  for(const x of links){
+    const h = x.href || "";
+    if(/^https?:\/\//i.test(h)) return h;
+  }
+
+  return "";
 }
 
-function findAnyDataLink(links){
+/* =====================================================
+   表示
+===================================================== */
 
-  if(!Array.isArray(links)) return "";
-
-  const good = links.find(x => {
-    const href = (x && x.href) ? x.href : "";
-    return /^https?:\/\//i.test(href);
-  });
-
-  return good ? good.href : "";
-}
-
-function formatEntries(entries, requestUrl){
+function render(result){
 
   let txt = "";
-  txt += "検索URL:\n" + requestUrl + "\n\n";
-  txt += "件数: " + entries.length + "\n\n";
+  txt += "検索URL:\n" + result.url + "\n\n";
+  txt += "件数: " + result.rows.length + "\n\n";
 
-  if(entries.length === 0){
-    txt += "直近6時間に該当データが見つかりませんでした。";
+  if(result.rows.length===0){
+    txt += "直近6時間の該当データなし";
     return txt;
   }
 
-  entries.forEach((e, i) => {
+  result.rows.forEach((r,i)=>{
 
-    const title = esc(e.title);
-    const time  = esc(e.time_start);
-    const id    = esc(e.id);
+    txt += "【" + (i+1) + "】\n";
+    txt += "title : " + (r.title || "") + "\n";
+    txt += "time  : " + (r.time_start || "") + "\n";
+    txt += "id    : " + (r.id || "") + "\n";
 
-    const ncUrl = findNcLink(e.links);
-    const anyUrl = findAnyDataLink(e.links);
+    const link = bestLink(r.links);
 
-    txt += "【" + (i + 1) + "】\n";
-    txt += "title : " + title + "\n";
-    txt += "time  : " + time + "\n";
-    txt += "id    : " + id + "\n";
+    txt += "link  : " + link + "\n\n";
 
-    if(ncUrl){
-      txt += "ncURL : " + ncUrl + "\n";
-    }else if(anyUrl){
-      txt += "link  : " + anyUrl + "\n";
-    }else{
-      txt += "link  : (リンクなし)\n";
-    }
-
-    txt += "\n";
   });
 
   return txt;
 }
 
-/* =========================================================
-   実行
-========================================================= */
-async function runSearch({
-  buttonId,
-  outputId,
-  keyword
-}){
+/* =====================================================
+   共通実行
+===================================================== */
 
-  setLoading(buttonId, true);
-  $(outputId).textContent = "検索中...";
+async function run(btnId,outId,keyword){
+
+  const btn = document.getElementById(btnId);
+  const out = document.getElementById(outId);
+
+  btn.disabled = true;
+  out.textContent = "検索中...";
 
   try{
 
-    const result = await searchGranules(keyword);
+    const r = await search(keyword);
+    out.textContent = render(r);
 
-    $(outputId).textContent =
-      formatEntries(result.entries, result.url);
+  }catch(e){
 
-  }catch(err){
+    out.textContent =
+      "取得失敗\n\n" + e.message;
 
-    $(outputId).textContent =
-      "取得失敗\n\n" +
-      "理由: " + err.message + "\n\n" +
-      "ネットワーク / CORS / API混雑 の可能性があります。";
-
-  }finally{
-
-    setLoading(buttonId, false);
   }
+
+  btn.disabled = false;
 }
 
-/* =========================================================
-   ボタン
-========================================================= */
+/* =====================================================
+   個別
+===================================================== */
+
 function loadWind(){
 
-  runSearch({
-    buttonId:"windBtn",
-    outputId:"windOut",
-    keyword:"ASCAT scatterometer wind"
-  });
+  run(
+    "windBtn",
+    "windOut",
+    "ASCAT scatterometer wind ocean"
+  );
 }
 
 function loadWave(){
 
-  runSearch({
-    buttonId:"waveBtn",
-    outputId:"waveOut",
-    keyword:"significant wave height altimeter"
-  });
+  run(
+    "waveBtn",
+    "waveOut",
+    "significant wave height altimeter Jason Sentinel-6"
+  );
 }
 
 </script>
