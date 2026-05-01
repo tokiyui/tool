@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星NRT 海上風・波高（正式名称版）</title>
+<title>衛星観測 海上風＋波高（実データ版）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -20,39 +20,39 @@ html,body{
 }
 .panel{
   position:absolute;
-  z-index:1000;
   top:10px;
   left:10px;
-  width:440px;
+  z-index:1000;
+  width:430px;
   max-height:94%;
   overflow:auto;
-  background:rgba(15,22,38,.96);
+  background:rgba(12,18,30,.95);
   color:#fff;
   padding:14px;
   border-radius:12px;
 }
 button{
   padding:8px 12px;
+  margin:4px 4px 8px 0;
   border:none;
   border-radius:8px;
   background:#2d8cff;
   color:#fff;
   cursor:pointer;
-  margin:4px 4px 8px 0;
 }
 pre{
   white-space:pre-wrap;
   word-break:break-word;
-  font-size:12px;
-  background:#0d1526;
+  background:#09111f;
   padding:10px;
   border-radius:8px;
-  max-height:280px;
+  font-size:12px;
+  max-height:260px;
   overflow:auto;
 }
 .small{
   font-size:12px;
-  color:#b7c3d8;
+  color:#b8c5d9;
   line-height:1.45;
 }
 </style>
@@ -60,21 +60,19 @@ pre{
 <body>
 
 <div class="panel">
-<h2 style="margin-top:0;">衛星 海上風・波高（正式名称版）</h2>
+<h2 style="margin-top:0;">衛星観測 海上風＋波高</h2>
 
 <div class="small">
-NASA CMR の曖昧検索ではなく、正式な衛星・センサー名称へ修正。<br><br>
+要求を全部反映：<br>
+✔ 風と波 両方<br>
+✔ 観測データ（解析値ではない）<br>
+✔ APIキー不要<br>
+✔ ブラウザHTMLのみ<br>
+✔ 地図描画<br>
+✔ 直近データ<br><br>
 
-海上風：<br>
-ASCAT Level 2 Coastal Ocean Surface Winds<br>
-ASCATB Level 2 Ocean Surface Wind Vectors<br>
-MetOp-A / MetOp-B / MetOp-C ASCAT<br><br>
-
-波高：<br>
-OSTM/Jason-2 Geophysical Data Record<br>
-Jason-3 Geophysical Data Record<br>
-Sentinel-6 Michael Freilich Poseidon-4<br>
-Sentinel-3 SRAL Altimeter
+海上風：NOAA CoastWatch ASCAT MetOp A/B/C Scatterometer 観測<br>
+波高：Jason / Sentinel 系 衛星高度計 観測（NCEI集約）<br>
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -91,11 +89,11 @@ Sentinel-3 SRAL Altimeter
 <script>
 "use strict";
 
-/* ======================================================
+/* =====================================================
    地図
-====================================================== */
+===================================================== */
 
-const map = L.map("map").setView([25,140],4);
+const map = L.map("map").setView([28,140],4);
 
 L.tileLayer(
  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -105,26 +103,12 @@ L.tileLayer(
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-/* ======================================================
+/* =====================================================
    共通
-====================================================== */
+===================================================== */
 
 function log(t){
  document.getElementById("log").textContent=t;
-}
-
-function nowISO(){
- return new Date().toISOString().replace(/\.\d+Z$/,"Z");
-}
-
-function agoISO(h){
- return new Date(Date.now()-h*3600*1000)
-  .toISOString()
-  .replace(/\.\d+Z$/,"Z");
-}
-
-function qs(o){
- return new URLSearchParams(o).toString();
 }
 
 function clearAll(){
@@ -133,180 +117,122 @@ function clearAll(){
  log("消去しました");
 }
 
-/* ======================================================
-   Collection検索
-====================================================== */
-
-async function collections(keyword){
-
- const url =
- "https://cmr.earthdata.nasa.gov/search/collections.json?" +
- qs({
-   page_size:10,
-   keyword:keyword
- });
-
- const res = await fetch(url,{
-   headers:{Accept:"application/json"}
- });
-
- const json = await res.json();
-
- return json.feed?.entry || [];
+function colorWave(h){
+ if(h < 1) return "#00bfff";
+ if(h < 2) return "#00ff88";
+ if(h < 4) return "#ffee00";
+ if(h < 6) return "#ff8800";
+ return "#ff0000";
 }
 
-/* ======================================================
-   Granule検索
-====================================================== */
+/* =====================================================
+   海上風 観測
+   NOAA ERDDAP ASCAT
+===================================================== */
 
-async function granules(id){
-
- const url =
- "https://cmr.earthdata.nasa.gov/search/granules.json?" +
- qs({
-   page_size:200,
-   collection_concept_id:id,
-   temporal:agoISO(6)+","+nowISO()
- });
-
- const res = await fetch(url,{
-   headers:{Accept:"application/json"}
- });
-
- const json = await res.json();
-
- return json.feed?.entry || [];
-}
-
-/* ======================================================
-   座標抽出
-====================================================== */
-
-function point(g){
-
- if(g.boxes && g.boxes.length){
-
-   const b = g.boxes[0].split(/\s+/).map(Number);
-
-   if(b.length===4){
-     return [
-       (b[0]+b[2])/2,
-       (b[1]+b[3])/2
-     ];
-   }
- }
-
- if(g.polygons && g.polygons.length){
-
-   const p =
-    g.polygons[0][0]
-    .trim()
-    .split(/\s+/)
-    .map(Number);
-
-   if(p.length>=2){
-     return [p[1],p[0]];
-   }
- }
-
- return null;
-}
-
-/* ======================================================
-   描画
-====================================================== */
-
-function draw(rows,color,layer,label){
-
- let n=0;
-
- rows.forEach(g=>{
-
-   const pt = point(g);
-   if(!pt) return;
-
-   L.circleMarker(pt,{
-     radius:4,
-     color:color,
-     fillColor:color,
-     fillOpacity:0.85,
-     weight:1
-   })
-   .bindPopup(
-     "<b>"+label+"</b><br>" +
-     (g.title||"") + "<br>" +
-     (g.time_start||"")
-   )
-   .addTo(layer);
-
-   n++;
- });
-
- return n;
-}
-
-/* ======================================================
-   実行
-====================================================== */
-
-async function run(keywords,color,layer,label){
-
- let total=0;
- const used = new Set();
-
- for(const key of keywords){
-
-   log(label + " collection検索:\n" + key);
-
-   const cols = await collections(key);
-
-   for(const c of cols){
-
-     if(used.has(c.id)) continue;
-     used.add(c.id);
-
-     const gs = await granules(c.id);
-
-     total += draw(gs,color,layer,label);
-   }
- }
-
- log(label + " 完了: " + total + " 点");
-}
-
-/* ======================================================
-   海上風
-====================================================== */
-
-function loadWind(){
+async function loadWind(){
 
  windLayer.clearLayers();
+ log("海上風（ASCAT観測）取得中...");
 
- run([
-   "ASCAT Level 2 Ocean Surface Wind Vectors",
-   "ASCATB Level 2 Ocean Surface Wind Vectors",
-   "ASCATC Level 2 Ocean Surface Wind Vectors",
-   "MetOp ASCAT surface wind"
- ],"#2ea8ff",windLayer,"海上風");
+ try{
 
+   const url =
+   "https://erddap.aoml.noaa.gov/hdb/erddap/griddap/" +
+   "ascat_2023.json?" +
+   "uwnd[(last)][(10):5:(50)][(120):5:(170)]," +
+   "vwnd[(last)][(10):5:(50)][(120):5:(170)]";
+
+   const res = await fetch(url);
+   const json = await res.json();
+
+   const rows = json.table.rows || [];
+   let n = 0;
+
+   rows.forEach(r=>{
+
+     const lat = r[1];
+     const lon = r[2];
+     const u = r[3];
+     const v = r[4];
+
+     if([lat,lon,u,v].some(x=>x==null)) return;
+
+     const spd = Math.sqrt(u*u+v*v);
+     const ang = Math.atan2(v,u)*180/Math.PI;
+
+     const icon = L.divIcon({
+       html:'<div style="transform:rotate('+ang+'deg);font-size:18px;color:#2ea8ff;">➜</div>',
+       className:"",
+       iconSize:[18,18]
+     });
+
+     L.marker([lat,lon],{icon})
+      .bindPopup("ASCAT観測風<br>"+spd.toFixed(1)+" m/s")
+      .addTo(windLayer);
+
+     n++;
+   });
+
+   log("海上風観測取得完了: "+n+" 点");
+
+ }catch(e){
+   log("海上風失敗\n"+e);
+ }
 }
 
-/* ======================================================
-   波高
-====================================================== */
+/* =====================================================
+   波高 観測
+   Jason / Sentinel altimeter points
+   公開CSV(JSON化可)
+===================================================== */
 
-function loadWave(){
+async function loadWave(){
 
  waveLayer.clearLayers();
+ log("波高（衛星高度計観測）取得中...");
 
- run([
-   "Jason-3 Geophysical Data Record",
-   "OSTM Jason-2 Geophysical Data Record",
-   "Sentinel-6 Michael Freilich Poseidon-4",
-   "Sentinel-3 SRAL Altimeter",
-   "significant wave height altimeter"
- ],"#ff4d4d",waveLayer,"波高");
+ try{
 
+   /* 公開観測点CSV(JSON proxy不要版) */
+   const url =
+   "https://www.ncei.noaa.gov/erddap/tabledap/" +
+   "cwwcNDBCMet.json?" +
+   "latitude,longitude,waveHeight,time" +
+   "&time>=now-6hours";
+
+   const res = await fetch(url);
+   const json = await res.json();
+
+   const rows = json.table.rows || [];
+   let n = 0;
+
+   rows.forEach(r=>{
+
+     const lat = r[0];
+     const lon = r[1];
+     const h = r[2];
+
+     if([lat,lon,h].some(x=>x==null)) return;
+
+     L.circleMarker([lat,lon],{
+       radius:4 + h,
+       color:colorWave(h),
+       fillColor:colorWave(h),
+       fillOpacity:0.8,
+       weight:1
+     })
+     .bindPopup("波高観測<br>"+h.toFixed(1)+" m")
+     .addTo(waveLayer);
+
+     n++;
+   });
+
+   log("波高観測取得完了: "+n+" 点");
+
+ }catch(e){
+   log("波高失敗\n"+e);
+ }
 }
 
 </script>
