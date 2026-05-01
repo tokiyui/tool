@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>衛星観測 海上風＋波高（実データ版）</title>
+<title>衛星観測 海上風・波高（NetCDF実読込版）</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -20,13 +20,13 @@ html,body{
 }
 .panel{
   position:absolute;
+  z-index:1000;
   top:10px;
   left:10px;
-  z-index:1000;
   width:430px;
   max-height:94%;
   overflow:auto;
-  background:rgba(12,18,30,.95);
+  background:rgba(10,16,28,.95);
   color:#fff;
   padding:14px;
   border-radius:12px;
@@ -43,7 +43,7 @@ button{
 pre{
   white-space:pre-wrap;
   word-break:break-word;
-  background:#09111f;
+  background:#08101d;
   padding:10px;
   border-radius:8px;
   font-size:12px;
@@ -63,16 +63,15 @@ pre{
 <h2 style="margin-top:0;">衛星観測 海上風＋波高</h2>
 
 <div class="small">
-要求を全部反映：<br>
-✔ 風と波 両方<br>
-✔ 観測データ（解析値ではない）<br>
-✔ APIキー不要<br>
-✔ ブラウザHTMLのみ<br>
-✔ 地図描画<br>
-✔ 直近データ<br><br>
+APIキー不要 / HTML単体 / GitHub Pages可<br><br>
 
-海上風：NOAA CoastWatch ASCAT MetOp A/B/C Scatterometer 観測<br>
-波高：Jason / Sentinel 系 衛星高度計 観測（NCEI集約）<br>
+海上風（衛星散乱計）<br>
+ASCAT MetOp-B NRT NetCDF<br><br>
+
+波高（衛星高度計）<br>
+Sentinel-6 / Jason 系 NRT NetCDF<br><br>
+
+NetCDFをブラウザで直接読み込みます。
 </div>
 
 <button onclick="loadWind()">海上風取得</button>
@@ -85,13 +84,14 @@ pre{
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/netcdfjs@1.0.0/dist/netcdfjs.min.js"></script>
 
 <script>
 "use strict";
 
-/* =====================================================
+/* ===================================================
    地図
-===================================================== */
+=================================================== */
 
 const map = L.map("map").setView([28,140],4);
 
@@ -103,9 +103,9 @@ L.tileLayer(
 const windLayer = L.layerGroup().addTo(map);
 const waveLayer = L.layerGroup().addTo(map);
 
-/* =====================================================
+/* ===================================================
    共通
-===================================================== */
+=================================================== */
 
 function log(t){
  document.getElementById("log").textContent=t;
@@ -117,120 +117,151 @@ function clearAll(){
  log("消去しました");
 }
 
-function colorWave(h){
- if(h < 1) return "#00bfff";
- if(h < 2) return "#00ff88";
- if(h < 4) return "#ffee00";
- if(h < 6) return "#ff8800";
- return "#ff0000";
+async function loadNc(url){
+
+ const res = await fetch(url);
+ const buf = await res.arrayBuffer();
+ return new netcdfjs(buf);
 }
 
-/* =====================================================
-   海上風 観測
-   NOAA ERDDAP ASCAT
-===================================================== */
+function readVar(nc,names){
+
+ for(const n of names){
+   try{
+     return nc.getDataVariable(n);
+   }catch(e){}
+ }
+ return null;
+}
+
+/* ===================================================
+   海上風
+   ASCAT MetOp-B
+=================================================== */
 
 async function loadWind(){
 
  windLayer.clearLayers();
- log("海上風（ASCAT観測）取得中...");
+ log("海上風 NetCDF取得中...");
 
  try{
 
    const url =
-   "https://erddap.aoml.noaa.gov/hdb/erddap/griddap/" +
-   "ascat_2023.json?" +
-   "uwnd[(last)][(10):5:(50)][(120):5:(170)]," +
-   "vwnd[(last)][(10):5:(50)][(120):5:(170)]";
+   "https://thredds.met.no/thredds/fileServer/" +
+   "remotesensing/ascat/2026/05/01/" +
+   "ascatb_20260501.nc";
 
-   const res = await fetch(url);
-   const json = await res.json();
+   const nc = await loadNc(url);
 
-   const rows = json.table.rows || [];
-   let n = 0;
+   const lat = readVar(nc,["lat","latitude"]);
+   const lon = readVar(nc,["lon","longitude"]);
+   const wsp = readVar(nc,["wind_speed","windspeed","ws"]);
 
-   rows.forEach(r=>{
+   if(!lat || !lon || !wsp){
+     throw "変数未検出";
+   }
 
-     const lat = r[1];
-     const lon = r[2];
-     const u = r[3];
-     const v = r[4];
+   let n=0;
 
-     if([lat,lon,u,v].some(x=>x==null)) return;
+   for(let i=0;i<lat.length;i+=20){
 
-     const spd = Math.sqrt(u*u+v*v);
-     const ang = Math.atan2(v,u)*180/Math.PI;
+     if(
+       lat[i]==null ||
+       lon[i]==null ||
+       wsp[i]==null
+     ) continue;
 
-     const icon = L.divIcon({
-       html:'<div style="transform:rotate('+ang+'deg);font-size:18px;color:#2ea8ff;">➜</div>',
-       className:"",
-       iconSize:[18,18]
-     });
-
-     L.marker([lat,lon],{icon})
-      .bindPopup("ASCAT観測風<br>"+spd.toFixed(1)+" m/s")
-      .addTo(windLayer);
+     L.circleMarker([lat[i],lon[i]],{
+       radius:3 + wsp[i]/8,
+       color:"#2ea8ff",
+       fillColor:"#2ea8ff",
+       fillOpacity:.8,
+       weight:1
+     })
+     .bindPopup(
+       "海上風<br>" +
+       wsp[i].toFixed(1)+" m/s"
+     )
+     .addTo(windLayer);
 
      n++;
-   });
+   }
 
-   log("海上風観測取得完了: "+n+" 点");
+   log("海上風完了: "+n+" 点");
 
  }catch(e){
+
    log("海上風失敗\n"+e);
  }
 }
 
-/* =====================================================
-   波高 観測
-   Jason / Sentinel altimeter points
-   公開CSV(JSON化可)
-===================================================== */
+/* ===================================================
+   波高
+   Sentinel-6 / Jason
+=================================================== */
 
 async function loadWave(){
 
  waveLayer.clearLayers();
- log("波高（衛星高度計観測）取得中...");
+ log("波高 NetCDF取得中...");
 
  try{
 
-   /* 公開観測点CSV(JSON proxy不要版) */
    const url =
-   "https://www.ncei.noaa.gov/erddap/tabledap/" +
-   "cwwcNDBCMet.json?" +
-   "latitude,longitude,waveHeight,time" +
-   "&time>=now-6hours";
+   "https://thredds.met.no/thredds/fileServer/" +
+   "remotesensing/altimeter/2026/05/01/" +
+   "sentinel6_20260501.nc";
 
-   const res = await fetch(url);
-   const json = await res.json();
+   const nc = await loadNc(url);
 
-   const rows = json.table.rows || [];
-   let n = 0;
+   const lat = readVar(nc,["lat","latitude"]);
+   const lon = readVar(nc,["lon","longitude"]);
+   const swh = readVar(nc,[
+     "swh",
+     "significant_wave_height",
+     "wave_height"
+   ]);
 
-   rows.forEach(r=>{
+   if(!lat || !lon || !swh){
+     throw "変数未検出";
+   }
 
-     const lat = r[0];
-     const lon = r[1];
-     const h = r[2];
+   let n=0;
 
-     if([lat,lon,h].some(x=>x==null)) return;
+   for(let i=0;i<lat.length;i+=10){
 
-     L.circleMarker([lat,lon],{
-       radius:4 + h,
-       color:colorWave(h),
-       fillColor:colorWave(h),
-       fillOpacity:0.8,
+     if(
+       lat[i]==null ||
+       lon[i]==null ||
+       swh[i]==null
+     ) continue;
+
+     let c="#00bfff";
+     if(swh[i]>2)c="#00ff88";
+     if(swh[i]>4)c="#ffee00";
+     if(swh[i]>6)c="#ff8800";
+     if(swh[i]>8)c="#ff0000";
+
+     L.circleMarker([lat[i],lon[i]],{
+       radius:3 + swh[i],
+       color:c,
+       fillColor:c,
+       fillOpacity:.8,
        weight:1
      })
-     .bindPopup("波高観測<br>"+h.toFixed(1)+" m")
+     .bindPopup(
+       "波高<br>" +
+       swh[i].toFixed(1)+" m"
+     )
      .addTo(waveLayer);
 
      n++;
-   });
+   }
 
-   log("波高観測取得完了: "+n+" 点");
+   log("波高完了: "+n+" 点");
 
  }catch(e){
+
    log("波高失敗\n"+e);
  }
 }
