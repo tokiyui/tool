@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>ASCAT Real Data Viewer</title>
+<title>ASCAT Real-time Winds</title>
 
 <link
  rel="stylesheet"
@@ -28,13 +28,19 @@ html, body {
     left: 10px;
     z-index: 9999;
 
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.95);
 
     padding: 10px;
 
     border-radius: 10px;
 
     font-family: sans-serif;
+
+    width: 320px;
+}
+
+#status {
+    color: red;
 }
 
 </style>
@@ -44,21 +50,33 @@ html, body {
 <div id="map"></div>
 
 <div class="info">
-<b>ASCAT Real Winds</b><br>
-<span id="status">Loading...</span>
+
+<b>ASCAT Scatterometer Winds</b><br>
+
+Time:
+<input type="datetime-local" id="timeInput">
+
+<button onclick="loadASCAT()">
+Load
+</button>
+
+<hr>
+
+<div id="status">
+Loading...
+</div>
+
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script type="module">
-
-import netcdfjs from "https://cdn.jsdelivr.net/npm/netcdfjs/+esm";
+<script>
 
 // =====================================================
 // MAP
 // =====================================================
 
-const map = L.map('map').setView([20,140], 4);
+const map = L.map('map').setView([20, 140], 4);
 
 L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -84,10 +102,10 @@ const ctx = canvas.getContext('2d');
 
 function resizeCanvas() {
 
-    const s = map.getSize();
+    const size = map.getSize();
 
-    canvas.width = s.x;
-    canvas.height = s.y;
+    canvas.width = size.x;
+    canvas.height = size.y;
 }
 
 resizeCanvas();
@@ -95,15 +113,15 @@ resizeCanvas();
 map.on('resize', resizeCanvas);
 
 // =====================================================
-// COLOR
+// COLORBAR
 // =====================================================
 
-function color(speed) {
+function windColor(speed) {
 
     if (speed < 5) return '#00ffff';
     if (speed < 10) return '#00ff00';
     if (speed < 15) return '#ffff00';
-    if (speed < 20) return '#ff8800';
+    if (speed < 20) return '#ff9900';
 
     return '#ff0000';
 }
@@ -112,25 +130,24 @@ function color(speed) {
 // DRAW
 // =====================================================
 
-function drawWind(lat, lon, speed, dir) {
+function drawWind(lat, lon, u, v) {
+
+    const speed =
+        Math.sqrt(u*u + v*v);
 
     const p =
         map.latLngToContainerPoint([lat, lon]);
 
-    const rad = dir * Math.PI / 180;
-
-    const u = -speed * Math.sin(rad);
-    const v = -speed * Math.cos(rad);
-
-    const scale = 2;
+    const scale = 2.0;
 
     const dx = u * scale;
     const dy = -v * scale;
 
-    const c = color(speed);
+    const color =
+        windColor(speed);
 
-    ctx.strokeStyle = c;
-    ctx.fillStyle = c;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
 
     ctx.lineWidth = 1;
 
@@ -173,69 +190,13 @@ function drawWind(lat, lon, speed, dir) {
 }
 
 // =====================================================
-// NOAA ASCAT DATA
-// =====================================================
-
-// IMPORTANT:
-//
-// .nc を直接取得
-//
-// NOAA実データ
-//
-
-const url =
-'https://cwcgom.aoml.noaa.gov/thredds/fileServer/ASCAT/METOPB.nc';
-
-// =====================================================
-// FETCH
+// NOAA ERDDAP
 // =====================================================
 
 async function loadASCAT() {
 
     document.getElementById('status')
-        .textContent = 'Downloading NetCDF...';
-
-    const response =
-        await fetch(url);
-
-    const arrayBuffer =
-        await response.arrayBuffer();
-
-    document.getElementById('status')
-        .textContent = 'Parsing NetCDF...';
-
-    const reader =
-        new netcdfjs(arrayBuffer);
-
-    // 変数名確認
-    console.log(reader.variables);
-
-    // NOAA ASCAT variables
-    const lat =
-        reader.getDataVariable('latitude');
-
-    const lon =
-        reader.getDataVariable('longitude');
-
-    const wspd =
-        reader.getDataVariable('wind_speed');
-
-    const wdir =
-        reader.getDataVariable('wind_dir');
-
-    return {
-        lat,
-        lon,
-        wspd,
-        wdir
-    };
-}
-
-// =====================================================
-// RENDER
-// =====================================================
-
-async function render() {
+        .textContent = 'Loading NOAA ASCAT...';
 
     ctx.clearRect(
         0,
@@ -244,43 +205,151 @@ async function render() {
         canvas.height
     );
 
-    const data =
-        await loadASCAT();
+    // -----------------------------------------
+    // 時刻
+    // -----------------------------------------
 
-    const n = data.lat.length;
+    let t =
+        document.getElementById('timeInput')
+        .value;
 
-    // 点数多すぎるので間引く
-    for (let i=0; i<n; i+=20) {
+    if (!t) {
 
-        const lat = data.lat[i];
-        const lon = data.lon[i];
+        const now = new Date();
 
-        let speed =
-            data.wspd[i];
+        now.setUTCHours(0,0,0,0);
 
-        let dir =
-            data.wdir[i];
+        t =
+            now.toISOString()
+            .slice(0,16);
+    }
 
-        // 欠損除去
-        if (!isFinite(speed)) continue;
-        if (!isFinite(dir)) continue;
+    // ERDDAP time format
+    t += ':00Z';
+
+    // -----------------------------------------
+    // NOAA ERDDAP URL
+    // -----------------------------------------
+
+    const erddapUrl =
+`https://erddap.aoml.noaa.gov/hdb/erddap/griddap/ascat_2023.json?x_wind[("${t}")][0][(-60):4:(60)][(80):4:(200)],y_wind[("${t}")][0][(-60):4:(60)][(80):4:(200)]`;
+
+    // -----------------------------------------
+    // Cloudflare Worker
+    // -----------------------------------------
+
+    const url =
+        'https://worker.ryohorita105.workers.dev/?url='
+        + encodeURIComponent(erddapUrl);
+
+    console.log(url);
+
+    // -----------------------------------------
+    // FETCH
+    // -----------------------------------------
+
+    const response =
+        await fetch(url);
+
+    const json =
+        await response.json();
+
+    console.log(json);
+
+    // =================================================
+    // ERDDAP JSON PARSE
+    // =================================================
+
+    // table.rows:
+    //
+    // [time,alt,lat,lon,x_wind]
+    //
+
+    const rows =
+        json.table.rows;
+
+    let count = 0;
+
+    rows.forEach(r => {
+
+        const lat = r[2];
+        const lon = r[3];
+        const u = r[4];
+
+        if (!isFinite(u)) return;
+
+        count++;
+    });
+
+    // y_wind 取得
+    const erddapUrlV =
+`https://erddap.aoml.noaa.gov/hdb/erddap/griddap/ascat_2023.json?y_wind[("${t}")][0][(-60):4:(60)][(80):4:(200)]`;
+
+    const urlV =
+        'https://worker.ryohorita105.workers.dev/?url='
+        + encodeURIComponent(erddapUrlV);
+
+    const responseV =
+        await fetch(urlV);
+
+    const jsonV =
+        await responseV.json();
+
+    const rowsV =
+        jsonV.table.rows;
+
+    // =================================================
+    // DRAW
+    // =================================================
+
+    for (let i=0; i<rows.length; i++) {
+
+        const rU = rows[i];
+        const rV = rowsV[i];
+
+        if (!rU || !rV) continue;
+
+        const lat = rU[2];
+        const lon = rU[3];
+
+        const u = rU[4];
+        const v = rV[4];
+
+        if (!isFinite(u)) continue;
+        if (!isFinite(v)) continue;
 
         drawWind(
             lat,
             lon,
-            speed,
-            dir
+            u,
+            v
         );
     }
 
     document.getElementById('status')
         .textContent =
-            'ASCAT loaded';
+            `Loaded ${count} vectors`;
 }
 
-render();
+// =====================================================
+// INIT
+// =====================================================
 
-map.on('move zoom', render);
+const now = new Date();
+
+now.setUTCHours(0,0,0,0);
+
+document.getElementById('timeInput')
+    .value =
+        now.toISOString().slice(0,16);
+
+loadASCAT();
+
+// =====================================================
+// REDRAW
+// =====================================================
+
+map.on('move zoom', loadASCAT);
 
 </script>
 
