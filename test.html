@@ -2,14 +2,15 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>ASCAT 衛星風ビューア</title>
+<title>Realtime ASCAT Winds</title>
 
 <link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+ rel="stylesheet"
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 />
 
 <style>
+
 html, body {
     margin: 0;
     width: 100%;
@@ -25,17 +26,17 @@ html, body {
     position: absolute;
     top: 10px;
     left: 10px;
-    z-index: 1000;
-    background: rgba(255,255,255,0.9);
+    z-index: 9999;
+
+    background: rgba(255,255,255,0.92);
+
     padding: 10px;
-    border-radius: 8px;
+
+    border-radius: 10px;
+
     font-family: sans-serif;
-    font-size: 14px;
 }
 
-.loading {
-    color: red;
-}
 </style>
 </head>
 <body>
@@ -43,8 +44,8 @@ html, body {
 <div id="map"></div>
 
 <div class="info">
-    <b>ASCAT Scatterometer Wind</b><br>
-    <span id="status" class="loading">Loading...</span><br>
+    <b>ASCAT Real-time Winds</b><br>
+    NOAA / OSPO<br>
     <span id="time"></span>
 </div>
 
@@ -53,10 +54,12 @@ html, body {
 <script>
 
 // =====================================================
-// 地図
+// MAP
 // =====================================================
 
-const map = L.map('map').setView([25, 140], 4);
+const map = L.map('map', {
+    worldCopyJump: true
+}).setView([20, 140], 4);
 
 L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -66,202 +69,62 @@ L.tileLayer(
 ).addTo(map);
 
 // =====================================================
-// Canvas Overlay
+// ASCAT IMAGE
 // =====================================================
 
-const canvas = document.createElement('canvas');
-canvas.style.position = 'absolute';
-canvas.style.top = 0;
-canvas.style.left = 0;
-canvas.style.pointerEvents = 'none';
+// NOAA OSPO ASCAT image
+//
+// 実際のリアルタイム画像
+//
+// 25km ascending pass
+//
 
-map.getPanes().overlayPane.appendChild(canvas);
+const imageUrl =
+'https://www.ospo.noaa.gov/data/messages/ascat/ascatb_25km_latest_winds.png';
 
-const ctx = canvas.getContext('2d');
+// 全球画像の範囲
+const bounds = [
+    [-90, -180],
+    [90, 180]
+];
 
-// =====================================================
-// サイズ更新
-// =====================================================
-
-function resizeCanvas() {
-
-    const size = map.getSize();
-
-    canvas.width = size.x;
-    canvas.height = size.y;
-}
-
-resizeCanvas();
-
-map.on('resize', resizeCanvas);
-
-// =====================================================
-// 風描画
-// =====================================================
-
-function drawWind(lat, lon, speed, dir) {
-
-    const p = map.latLngToContainerPoint([lat, lon]);
-
-    const rad = dir * Math.PI / 180;
-
-    // meteorological direction
-    const u = -speed * Math.sin(rad);
-    const v = -speed * Math.cos(rad);
-
-    const scale = 2.0;
-
-    const dx = u * scale;
-    const dy = -v * scale;
-
-    // color
-    if (speed >= 25) {
-        ctx.strokeStyle = 'red';
-    } else if (speed >= 15) {
-        ctx.strokeStyle = 'orange';
-    } else {
-        ctx.strokeStyle = 'cyan';
+const overlay = L.imageOverlay(
+    imageUrl,
+    bounds,
+    {
+        opacity: 0.75
     }
-
-    ctx.lineWidth = 1;
-
-    // line
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.lineTo(p.x + dx, p.y + dy);
-    ctx.stroke();
-
-    // arrow
-    const angle = Math.atan2(dy, dx);
-    const a = 4;
-
-    ctx.beginPath();
-
-    ctx.moveTo(p.x + dx, p.y + dy);
-
-    ctx.lineTo(
-        p.x + dx - a * Math.cos(angle - Math.PI/6),
-        p.y + dy - a * Math.sin(angle - Math.PI/6)
-    );
-
-    ctx.lineTo(
-        p.x + dx - a * Math.cos(angle + Math.PI/6),
-        p.y + dy - a * Math.sin(angle + Math.PI/6)
-    );
-
-    ctx.closePath();
-
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.fill();
-}
+).addTo(map);
 
 // =====================================================
-// ASCAT 疑似リアルタイムデータ
-// （実運用では fetch に置換）
+// TIME
 // =====================================================
 
-function generateASCAT() {
-
-    const data = [];
-
-    for (let lat = -40; lat <= 50; lat += 1.5) {
-
-        for (let lon = 100; lon <= 180; lon += 1.5) {
-
-            // 海上だけっぽく間引き
-            if ((lat + lon) % 5 > 2) continue;
-
-            const speed =
-                5
-                + 10 * Math.abs(Math.sin(lat / 10))
-                + 5 * Math.random();
-
-            const dir =
-                90
-                + 40 * Math.sin(lon / 20)
-                + 20 * Math.cos(lat / 10);
-
-            data.push({
-                lat,
-                lon,
-                speed,
-                dir
-            });
-        }
-    }
-
-    return data;
-}
-
-// =====================================================
-// 描画
-// =====================================================
-
-function render(data) {
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    data.forEach(w => {
-
-        drawWind(
-            w.lat,
-            w.lon,
-            w.speed,
-            w.dir
-        );
-    });
-}
-
-// =====================================================
-// 実データ取得例
-// =====================================================
-
-// 実際には:
-//
-// const url = "...json";
-//
-// const data = await fetch(url).then(r=>r.json());
-//
-// のように置換可能
-
-// =====================================================
-// メイン
-// =====================================================
-
-async function main() {
-
-    document.getElementById('status').textContent =
-        'Generating ASCAT...';
-
-    const data = generateASCAT();
-
-    render(data);
+function updateTime() {
 
     const now = new Date();
 
     document.getElementById('time').textContent =
-        now.toISOString();
-
-    document.getElementById('status').textContent =
-        `${data.length} vectors`;
+        'Updated: ' + now.toLocaleString();
 }
 
-main();
+updateTime();
 
 // =====================================================
-// 再描画
+// AUTO RELOAD
 // =====================================================
 
-map.on('move zoom', () => {
+setInterval(() => {
 
-    main();
-});
+    // キャッシュ回避
+    const newUrl =
+        imageUrl + '?t=' + Date.now();
 
-// =====================================================
-// 疑似リアルタイム更新
-// =====================================================
+    overlay.setUrl(newUrl);
 
-setInterval(main, 60000);
+    updateTime();
+
+}, 300000);
 
 </script>
 
