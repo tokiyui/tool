@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>リアルタイム衛星風ビューア</title>
+<title>ASCAT 衛星風ビューア</title>
 
 <link
   rel="stylesheet"
@@ -14,8 +14,6 @@ html, body {
     margin: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;
-    font-family: sans-serif;
 }
 
 #map {
@@ -31,12 +29,12 @@ html, body {
     background: rgba(255,255,255,0.9);
     padding: 10px;
     border-radius: 8px;
+    font-family: sans-serif;
     font-size: 14px;
-    line-height: 1.5;
 }
 
 .loading {
-    color: #c00;
+    color: red;
 }
 </style>
 </head>
@@ -45,214 +43,225 @@ html, body {
 <div id="map"></div>
 
 <div class="info">
-    <b>リアルタイム衛星風（AMV）</b><br>
-    NOAA風データサンプル<br>
-    <span id="status" class="loading">読み込み中...</span>
+    <b>ASCAT Scatterometer Wind</b><br>
+    <span id="status" class="loading">Loading...</span><br>
+    <span id="time"></span>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 
-// ========================================
-// 地図初期化
-// ========================================
+// =====================================================
+// 地図
+// =====================================================
 
-const map = L.map('map').setView([20, 140], 4);
+const map = L.map('map').setView([25, 140], 4);
 
 L.tileLayer(
     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     {
-        attribution: '&copy; OpenStreetMap contributors'
+        attribution: '&copy; OpenStreetMap'
     }
 ).addTo(map);
 
-// ========================================
-// Canvasレイヤ
-// ========================================
+// =====================================================
+// Canvas Overlay
+// =====================================================
 
-const canvas = L.canvasLayer
-    ? L.canvasLayer()
-    : null;
+const canvas = document.createElement('canvas');
+canvas.style.position = 'absolute';
+canvas.style.top = 0;
+canvas.style.left = 0;
+canvas.style.pointerEvents = 'none';
 
-// ========================================
-// 風描画関数
-// ========================================
+map.getPanes().overlayPane.appendChild(canvas);
 
-function drawWind(ctx, x, y, u, v, speed) {
+const ctx = canvas.getContext('2d');
 
-    const scale = 0.8;
+// =====================================================
+// サイズ更新
+// =====================================================
+
+function resizeCanvas() {
+
+    const size = map.getSize();
+
+    canvas.width = size.x;
+    canvas.height = size.y;
+}
+
+resizeCanvas();
+
+map.on('resize', resizeCanvas);
+
+// =====================================================
+// 風描画
+// =====================================================
+
+function drawWind(lat, lon, speed, dir) {
+
+    const p = map.latLngToContainerPoint([lat, lon]);
+
+    const rad = dir * Math.PI / 180;
+
+    // meteorological direction
+    const u = -speed * Math.sin(rad);
+    const v = -speed * Math.cos(rad);
+
+    const scale = 2.0;
 
     const dx = u * scale;
     const dy = -v * scale;
 
-    // 色
-    if (speed >= 50) {
-        ctx.strokeStyle = "red";
-    } else if (speed >= 30) {
-        ctx.strokeStyle = "orange";
+    // color
+    if (speed >= 25) {
+        ctx.strokeStyle = 'red';
+    } else if (speed >= 15) {
+        ctx.strokeStyle = 'orange';
     } else {
-        ctx.strokeStyle = "cyan";
+        ctx.strokeStyle = 'cyan';
     }
 
     ctx.lineWidth = 1;
 
-    // 本体
+    // line
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + dx, y + dy);
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + dx, p.y + dy);
     ctx.stroke();
 
-    // 矢印
+    // arrow
     const angle = Math.atan2(dy, dx);
-    const arrowSize = 4;
+    const a = 4;
 
     ctx.beginPath();
-    ctx.moveTo(x + dx, y + dy);
+
+    ctx.moveTo(p.x + dx, p.y + dy);
 
     ctx.lineTo(
-        x + dx - arrowSize * Math.cos(angle - Math.PI / 6),
-        y + dy - arrowSize * Math.sin(angle - Math.PI / 6)
+        p.x + dx - a * Math.cos(angle - Math.PI/6),
+        p.y + dy - a * Math.sin(angle - Math.PI/6)
     );
 
     ctx.lineTo(
-        x + dx - arrowSize * Math.cos(angle + Math.PI / 6),
-        y + dy - arrowSize * Math.sin(angle + Math.PI / 6)
+        p.x + dx - a * Math.cos(angle + Math.PI/6),
+        p.y + dy - a * Math.sin(angle + Math.PI/6)
     );
 
     ctx.closePath();
+
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fill();
 }
 
-// ========================================
-// 疑似リアルタイム衛星風
-// （実際のAMVに近い形式）
-// ========================================
+// =====================================================
+// ASCAT 疑似リアルタイムデータ
+// （実運用では fetch に置換）
+// =====================================================
 
-// NOTE:
-// 完全ブラウザのみ + CORS制限回避のため
-// ここではリアルタイム取得可能な
-// 公開JSONがない場合でも必ず動くように
-// 疑似AMV生成を行う
-//
-// 実運用時は fetch(url) に置換可能
-//
+function generateASCAT() {
 
-function generateAMV() {
+    const data = [];
 
-    const winds = [];
+    for (let lat = -40; lat <= 50; lat += 1.5) {
 
-    for (let lat = -20; lat <= 50; lat += 2) {
+        for (let lon = 100; lon <= 180; lon += 1.5) {
 
-        for (let lon = 100; lon <= 180; lon += 2) {
+            // 海上だけっぽく間引き
+            if ((lat + lon) % 5 > 2) continue;
 
-            // 疑似ジェット気流
-            const u =
-                30 * Math.sin((lat - 25) / 10)
-                + 10 * Math.cos(lon / 20);
+            const speed =
+                5
+                + 10 * Math.abs(Math.sin(lat / 10))
+                + 5 * Math.random();
 
-            const v =
-                8 * Math.cos(lat / 10);
+            const dir =
+                90
+                + 40 * Math.sin(lon / 20)
+                + 20 * Math.cos(lat / 10);
 
-            const speed = Math.sqrt(u*u + v*v);
-
-            winds.push({
+            data.push({
                 lat,
                 lon,
-                u,
-                v,
                 speed,
-                pressure: 300
+                dir
             });
         }
     }
 
-    return winds;
+    return data;
 }
 
-// ========================================
+// =====================================================
 // 描画
-// ========================================
+// =====================================================
 
-let layer;
+function render(data) {
 
-function renderWind(data) {
-
-    if (layer) {
-        map.removeLayer(layer);
-    }
-
-    layer = L.layerGroup();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     data.forEach(w => {
 
-        // 高層のみ
-        if (w.pressure > 400) return;
-
-        const latlng = [w.lat, w.lon];
-
-        const marker = L.circleMarker(latlng, {
-            radius: 0,
-            opacity: 0
-        });
-
-        marker.on('add', function() {
-
-            const canvas = this._renderer._container;
-            const ctx = canvas.getContext('2d');
-
-            const point = map.latLngToContainerPoint(latlng);
-
-            drawWind(
-                ctx,
-                point.x,
-                point.y,
-                w.u,
-                w.v,
-                w.speed
-            );
-        });
-
-        layer.addLayer(marker);
+        drawWind(
+            w.lat,
+            w.lon,
+            w.speed,
+            w.dir
+        );
     });
-
-    layer.addTo(map);
 }
 
-// ========================================
+// =====================================================
+// 実データ取得例
+// =====================================================
+
+// 実際には:
+//
+// const url = "...json";
+//
+// const data = await fetch(url).then(r=>r.json());
+//
+// のように置換可能
+
+// =====================================================
 // メイン
-// ========================================
+// =====================================================
 
 async function main() {
 
-    document.getElementById("status").textContent =
-        "データ生成中...";
+    document.getElementById('status').textContent =
+        'Generating ASCAT...';
 
-    // ------------------------------------
-    // 実データ化する場合:
-    //
-    // const data = await fetch(URL)
-    //      .then(r => r.json());
-    // ------------------------------------
+    const data = generateASCAT();
 
-    const data = generateAMV();
+    render(data);
 
-    renderWind(data);
+    const now = new Date();
 
-    document.getElementById("status").textContent =
-        `表示中: ${data.length} vectors`;
+    document.getElementById('time').textContent =
+        now.toISOString();
+
+    document.getElementById('status').textContent =
+        `${data.length} vectors`;
 }
 
 main();
 
-// ========================================
-// 地図移動時に再描画
-// ========================================
+// =====================================================
+// 再描画
+// =====================================================
 
-map.on('moveend zoomend', () => {
+map.on('move zoom', () => {
+
     main();
 });
+
+// =====================================================
+// 疑似リアルタイム更新
+// =====================================================
+
+setInterval(main, 60000);
 
 </script>
 
