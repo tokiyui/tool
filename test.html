@@ -3,116 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASCAT Real-time Swath Viewer</title>
+    <title>KNMI ASCAT Precise Monitor</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; }
+        body { margin: 0; padding: 0; background: #000b1a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #map { height: 100vh; width: 100%; }
-        #control-panel {
-            position: absolute; top: 10px; left: 50px; z-index: 1000;
-            background: rgba(255, 255, 255, 0.9); padding: 15px;
-            border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.5);
-            max-width: 300px;
+        #dashboard {
+            position: absolute; top: 15px; left: 60px; z-index: 1000;
+            background: rgba(255, 255, 255, 0.92); padding: 15px;
+            border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border-top: 4px solid #0044cc; width: 280px;
         }
-        .status-msg { font-size: 12px; font-weight: bold; margin-bottom: 5px; }
-        .file-name { font-size: 10px; color: #555; word-break: break-all; }
-        .legend { background: white; padding: 10px; line-height: 18px; border-radius: 5px; }
-        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.8; }
+        .status-box { font-size: 13px; font-weight: 600; color: #d32f2f; margin-bottom: 8px; }
+        .info-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+        .file-name { font-size: 11px; color: #333; word-break: break-all; background: #eee; padding: 5px; border-radius: 3px; margin-top: 4px; }
+        .legend { background: white; padding: 10px; line-height: 18px; border-radius: 4px; font-size: 11px; }
+        .legend i { width: 16px; height: 16px; float: left; margin-right: 8px; opacity: 0.8; }
     </style>
 </head>
 <body>
 
-<div id="control-panel">
-    <div id="status" class="status-msg" style="color: #d32f2f;">最新データ探索中...</div>
-    <div id="file-display" class="file-name"></div>
+<div id="dashboard">
+    <div class="info-label">Current Status</div>
+    <div id="status" class="status-box">Initializing...</div>
+    <div class="info-label">Source File (KNMI OSI SAF)</div>
+    <div id="file-display" class="file-name">Searching for latest orbit...</div>
 </div>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+    // ※CORS回避用プロキシ
     const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
-    const map = L.map('map').setView([35, 138], 5);
     
+    // KNMI Thredds ベースURL
+    const BASE_CATALOG = "https://thredds.knmi.nl/thredds/catalog/osisaf/metop_b/ascat_coastal";
+    const BASE_DODSC = "https://thredds.knmi.nl/thredds/dodsC/osisaf/metop_b/ascat_coastal";
+
+    const map = L.map('map').setView([35, 138], 5);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '© KNMI OSI SAF / OpenStreetMap'
     }).addTo(map);
 
     function getColor(v) {
-        return v > 20 ? '#7a0177' : v > 15 ? '#ae017e' : v > 10 ? '#f768a1' : 
-               v > 5 ? '#fbb4b9' : v > 2 ? '#feebe2' : '#f7fcfd';
+        return v > 15 ? '#bd0026' : v > 12 ? '#f03b20' : v > 9 ? '#fd8d3c' : 
+               v > 6 ? '#feb24c' : v > 3 ? '#fed976' : '#ffffb2';
     }
 
-    // OPeNDAP ASCIIのデータをクリーニングして配列化する
-    function parseDodsAscii(text, varName) {
-        // 変数セクションの開始位置を特定
-        const startIdx = text.indexOf(`${varName}.${varName}[`);
+    // OPeNDAP ASCIIパース用：インデックス[x][y]を除去して純粋な数値配列を取得
+    function parseAscii(text, varName) {
+        const startMarker = `${varName}.${varName}`;
+        const startIdx = text.indexOf(startMarker);
         if (startIdx === -1) return [];
         
-        // 次の変数セクションまたは末尾までのテキストを切り出す
-        const subText = text.substring(startIdx).split(/\n[a-zA-Z]/)[0];
-        
-        // [数字] のようなインデックス表記をすべて削除し、カンマと改行で分割
-        const cleanData = subText.replace(/\[\d+\]/g, '')
-                                 .split(/[\n,]/)
-                                 .map(s => s.trim())
-                                 .filter(s => s !== "" && !isNaN(s) && !s.includes('['));
-        
-        return cleanData.map(Number);
+        const section = text.substring(startIdx).split(/\n[a-z]/i)[0];
+        return section.replace(/\[\d+\]/g, '')
+                      .split(/[\n,]/)
+                      .map(s => s.trim())
+                      .filter(s => s !== "" && !isNaN(s) && !s.includes(startMarker))
+                      .map(Number);
     }
 
-    async function fetchData() {
+    async function run() {
         const statusEl = document.getElementById('status');
         const fileEl = document.getElementById('file-display');
 
         try {
+            // 1. 動的に「年/月」のディレクトリを特定
             const now = new Date();
-            let y = now.getUTCFullYear();
-            let m = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const y = now.getUTCFullYear();
+            const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const targetDir = `${y}/${m}`;
 
-            // 1. 最新カタログの取得
-            let catUrl = `https://thredds.knmi.nl/thredds/catalog/osisaf/metop_b/ascat_coastal/${y}/${m}/catalog.xml`;
-            let response = await fetch(PROXY + encodeURIComponent(catUrl));
+            statusEl.innerText = "Fetching Catalog...";
+            const catalogUrl = `${BASE_CATALOG}/${targetDir}/catalog.xml`;
+            const response = await fetch(PROXY + encodeURIComponent(catalogUrl));
             
-            if (!response.ok) { // 先月にフォールバック
-                now.setUTCMonth(now.getUTCMonth() - 1);
-                y = now.getUTCFullYear(); m = String(now.getUTCMonth() + 1).padStart(2, '0');
-                catUrl = `https://thredds.knmi.nl/thredds/catalog/osisaf/metop_b/ascat_coastal/${y}/${m}/catalog.xml`;
-                response = await fetch(PROXY + encodeURIComponent(catUrl));
-            }
+            if (!response.ok) throw new Error("Could not access KNMI catalog. Check directory existence.");
 
             const xmlText = await response.text();
-            const files = xmlText.match(/ascat_\d+_\d+_metopb_\d+_coastal\.nc/g);
-            if (!files) throw new Error("利用可能なNetCDFファイルが見つかりません");
-
-            const latestFile = files[files.length - 1];
-            fileEl.innerText = latestFile;
-            statusEl.innerText = "データ解析中...";
-
-            // 2. OPeNDAPクエリ (Stride 8で間引き、計算負荷と精度のバランスを最適化)
-            const stride = 8;
-            const baseUrl = `https://thredds.knmi.nl/thredds/dodsC/osisaf/metop_b/ascat_coastal/${y}/${m}/${latestFile}`;
-            const query = `.ascii?lat[0:${stride}:3263][0:${stride}:1623],lon[0:${stride}:3263][0:${stride}:1623],wind_speed[0:1:0][0:${stride}:3263][0:${stride}:1623]`;
             
-            const dataRes = await fetch(PROXY + encodeURIComponent(baseUrl + query));
+            // XMLから「urlPath」属性を持つNetCDFファイルを抽出
+            const urlPathRegex = /urlPath="osisaf\/metop_b\/ascat_coastal\/([^"]+\.nc)"/g;
+            let matches = [];
+            let match;
+            while ((match = urlPathRegex.exec(xmlText)) !== null) {
+                matches.push(match[1]);
+            }
+
+            if (matches.length === 0) throw new Error("No NetCDF files found in current month.");
+
+            // 最新のファイル名を取得
+            const latestFilePath = matches[matches.length - 1];
+            const fileName = latestFilePath.split('/').pop();
+            fileEl.innerText = fileName;
+
+            // 2. OPeNDAPによるデータ取得
+            statusEl.innerText = "Extracting Swath Data...";
+            
+            // stride 10で間引いて取得（3264x1624の全データはJSで扱うには巨大すぎるため）
+            const stride = 10;
+            const dodsUrl = `${BASE_DODSC}/${latestFilePath}.ascii?lat[0:${stride}:3263][0:${stride}:1623],lon[0:${stride}:3263][0:${stride}:1623],wind_speed[0:1:0][0:${stride}:3263][0:${stride}:1623]`;
+            
+            const dataRes = await fetch(PROXY + encodeURIComponent(dodsUrl));
             const dataText = await dataRes.text();
 
-            // 3. 各変数のパース
-            const lats = parseDodsAscii(dataText, 'lat');
-            const lons = parseDodsAscii(dataText, 'lon');
-            const winds = parseDodsAscii(dataText, 'wind_speed');
+            const lats = parseAscii(dataText, 'lat');
+            const lons = parseAscii(dataText, 'lon');
+            const winds = parseAscii(dataText, 'wind_speed');
 
-            statusEl.innerText = "マッピング中...";
+            if (lats.length === 0) throw new Error("Data parsing failed. Variable mismatch.");
+
+            statusEl.innerText = "Plotting on Map...";
             let count = 0;
 
-            // 4. スワスデータのプロット
             for (let i = 0; i < winds.length; i++) {
                 let lat = lats[i];
                 let lon = lons[i];
-                let speed = winds[i] * 0.01; // ASCATのscale_factor 0.01を適用
+                let speed = winds[i] * 0.01; // scale_factor
 
-                if (lon > 180) lon -= 360; // 経度補正
+                if (lon > 180) lon -= 360;
 
-                // 日本近海フィルタリング
+                // 日本近海フィルタ
                 if (lat > 20 && lat < 50 && lon > 120 && lon < 160 && winds[i] !== -32767) {
                     L.circleMarker([lat, lon], {
                         radius: 3,
@@ -123,29 +135,29 @@
                 }
             }
 
-            status.style.color = "#2e7d32";
-            statusEl.innerText = count > 0 ? `表示完了: ${count}地点` : "最新の軌道に日本近海が含まれません";
+            statusEl.style.color = "#2e7d32";
+            statusEl.innerText = count > 0 ? `SUCCESS: ${count} points` : "Latest orbit missed Japan region.";
 
         } catch (err) {
-            statusEl.innerText = "エラー: " + err.message;
+            statusEl.innerText = "ERROR: " + err.message;
             console.error(err);
         }
     }
 
-    // 凡例の追加
+    // 凡例
     const legend = L.control({position: 'bottomright'});
-    legend.onAdd = function () {
+    legend.onAdd = () => {
         const div = L.DomUtil.create('div', 'legend');
-        const grades = [0, 2, 5, 10, 15, 20];
+        const grades = [0, 3, 6, 9, 12, 15];
         div.innerHTML = '<b>Wind Speed (m/s)</b><br>';
-        for (let i = 0; i < grades.length; i++) {
-            div.innerHTML += `<i style="background:${getColor(grades[i] + 1)}"></i> ${grades[i]}${grades[i+1] ? '&ndash;'+grades[i+1] : '+'}<br>`;
-        }
+        grades.forEach(g => {
+            div.innerHTML += `<i style="background:${getColor(g + 1)}"></i> ${g}${grades[grades.indexOf(g)+1] ? '&ndash;'+grades[grades.indexOf(g)+1] : '+'}<br>`;
+        });
         return div;
     };
     legend.addTo(map);
 
-    fetchData();
+    run();
 </script>
 </body>
 </html>
