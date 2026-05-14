@@ -66,31 +66,27 @@ tv_members = [
     },
     {
         "name": "辻野かなみ",
-        "originId": 314516,
+        "originId": 329636,
     },
     {
         "name": "杏ジュリア",
-        "originId": 314516,
+        "originId": 376931,
     },
     {
         "name": "坂井仁香",
-        "originId": 314516,
+        "originId": 323277,
     },
     {
         "name": "小泉遥香",
-        "originId": 314516,
+        "originId": 327309,
     },
     {
         "name": "菅田愛貴",
-        "originId": 314516,
+        "originId": 367005,
     },
     {
         "name": "吉川ひより",
-        "originId": 314516,
-    },
-    {
-        "name": "パブりん",
-        "originId": 314516,
+        "originId": 329639,
     },
 ]
 
