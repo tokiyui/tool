@@ -255,7 +255,7 @@ for _, info in radio_programs.items():
 
     add_event_to_calendar(
         f"【ラジオ】{info['title']}",
-        f"局: {', '.join(info['stations'])} 出演: {', '.join(sorted(info['members']))} URL: {info['url']}",
+        f"局: {', '.join(info['stations'])} 出演: {', '.join(sorted(info['members']))}",
         info["start_time"],
         info["end_time"]
     )
