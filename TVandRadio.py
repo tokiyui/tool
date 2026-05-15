@@ -50,6 +50,8 @@ tv_members = [
     {"name": "小泉遥香", "originId": 327309},
     {"name": "菅田愛貴", "originId": 367005},
     {"name": "吉川ひより", "originId": 329639},
+    #{"name": "藤本ばんび", "originId": 329637},
+    #{"name": "小高サラ", "originId": 329638},
 ]
 
 radio_members = [
