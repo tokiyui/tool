@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Model Comparison Viewer</title>
+<style>
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background: #111;
+    color: #fff;
+}
+#controls {
+    padding: 10px;
+    background: #222;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+button {
+    margin-right: 10px;
+    padding: 5px 10px;
+}
+#timeDisplay {
+    font-size: 18px;
+    font-weight: bold;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 5px;
+    height: calc(100vh - 80px);
+}
+img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: black;
+}
+</style>
+</head>
+
+<body>
+
+<div id="controls">
+    <button onclick="step(-1)">◀</button>
+    <button onclick="step(1)">▶</button>
+    <span id="timeDisplay"></span>
+</div>
+
+<div class="grid">
+    <img id="img1">
+    <img id="img2">
+    <img id="img3">
+    <img id="img4">
+    <img id="img5">
+    <img id="img6">
+</div>
+
+<script>
+
+// =====================
+// 時刻処理
+// =====================
+function floorTo12h(date) {
+    let h = date.getUTCHours();
+    let floored = Math.floor(h / 12) * 12;
+    date.setUTCHours(floored, 0, 0, 0);
+    return date;
+}
+
+function formatUTC(date) {
+    return date.getUTCFullYear().toString() +
+        String(date.getUTCMonth() + 1).padStart(2, '0') +
+        String(date.getUTCDate()).padStart(2, '0') +
+        String(date.getUTCHours()).padStart(2, '0');
+}
+
+// =====================
+// 初期値生成
+// =====================
+let now = new Date();
+
+// ECMWF以外（5時間前）
+let base_other = floorTo12h(new Date(now.getTime() - 5 * 3600 * 1000));
+
+// ECMWF（8時間前）
+let base_ecmwf = floorTo12h(new Date(now.getTime() - 8 * 3600 * 1000));
+
+// 12時間前
+let base_other_prev = new Date(base_other.getTime() - 12 * 3600 * 1000);
+let base_ecmwf_prev = new Date(base_ecmwf.getTime() - 12 * 3600 * 1000);
+
+// =====================
+// 予報ステップ
+// =====================
+let stepIndex = 1; // N（最初1）
+
+function update() {
+
+    // 対象時刻（基準はother）
+    let target = new Date(base_other.getTime() + stepIndex * 3 * 3600 * 1000);
+
+    function calcN(base) {
+        let diff = (target - base) / 3600000;
+        return Math.round(diff / 3);
+    }
+
+    let N_other = calcN(base_other);
+    let N_other_prev = calcN(base_other_prev);
+    let N_ecmwf = calcN(base_ecmwf);
+
+    // URL生成
+    document.getElementById("img1").src =
+        `https://www.tropicaltidbits.com/analysis/models/ec-aifs/${formatUTC(base_other)}/ec-aifs_mslp_pcpn_ea_${N_other}.png`;
+
+    document.getElementById("img2").src =
+        `https://www.tropicaltidbits.com/analysis/models/aigfs/${formatUTC(base_other)}/aigfs_mslp_pcpn_ea_${N_other}.png`;
+
+    document.getElementById("img3").src =
+        `https://www.tropicaltidbits.com/analysis/models/ec-aifs/${formatUTC(base_other_prev)}/ec-aifs_mslp_pcpn_ea_${N_other_prev}.png`;
+
+    document.getElementById("img4").src =
+        `https://www.tropicaltidbits.com/analysis/models/aigfs/${formatUTC(base_other_prev)}/aigfs_mslp_pcpn_ea_${N_other_prev}.png`;
+
+    document.getElementById("img5").src =
+        `https://www.tropicaltidbits.com/analysis/models/ecmwf/${formatUTC(base_ecmwf)}/ecmwf_mslp_pcpn_ea_${N_ecmwf}.png`;
+
+    document.getElementById("img6").src =
+        `https://www.tropicaltidbits.com/analysis/models/gfs/${formatUTC(base_other)}/gfs_mslp_pcpn_ea_${N_other}.png`;
+
+    // 表示
+    document.getElementById("timeDisplay").innerText =
+        "対象時刻: " + target.toUTCString();
+}
+
+// =====================
+// 操作
+// =====================
+function step(dir) {
+    stepIndex += dir;
+    if (stepIndex < 1) stepIndex = 1;
+    update();
+}
+
+// キーボード
+document.addEventListener("keydown", function(e) {
+    if (e.key === "ArrowRight") step(1);
+    if (e.key === "ArrowLeft") step(-1);
+});
+
+// 初期表示
+update();
+
+</script>
+
+</body>
+</html>
