@@ -125,7 +125,7 @@ for model_id, model_name in models:
         r = requests.get(base_url, params=params)
         data = r.json()
 
-        time.sleep(0.1)
+        time.sleep(1)
 
         if times is None:
             times = [datetime.fromisoformat(t) for t in data["hourly"]["time"]]
