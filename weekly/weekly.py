@@ -122,8 +122,17 @@ for model_id, model_name in models:
 
         print(f"{model_name} Downloading lat={lat:.2f}")
 
-        r = requests.get(base_url, params=params)
-        data = r.json()
+        for retry in range(5):
+            try:
+                r = requests.get(base_url, params=params, timeout=120)
+                data = r.json()
+                break
+
+            except Exception as e:
+                time.sleep(10)
+
+        else:
+            raise RuntimeError(f"Failed to download lat={lat:.2f}")
 
         time.sleep(1)
 
