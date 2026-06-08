@@ -15,7 +15,7 @@ plt.rcParams["mathtext.default"] = "regular"
 # 設定
 # =========================
 lon = 140.0
-latitudes = np.arange(20, 50.1, 0.25)
+latitudes = np.arange(22, 48, 0.5)
 
 # H/L 探索範囲
 time_search = 6
@@ -173,8 +173,8 @@ for model_id, model_name in models:
 
     for i in range(len(latitudes)):
 
-        s = max(0, i - 4)
-        e = min(len(latitudes), i + 4 + 1)
+        s = max(0, i - 2)
+        e = min(len(latitudes), i + 2)
 
         pressure_smoothed[i] = np.mean(pressure_array[s:e], axis=0) #pressure_array
         temp850_smoothed[i] = np.mean(temp850_array[s:e], axis=0) #temp850_array
