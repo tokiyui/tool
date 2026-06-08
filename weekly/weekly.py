@@ -272,7 +272,7 @@ for model_id, model_name in models:
     ax.set_title(f"{model_name} Time-Latitude Section (Smoothed MSLP, T850, Z500) at {lon:.0f}E")
 
     plt.tight_layout()
-    plt.savefig(f"time_latitude_{model_name}.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"weekly/time_latitude_{model_name}.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     print(f"Saved: time_latitude_{model_name}.png")
