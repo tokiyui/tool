@@ -129,12 +129,12 @@ for model_id, model_name in models:
                 break
 
             except Exception as e:
-                time.sleep(10)
+                time.sleep(30)
 
         else:
             raise RuntimeError(f"Failed to download lat={lat:.2f}")
 
-        time.sleep(1)
+        time.sleep(0.5)
 
         if times is None:
             times = [datetime.fromisoformat(t) for t in data["hourly"]["time"]]
