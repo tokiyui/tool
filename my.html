@@ -61,7 +61,7 @@
     }
 
     async function fetchEventsFromActor(actor) {
-      const url = `https://corsproxy.io/?https://www.eventernote.com/actors/${actor.id}/events?limit=400`;
+      const url = `https://worker.ryohorita105.workers.dev/?url=https://www.eventernote.com/actors/${actor.id}/events?limit=400`;
       const response = await fetch(url);
       const html = await response.text();
       const parser = new DOMParser();
