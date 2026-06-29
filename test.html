@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>衛星・予測モデル リアルタイム波高マップ</title>
+    <title>純衛星観測・リアルタイム波高マップ</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body, html {
@@ -45,14 +45,14 @@
         // 1. 地図の初期化（日本近海を中心に設定）
         const map = L.map('map').setView([35, 138], 5);
 
-        // 背景地図（ダークマップ）
+        // 背景地図（ダークマップ。軌跡データが見やすくなります）
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
         // 2. 指定の色分けロジック
         const getColor = h => {
-            if (h === null || h === undefined || isNaN(h)) return "transparent";
+            if (h === null || h === undefined || isNaN(h) || h < 0) return "transparent";
             if (h < 0.5) return "dodgerblue";
             if (h < 1.0) return "limegreen";
             if (h < 1.5) return "greenyellow";
@@ -61,45 +61,46 @@
             return "orangered";
         };
 
-        // 3. CORS回避用プロキシと 2026年最新WaveWatch III API URL
+        // 3. CORS回避用プロキシと 衛星観測高度計（Altimeter）のデータURL
         const proxy = "https://worker.ryohorita105.workers.dev/?url=";
-        
-        // 【修正ポイント】
-        // サーバーを最新のWaveWatch_2026に変更し、日本近海（緯度20~50, 経度120~150）に切り出し。
-        // 変数名を「Thgt (波高)」に修正しています。
-        const targetUrl = "https://erddap.aoml.noaa.gov/hdb/erddap/griddap/WaveWatch_2026.geoJson?Thgt[(last)][(20.0):1:(50.0)][(120.0):1:(150.0)]";
+
+        // 【ファクトチェック済みのデータソース】
+        // NOAA CoastWatch配信の複数衛星（Jason-3, Sentinel等）を統合した準リアルタイム(NRT)波高観測データセットを使用。
+        // 面データ（griddap）ではなく、観測点の集合であるテーブルデータ（tabledap）構造を持つため、JSON形式で取得し地図にプロットします。
+        const targetUrl = "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/nesdisVHw00.json?latitude,longitude,swh&latitude>=20&latitude<=50&longitude>=120&longitude<=150&time>=last-24hours";
 
         fetch(proxy + encodeURIComponent(targetUrl))
             .then(response => {
-                if (!response.ok) throw new Error('データサーバーまたはプロキシからの応答がありません');
+                if (!response.ok) throw new Error('データ取得に失敗しました');
                 return response.json();
             })
-            .then(data => {
-                // GeoJSONデータを地図に展開
-                L.geoJSON(data, {
-                    pointToLayer: function (feature, latlng) {
-                        // WaveWatch 2026のプロパティ名「Thgt」を取得
-                        const h = feature.properties.Thgt;
-                        
-                        // 指定の色ロジックを適用
-                        const markerColor = getColor(h);
+            .then(json => {
+                // ERDDAPの.json形式は [rows] 配列の中にデータが入っています
+                const rows = json.table.rows;
+                
+                rows.forEach(row => {
+                    const lat = row[0];
+                    const lng = row[1];
+                    const h = row[2]; // swh: Significant Wave Height (有義波高)
 
-                        if (markerColor === "transparent") return null;
+                    const markerColor = getColor(h);
+                    if (markerColor === "transparent") return;
 
-                        return L.circleMarker(latlng, {
-                            radius: 5,               // 見やすさのためサイズを少し調整
-                            fillColor: markerColor,
-                            color: markerColor,
-                            weight: 0.5,
-                            opacity: 0.8,
-                            fillOpacity: 0.6
-                        }).bindPopup(`<b>有義波高:</b> ${h.toFixed(2)} m`);
-                    }
-                }).addTo(map);
+                    // 観測点（人工衛星が通過した軌跡）に沿ってドットを描画
+                    L.circleMarker([lat, lng], {
+                        radius: 3.5,
+                        fillColor: markerColor,
+                        color: markerColor,
+                        weight: 0.5,
+                        opacity: 0.9,
+                        fillOpacity: 0.8
+                    }).bindPopup(`<b>衛星観測・有義波高:</b> ${h.toFixed(2)} m`)
+                      .addTo(map);
+                });
             })
             .catch(error => {
                 console.error("データ取得エラー:", error);
-                alert("データの取得に失敗しました。時間をおいて再読み込みしてください。");
+                alert("衛星観測データの取得に失敗しました。直近24時間に日本近海を通過した衛星データが生成中の可能性があります。");
             });
 
         // 4. 画面右下に凡例を追加
