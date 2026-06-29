@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>衛星観測・リアルタイム波高マップ</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+            background-color: #0d1117; /* 宇宙・海っぽいダーク背景 */
+        }
+        /* 凡例のスタイル */
+        .legend {
+            padding: 10px;
+            font: 14px/16px Arial, Helvetica, sans-serif;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            line-height: 24px;
+            color: #333;
+        }
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.8;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 1. 地図の初期化（日本近海を中心に設定）
+        const map = L.map('map').setView([30, 138], 4);
+
+        // 背景地図（無地に近いシンプルなダークマップを使用。海データが映えます）
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }).addTo(map);
+
+        // 2. ユーザー指定の色分けロジック
+        const getColor = h => {
+            if (h === null || h === undefined) return "transparent"; // データがない場合
+            if (h < 0.5) return "dodgerblue";
+            if (h < 1.0) return "limegreen";
+            if (h < 1.5) return "greenyellow";
+            if (h < 2.0) return "gold";
+            if (h < 3.0) return "darkorange";
+            return "orangered";
+        };
+
+        // 3. NOAA ERDDAP API から衛星（高度計）の波高データを取得
+        // ※最新の数日分のデータが含まれる、Jason-3/Sentinel-3等の統合データソースの例です
+        const erddapUrl = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/noaacwNrtJ3S3aS3bS6aSwhMerged.geoJson?sign_wave_height[(last)][(0.0):1:(-0.0)][(-80.0):1:(80.0)][(0.0):1:(360.0)]";
+
+        // データの読み込みと描画
+        fetch(erddapUrl)
+            .then(response => {
+                if (!response.ok) throw new Error('ネットワークエラーが発生しました');
+                return response.json();
+            })
+            .then(data => {
+                // GeoJSONとして地図に追加
+                L.geoJSON(data, {
+                    pointToLayer: function (feature, latlng) {
+                        // 波高の値を取得（プロパティ名はAPIの仕様に準拠）
+                        const h = feature.properties.sign_wave_height;
+                        
+                        // 指定の色ロジックを適用
+                        const markerColor = getColor(h);
+
+                        // データがある場所だけサークルマーカーを描画
+                        return L.circleMarker(latlng, {
+                            radius: 4,               // マーカーの大きさ
+                            fillColor: markerColor,
+                            color: markerColor,      // 枠線の色
+                            weight: 1,
+                            opacity: 0.8,
+                            fillOpacity: 0.7
+                        }).bindPopup(`<b>有義波高:</b> ${h.toFixed(2)} m`);
+                    }
+                }).addTo(map);
+            })
+            .catch(error => {
+                console.error("データ取得エラー:", error);
+                alert("衛星データの取得に失敗しました。時間をおいて試してください。");
+            });
+
+        // 4. 画面右下に凡例（カラーバー）を追加
+        const legend = L.control({position: 'bottomright'});
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'info legend');
+            const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
+            const labels = ['<b>波高 (m)</b><br>'];
+
+            for (let i = 0; i < grades.length; i++) {
+                const from = grades[i];
+                const to = grades[i + 1];
+                labels.push(
+                    '<i style="background:' + getColor(from) + '"></i> ' +
+                    from + (to ? '&ndash;' + to : '+')
+                );
+            }
+            div.innerHTML = labels.join('<br>');
+            return div;
+        };
+        legend.addTo(map);
+
+    </script>
+</body>
+</html>
