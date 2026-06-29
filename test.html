@@ -1,128 +1,697 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>純衛星観測・リアルタイム波高マップ</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            width: 100%;
-        }
-        #map {
-            height: 100%;
-            width: 100%;
-            background-color: #0d1117;
-        }
-        .legend {
-            padding: 10px;
-            font: 14px/16px Arial, Helvetica, sans-serif;
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
-            border-radius: 5px;
-            line-height: 24px;
-            color: #333;
-        }
-        .legend i {
-            width: 18px;
-            height: 18px;
-            float: left;
-            margin-right: 8px;
-            opacity: 0.8;
-            border-radius: 3px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>衛星観測 NRT 風速・波高マップ</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Segoe UI',sans-serif; background:#0d1117; color:#e6edf3; }
+    #map { height:100vh; width:100%; }
+
+    #panel {
+      position:absolute; top:0; left:0; height:100%;
+      width:290px; background:rgba(13,17,23,0.96);
+      border-right:1px solid #30363d;
+      z-index:1000; overflow-y:auto;
+      display:flex; flex-direction:column;
+    }
+    .panel-header {
+      padding:14px 16px; background:#161b22;
+      border-bottom:1px solid #30363d; flex-shrink:0;
+    }
+    .panel-header h1 { font-size:14px; color:#58a6ff; }
+    .panel-header p  { font-size:11px; color:#8b949e; margin-top:3px; }
+
+    .section { padding:12px 16px; border-bottom:1px solid #21262d; }
+    .sec-title {
+      font-size:10px; color:#8b949e;
+      text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;
+    }
+    label { font-size:12px; color:#8b949e; display:block; margin-bottom:3px; }
+    select, input[type=text], input[type=password], input[type=date] {
+      width:100%; padding:6px 9px;
+      background:#21262d; border:1px solid #30363d;
+      color:#e6edf3; border-radius:6px; font-size:12px; margin-bottom:6px;
+    }
+    select:focus, input:focus { outline:none; border-color:#58a6ff; }
+
+    .btn {
+      width:100%; padding:9px; border:none; border-radius:6px;
+      font-size:13px; font-weight:600; cursor:pointer; transition:background .2s;
+    }
+    .btn-green  { background:#238636; color:#fff; }
+    .btn-green:hover { background:#2ea043; }
+    .btn-green:disabled { background:#21262d; color:#484f58; cursor:not-allowed; }
+    .btn-gray   { background:#21262d; border:1px solid #30363d; color:#e6edf3; margin-top:5px; }
+    .btn-gray:hover { background:#30363d; }
+
+    #status {
+      margin:10px 16px; padding:9px 11px;
+      border-radius:6px; font-size:12px; line-height:1.5;
+      background:#161b22; border:1px solid #30363d; min-height:36px;
+    }
+    .s-ok   { color:#3fb950 !important; border-color:#238636 !important; }
+    .s-err  { color:#f85149 !important; border-color:#da3633 !important; }
+    .s-load { color:#d29922 !important; border-color:#9e6a03 !important; }
+
+    #data-info { padding:12px 16px; }
+    .kv {
+      display:flex; justify-content:space-between;
+      padding:4px 0; border-bottom:1px solid #21262d; font-size:12px;
+    }
+    .kv:last-child { border:none; }
+    .kv .k { color:#8b949e; }
+    .kv .v { font-weight:600; }
+
+    #legend {
+      position:absolute; bottom:20px; right:10px;
+      background:rgba(13,17,23,0.93); border:1px solid #30363d;
+      border-radius:8px; padding:11px 13px; z-index:1000;
+      min-width:210px; display:none;
+    }
+    #legend h4 { font-size:11px; color:#8b949e; margin-bottom:7px; }
+    .grad-bar  { height:13px; border-radius:3px; margin-bottom:4px; }
+    .grad-lbls { display:flex; justify-content:space-between; font-size:10px; color:#8b949e; }
+
+    #ts-bar {
+      position:absolute; bottom:20px; left:300px;
+      background:rgba(13,17,23,0.88); border:1px solid #30363d;
+      border-radius:6px; padding:5px 11px;
+      font-size:11px; color:#8b949e; z-index:1000; display:none;
+    }
+
+    /* Leaflet popup */
+    .leaflet-popup-content-wrapper {
+      background:#161b22 !important; color:#e6edf3 !important;
+      border:1px solid #30363d !important; border-radius:8px !important;
+    }
+    .leaflet-popup-tip { background:#161b22 !important; }
+    .sat-popup b { color:#58a6ff; }
+    .sat-popup table { width:100%; border-collapse:collapse; margin-top:5px; font-size:12px; }
+    .sat-popup td { padding:3px 5px; }
+    .sat-popup tr:nth-child(even) { background:rgba(255,255,255,0.04); }
+  </style>
 </head>
 <body>
 
-    <div id="map"></div>
+<div id="map"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        // 1. 地図の初期化（日本近海を中心に設定）
-        const map = L.map('map').setView([35, 138], 5);
+<!-- ===== サイドパネル ===== -->
+<div id="panel">
+  <div class="panel-header">
+    <h1>🛰️ 衛星観測 NRT ビューア</h1>
+    <p>Near Real-Time 衛星観測データ</p>
+  </div>
 
-        // 背景地図（ダークマップ。軌跡データが見やすくなります）
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap &copy; CARTO'
-        }).addTo(map);
+  <!-- データソース -->
+  <div class="section">
+    <div class="sec-title">データソース</div>
+    <select id="source" onchange="onSourceChange()">
+      <optgroup label="── NOAA ERDDAP（APIキー不要）──">
+        <option value="ascat_erddap">💨 ASCAT 風速 (MetOp衛星) ~6h遅れ</option>
+        <option value="ccmp_erddap" >💨 CCMP 合成風速 ~12h遅れ</option>
+        <option value="ww3_erddap"  >🌊 WaveWatch III 波高 ~6h遅れ</option>
+      </optgroup>
+      <optgroup label="── CMEMS NRT（要登録・高精度）──">
+        <option value="wave_cmems">🌊 有義波高 L4 NRT ~3h遅れ (Jason-3/S6/CFOSAT)</option>
+        <option value="wind_cmems">💨 ASCAT 風速 L3 NRT ~3h遅れ (MetOp-B/C)</option>
+      </optgroup>
+    </select>
+  </div>
 
-        // 2. 指定の色分けロジック
-        const getColor = h => {
-            if (h === null || h === undefined || isNaN(h) || h < 0) return "transparent";
-            if (h < 0.5) return "dodgerblue";
-            if (h < 1.0) return "limegreen";
-            if (h < 1.5) return "greenyellow";
-            if (h < 2.0) return "gold";
-            if (h < 3.0) return "darkorange";
-            return "orangered";
-        };
+  <!-- CMEMS 認証 -->
+  <div class="section" id="cmems-auth" style="display:none">
+    <div class="sec-title">CMEMS 認証</div>
+    <label>ユーザー名</label>
+    <input type="text"     id="cmems-user" placeholder="登録メールアドレス"/>
+    <label>パスワード</label>
+    <input type="password" id="cmems-pass" placeholder="パスワード"/>
+    <p style="font-size:10px;color:#8b949e;margin-top:2px">
+      ※ <a href="https://marine.copernicus.eu/" target="_blank"
+         style="color:#58a6ff">marine.copernicus.eu</a> で無料登録
+    </p>
+  </div>
 
-        // 3. CORS回避用プロキシと 衛星観測高度計（Altimeter）のデータURL
-        const proxy = "https://worker.ryohorita105.workers.dev/?url=";
+  <!-- 日付 -->
+  <div class="section">
+    <div class="sec-title">対象日付 (UTC)</div>
+    <input type="date" id="target-date"/>
+    <p style="font-size:10px;color:#8b949e">
+      ※ 衛星遅延を考慮し自動設定。変更可。
+    </p>
+  </div>
 
-        // 【ファクトチェック済みのデータソース】
-        // NOAA CoastWatch配信の複数衛星（Jason-3, Sentinel等）を統合した準リアルタイム(NRT)波高観測データセットを使用。
-        // 面データ（griddap）ではなく、観測点の集合であるテーブルデータ（tabledap）構造を持つため、JSON形式で取得し地図にプロットします。
-        const targetUrl = "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/nesdisVHw00.json?latitude,longitude,swh&latitude>=20&latitude<=50&longitude>=120&longitude<=150&time>=last-24hours";
+  <!-- 領域 -->
+  <div class="section">
+    <div class="sec-title">表示領域</div>
+    <select id="region">
+      <option value="japan">日本周辺 (120-155E, 25-50N)</option>
+      <option value="nwpac">北西太平洋 (100-180E, 0-65N)</option>
+      <option value="global">全球</option>
+    </select>
+  </div>
 
-        fetch(proxy + encodeURIComponent(targetUrl))
-            .then(response => {
-                if (!response.ok) throw new Error('データ取得に失敗しました');
-                return response.json();
-            })
-            .then(json => {
-                // ERDDAPの.json形式は [rows] 配列の中にデータが入っています
-                const rows = json.table.rows;
-                
-                rows.forEach(row => {
-                    const lat = row[0];
-                    const lng = row[1];
-                    const h = row[2]; // swh: Significant Wave Height (有義波高)
+  <!-- ボタン -->
+  <div class="section">
+    <button class="btn btn-green" id="fetch-btn" onclick="fetchData()">
+      ▶ データ取得・描画
+    </button>
+    <button class="btn btn-gray" onclick="clearAll()">🗑 クリア</button>
+  </div>
 
-                    const markerColor = getColor(h);
-                    if (markerColor === "transparent") return;
+  <div id="status">準備完了</div>
+  <div id="data-info"></div>
+</div>
 
-                    // 観測点（人工衛星が通過した軌跡）に沿ってドットを描画
-                    L.circleMarker([lat, lng], {
-                        radius: 3.5,
-                        fillColor: markerColor,
-                        color: markerColor,
-                        weight: 0.5,
-                        opacity: 0.9,
-                        fillOpacity: 0.8
-                    }).bindPopup(`<b>衛星観測・有義波高:</b> ${h.toFixed(2)} m`)
-                      .addTo(map);
-                });
-            })
-            .catch(error => {
-                console.error("データ取得エラー:", error);
-                alert("衛星観測データの取得に失敗しました。直近24時間に日本近海を通過した衛星データが生成中の可能性があります。");
-            });
+<!-- 凡例 -->
+<div id="legend">
+  <h4 id="leg-title">凡例</h4>
+  <div class="grad-bar" id="leg-bar"></div>
+  <div class="grad-lbls" id="leg-lbls"></div>
+</div>
 
-        // 4. 画面右下に凡例を追加
-        const legend = L.control({position: 'bottomright'});
-        legend.onAdd = function (map) {
-            const div = L.DomUtil.create('div', 'info legend');
-            const grades = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
-            const labels = ['<b>波高 (m)</b><br>'];
+<!-- タイムスタンプ -->
+<div id="ts-bar"></div>
 
-            for (let i = 0; i < grades.length; i++) {
-                const from = grades[i];
-                const to = grades[i + 1];
-                labels.push(
-                    '<i style="background:' + getColor(from) + '"></i> ' +
-                    from + (to ? '&ndash;' + to : '+')
-                );
-            }
-            div.innerHTML = labels.join('<br>');
-            return div;
-        };
-        legend.addTo(map);
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+'use strict';
 
-    </script>
+// ============================================================
+// Proxy
+// ============================================================
+const PROXY = "https://worker.ryohorita105.workers.dev/?url=";
+
+function proxied(url) {
+  return PROXY + encodeURIComponent(url);
+}
+
+// ============================================================
+// 地図
+// ============================================================
+const map = L.map('map').setView([35, 145], 4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:18
+}).addTo(map);
+
+// ============================================================
+// 領域定義
+// ============================================================
+const REGIONS = {
+  japan:  { latMin:25,  latMax:50,  lonMin:120, lonMax:155, stride:1 },
+  nwpac:  { latMin:0,   latMax:65,  lonMin:100, lonMax:180, stride:2 },
+  global: { latMin:-80, latMax:80,  lonMin:0,   lonMax:360, stride:4 },
+};
+
+// ============================================================
+// データソース定義
+// ============================================================
+const SOURCES = {
+
+  // ----------------------------------------------------------
+  // ASCAT 風速 (NOAA ERDDAP)
+  // データセット: erdQAwind1day
+  // 衛星: QuikSCAT / ASCAT  解像度: 0.25°  遅延: ~6h
+  // ----------------------------------------------------------
+  ascat_erddap: {
+    label:    'ASCAT 風速',
+    unit:     'm/s',
+    satellite:'MetOp ASCAT (NOAA ERDDAP)',
+    delay:    '約6時間',
+    maxVal:   25,
+    varName:  'wspd',
+    datasetId:'erdQAwind1day',
+    colors: ['#000080','#0055ff','#00ccff','#aaff00','#ffaa00','#ff2200'],
+    ticks:  ['0','5','10','15','20','25+'],
+    isCmems: false,
+    buildUrl(date, r) {
+      const t = `${date}T00:00:00Z`;
+      return `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${this.datasetId}.json` +
+        `?${this.varName}` +
+        `[(${t}):1:(${t})]` +
+        `[(${r.latMin}):${r.stride}:(${r.latMax})]` +
+        `[(${r.lonMin}):${r.stride}:(${r.lonMax})]`;
+    }
+  },
+
+  // ----------------------------------------------------------
+  // CCMP 合成風速 (NOAA ERDDAP)
+  // データセット: erdQCwind1day
+  // 衛星: ASCAT + SSMIS + AMSR2 + WindSat  解像度: 0.25°  遅延: ~12h
+  // ----------------------------------------------------------
+  ccmp_erddap: {
+    label:    'CCMP 合成風速',
+    unit:     'm/s',
+    satellite:'ASCAT+SSMIS+AMSR2+WindSat (CCMP)',
+    delay:    '約12時間',
+    maxVal:   25,
+    varName:  'wspd',
+    datasetId:'erdQCwind1day',
+    colors: ['#000080','#0055ff','#00ccff','#aaff00','#ffaa00','#ff2200'],
+    ticks:  ['0','5','10','15','20','25+'],
+    isCmems: false,
+    buildUrl(date, r) {
+      const t = `${date}T00:00:00Z`;
+      return `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${this.datasetId}.json` +
+        `?${this.varName}` +
+        `[(${t}):1:(${t})]` +
+        `[(${r.latMin}):${r.stride}:(${r.latMax})]` +
+        `[(${r.lonMin}):${r.stride}:(${r.lonMax})]`;
+    }
+  },
+
+  // ----------------------------------------------------------
+  // WaveWatch III NRT 波高 (NOAA ERDDAP)
+  // データセット: NWW3_Global_Best
+  // 衛星同化済み数値モデル  解像度: 0.5°  遅延: ~6h
+  // ----------------------------------------------------------
+  ww3_erddap: {
+    label:    '有義波高 (WW3)',
+    unit:     'm',
+    satellite:'WaveWatch III NRT (衛星同化)',
+    delay:    '約6時間',
+    maxVal:   10,
+    varName:  'Hs',
+    datasetId:'NWW3_Global_Best',
+    colors: ['#000080','#0066ff','#00ffcc','#aaff00','#ff8800','#ff0000'],
+    ticks:  ['0','2','4','6','8','10+'],
+    isCmems: false,
+    buildUrl(date, r) {
+      const t = `${date}T00:00:00Z`;
+      return `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${this.datasetId}.json` +
+        `?${this.varName}` +
+        `[(${t}):1:(${t})]` +
+        `[(${r.latMin}):${r.stride}:(${r.latMax})]` +
+        `[(${r.lonMin}):${r.stride}:(${r.lonMax})]`;
+    }
+  },
+
+  // ----------------------------------------------------------
+  // CMEMS 有義波高 L4 NRT
+  // 衛星: Jason-3 / Sentinel-6 / CFOSAT / AltiKa
+  // 解像度: 0.2°  遅延: ~3〜6h
+  // OPeNDAP ASCII エンドポイント使用
+  // ----------------------------------------------------------
+  wave_cmems: {
+    label:    '有義波高 L4 NRT',
+    unit:     'm',
+    satellite:'Jason-3 / Sentinel-6 / CFOSAT (CMEMS)',
+    delay:    '約3〜6時間',
+    maxVal:   10,
+    colors: ['#000080','#0066ff','#00ffcc','#aaff00','#ff8800','#ff0000'],
+    ticks:  ['0','2','4','6','8','10+'],
+    isCmems: true,
+    // CMEMS OPeNDAP ASCII (.asc) エンドポイント
+    // プロダクト: WAVE_GLO_PHY_SWH_L4_NRT_014_003
+    buildUrl(date, r, user, pass) {
+      const base = 'https://nrt.cmems-du.eu/thredds/dodsC/' +
+        'cmems_obs-wave_glo_phy-swh_nrt_multi-l4_PT1H-i_202311';
+      // OPeNDAP ASCII リクエスト
+      // 変数: VAVH (有義波高)
+      // 時刻インデックスは日付から計算（簡略化: 0時UTC）
+      const query = `.ascii?VAVH` +
+        `[0:1:0]` +   // time: 最初の1ステップ
+        `[${latToIdx(r.latMin,r.stride)}:1:${latToIdx(r.latMax,r.stride)}]` +
+        `[${lonToIdx(r.lonMin,r.stride)}:1:${lonToIdx(r.lonMax,r.stride)}]`;
+      return {
+        url: base + query,
+        auth: btoa(`${user}:${pass}`)
+      };
+    }
+  },
+
+  // ----------------------------------------------------------
+  // CMEMS ASCAT 風速 L3 NRT
+  // 衛星: MetOp-B/C ASCAT
+  // 解像度: 0.125°  遅延: ~3h
+  // ----------------------------------------------------------
+  wind_cmems: {
+    label:    'ASCAT 風速 L3 NRT',
+    unit:     'm/s',
+    satellite:'MetOp-B/C ASCAT (CMEMS)',
+    delay:    '約3時間',
+    maxVal:   25,
+    colors: ['#000080','#0055ff','#00ccff','#aaff00','#ffaa00','#ff2200'],
+    ticks:  ['0','5','10','15','20','25+'],
+    isCmems: true,
+    buildUrl(date, r, user, pass) {
+      const base = 'https://nrt.cmems-du.eu/thredds/dodsC/' +
+        'cmems_obs-wind_glo_phy_nrt_l3_0.125deg_PT1H-i';
+      const query = `.ascii?wind_speed` +
+        `[0:1:0]` +
+        `[${latToIdx(r.latMin,r.stride)}:1:${latToIdx(r.latMax,r.stride)}]` +
+        `[${lonToIdx(r.lonMin,r.stride)}:1:${lonToIdx(r.lonMax,r.stride)}]`;
+      return {
+        url: base + query,
+        auth: btoa(`${user}:${pass}`)
+      };
+    }
+  }
+};
+
+// OPeNDAP インデックス変換（簡易）
+function latToIdx(lat, stride) { return Math.round((lat + 90)  / (0.2 * stride)); }
+function lonToIdx(lon, stride) { return Math.round((lon + 180) / (0.2 * stride)); }
+
+// ============================================================
+// UI 初期化
+// ============================================================
+(function initDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1); // 1日前をデフォルト
+  document.getElementById('target-date').value = d.toISOString().split('T')[0];
+})();
+
+function onSourceChange() {
+  const key = document.getElementById('source').value;
+  const isCmems = SOURCES[key].isCmems;
+  document.getElementById('cmems-auth').style.display = isCmems ? 'block' : 'none';
+  // 遅延に応じてデフォルト日付を調整
+  const d = new Date();
+  const delayDays = isCmems ? 0 : 1;
+  d.setDate(d.getDate() - delayDays);
+  document.getElementById('target-date').value = d.toISOString().split('T')[0];
+}
+
+// ============================================================
+// レイヤー管理
+// ============================================================
+let dataLayer = null;
+
+function clearAll() {
+  if (dataLayer) { map.removeLayer(dataLayer); dataLayer = null; }
+  document.getElementById('legend').style.display = 'none';
+  document.getElementById('ts-bar').style.display = 'none';
+  document.getElementById('data-info').innerHTML = '';
+  setStatus('クリアしました', '');
+}
+
+// ============================================================
+// メイン: データ取得
+// ============================================================
+async function fetchData() {
+  const key    = document.getElementById('source').value;
+  const date   = document.getElementById('target-date').value;
+  const region = REGIONS[document.getElementById('region').value];
+  const src    = SOURCES[key];
+
+  if (!date) { setStatus('日付を選択してください', 'err'); return; }
+
+  // CMEMS 認証
+  let user = '', pass = '';
+  if (src.isCmems) {
+    user = document.getElementById('cmems-user').value.trim();
+    pass = document.getElementById('cmems-pass').value.trim();
+    if (!user || !pass) {
+      setStatus('CMEMSのユーザー名・パスワードを入力してください', 'err');
+      return;
+    }
+  }
+
+  document.getElementById('fetch-btn').disabled = true;
+  setStatus(`⏳ データ取得中... (${src.satellite})`, 'load');
+  clearAll();
+
+  try {
+    let points;
+    if (src.isCmems) {
+      points = await fetchCmems(src, date, region, user, pass);
+    } else {
+      points = await fetchErddap(src, date, region);
+    }
+
+    if (!points || points.length === 0) {
+      throw new Error('データが空です。日付を1〜2日前に変更してみてください。');
+    }
+
+    drawPoints(points, src);
+    updateLegend(src);
+    updateTsBar(date, src);
+    updateDataInfo(points, src, date);
+    setStatus(
+      `✅ ${points.length.toLocaleString()} 点描画完了 | ${src.delay}`, 'ok'
+    );
+
+  } catch (e) {
+    console.error(e);
+    setStatus(`❌ ${e.message}`, 'err');
+  } finally {
+    document.getElementById('fetch-btn').disabled = false;
+  }
+}
+
+// ============================================================
+// ERDDAP 取得（Proxy経由）
+// ============================================================
+async function fetchErddap(src, date, region) {
+  const rawUrl = src.buildUrl(date, region);
+  const url    = proxied(rawUrl);
+  console.log('[ERDDAP]', rawUrl);
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(40000) });
+  if (!res.ok) {
+    const txt = await res.text();
+    const m   = txt.match(/message="([^"]+)"/);
+    throw new Error(m ? m[1] : `HTTP ${res.status}`);
+  }
+  const json = await res.json();
+  return parseErddapJson(json);
+}
+
+// ============================================================
+// CMEMS 取得（Proxy + Basic認証ヘッダー）
+// ============================================================
+async function fetchCmems(src, date, region, user, pass) {
+  const { url: rawUrl, auth } = src.buildUrl(date, region, user, pass);
+
+  // Proxy に認証ヘッダーを付けて送る
+  // Workers Proxy が Authorization ヘッダーを転送する前提
+  const proxyUrl = proxied(rawUrl);
+  console.log('[CMEMS]', rawUrl);
+
+  const res = await fetch(proxyUrl, {
+    headers: { 'Authorization': `Basic ${auth}` },
+    signal: AbortSignal.timeout(40000)
+  });
+
+  if (res.status === 401) throw new Error('認証失敗: ユーザー名・パスワードを確認してください');
+  if (!res.ok) throw new Error(`CMEMS HTTP ${res.status}`);
+
+  const text = await res.text();
+  return parseCmemsAscii(text);
+}
+
+// ============================================================
+// ERDDAP JSON パース
+// ============================================================
+function parseErddapJson(json) {
+  const cols = json.table.columnNames;
+  const rows = json.table.rows;
+
+  const iLat = cols.indexOf('latitude');
+  const iLon = cols.indexOf('longitude');
+  const iVal = cols.findIndex(c =>
+    c !== 'time' && c !== 'latitude' && c !== 'longitude'
+  );
+  if (iLat < 0 || iLon < 0 || iVal < 0) {
+    throw new Error(`カラム不一致: [${cols.join(', ')}]`);
+  }
+
+  const points = [];
+  for (const row of rows) {
+    const val = parseFloat(row[iVal]);
+    const lat = parseFloat(row[iLat]);
+    const lon = parseFloat(row[iLon]);
+    if (isNaN(val) || val < 0 || isNaN(lat) || isNaN(lon)) continue;
+    // 経度 0-360 → -180-180
+    points.push({ lat, lon: lon > 180 ? lon - 360 : lon, val });
+  }
+  return points;
+}
+
+// ============================================================
+// CMEMS OPeNDAP ASCII パース
+// 形式例:
+//   VAVH[0][0][0], VAVH[0][0][1], ...
+//   1.23, 2.34, ...
+//   latitude: 25.0, 25.2, ...
+//   longitude: 120.0, 120.2, ...
+// ============================================================
+function parseCmemsAscii(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const points = [];
+
+  let lats = [], lons = [], vals = [];
+
+  for (const line of lines) {
+    if (line.startsWith('latitude,')) {
+      lats = line.replace('latitude,','').split(',').map(Number);
+    } else if (line.startsWith('longitude,')) {
+      lons = line.replace('longitude,','').split(',').map(Number);
+    } else if (/^[\d\.\-,eE\s]+$/.test(line) && !line.includes('[')) {
+      // 数値データ行
+      const nums = line.split(',').map(Number).filter(v => !isNaN(v) && v > 0);
+      vals.push(...nums);
+    }
+  }
+
+  // lat × lon のグリッドに展開
+  if (lats.length > 0 && lons.length > 0 && vals.length > 0) {
+    let idx = 0;
+    for (let i = 0; i < lats.length && idx < vals.length; i++) {
+      for (let j = 0; j < lons.length && idx < vals.length; j++) {
+        const val = vals[idx++];
+        if (val > 0 && val < 9999) {
+          points.push({
+            lat: lats[i],
+            lon: lons[j] > 180 ? lons[j] - 360 : lons[j],
+            val
+          });
+        }
+      }
+    }
+  }
+
+  if (points.length === 0) {
+    throw new Error('CMEMSデータのパースに失敗しました。認証情報またはデータセットIDを確認してください。');
+  }
+  return points;
+}
+
+// ============================================================
+// 描画
+// ============================================================
+function drawPoints(points, src) {
+  const MAX_MARKERS = 8000;
+  const step = Math.ceil(points.length / MAX_MARKERS);
+  const cellDeg = estimateCellDeg(points);
+
+  const markers = [];
+  for (let i = 0; i < points.length; i += step) {
+    const { lat, lon, val } = points[i];
+    const m = L.circleMarker([lat, lon], {
+      radius:      5,
+      fillColor:   getColor(val, src),
+      color:       'none',
+      fillOpacity: 0.85,
+    });
+    m.bindPopup(makePopup(lat, lon, val, src), { maxWidth:240 });
+    markers.push(m);
+  }
+
+  dataLayer = L.layerGroup(markers).addTo(map);
+
+  // ズームに応じてマーカーサイズ更新
+  const updateSize = () => {
+    const zoom = map.getZoom();
+    const mPerPx = 40075016 / (256 * Math.pow(2, zoom));
+    const px = Math.max(2, Math.round(cellDeg * 111320 / mPerPx / 2));
+    dataLayer.eachLayer(m => m.setRadius(px));
+  };
+  map.off('zoomend').on('zoomend', updateSize);
+  updateSize();
+}
+
+function estimateCellDeg(points) {
+  const lats = [...new Set(points.map(p => p.lat))].sort((a,b)=>a-b);
+  return lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 0.25;
+}
+
+// ============================================================
+// カラースケール
+// ============================================================
+function getColor(val, src) {
+  const t = Math.min(Math.max(val / src.maxVal, 0), 1);
+  const cs = src.colors;
+  const n  = cs.length - 1;
+  const i  = Math.min(Math.floor(t * n), n - 1);
+  const f  = t * n - i;
+  return lerpHex(cs[i], cs[i+1], f);
+}
+
+function lerpHex(a, b, f) {
+  const h = s => parseInt(s.slice(1), 16);
+  const r = v => (v >> 16) & 0xff;
+  const g = v => (v >>  8) & 0xff;
+  const bl= v =>  v        & 0xff;
+  const ha = h(a), hb = h(b);
+  return `rgb(${Math.round(r(ha)+f*(r(hb)-r(ha)))},` +
+             `${Math.round(g(ha)+f*(g(hb)-g(ha)))},` +
+             `${Math.round(bl(ha)+f*(bl(hb)-bl(ha)))})`;
+}
+
+// ============================================================
+// ポップアップ
+// ============================================================
+function makePopup(lat, lon, val, src) {
+  const risk = ['🟢 低','🟡 中','🟠 高','🔴 非常に高い'][
+    Math.min(3, Math.floor(val / src.maxVal * 4))
+  ];
+  return `<div class="sat-popup">
+    <b>🛰️ ${src.label}</b>
+    <table>
+      <tr><td>値</td>    <td><b>${val.toFixed(2)} ${src.unit}</b></td></tr>
+      <tr><td>緯度</td>  <td>${lat.toFixed(3)}°N</td></tr>
+      <tr><td>経度</td>  <td>${lon.toFixed(3)}°E</td></tr>
+      <tr><td>衛星</td>  <td>${src.satellite}</td></tr>
+      <tr><td>危険度</td><td>${risk}</td></tr>
+    </table>
+  </div>`;
+}
+
+// ============================================================
+// 凡例・情報更新
+// ============================================================
+function updateLegend(src) {
+  document.getElementById('legend').style.display = 'block';
+  document.getElementById('leg-title').textContent = `${src.label} (${src.unit})`;
+  document.getElementById('leg-bar').style.background =
+    `linear-gradient(to right,${src.colors.join(',')})`;
+  document.getElementById('leg-lbls').innerHTML =
+    src.ticks.map(t=>`<span>${t}</span>`).join('');
+}
+
+function updateTsBar(date, src) {
+  const el = document.getElementById('ts-bar');
+  el.style.display = 'block';
+  el.textContent = `📡 ${src.satellite} | ${date} UTC | 遅延: ${src.delay}`;
+}
+
+function updateDataInfo(points, src, date) {
+  const vals = points.map(p => p.val);
+  const avg  = (vals.reduce((a,b)=>a+b,0) / vals.length).toFixed(2);
+  const max  = Math.max(...vals).toFixed(2);
+  const min  = Math.min(...vals).toFixed(2);
+  document.getElementById('data-info').innerHTML = `
+    <div style="padding:12px 16px">
+      <div class="sec-title">取得データ情報</div>
+      <div class="kv"><span class="k">衛星</span>
+        <span class="v" style="font-size:11px">${src.satellite}</span></div>
+      <div class="kv"><span class="k">日付</span>
+        <span class="v">${date} UTC</span></div>
+      <div class="kv"><span class="k">遅延</span>
+        <span class="v">${src.delay}</span></div>
+      <div class="kv"><span class="k">描画点数</span>
+        <span class="v">${points.length.toLocaleString()}</span></div>
+      <div class="kv"><span class="k">最大値</span>
+        <span class="v">${max} ${src.unit}</span></div>
+      <div class="kv"><span class="k">最小値</span>
+        <span class="v">${min} ${src.unit}</span></div>
+      <div class="kv"><span class="k">平均値</span>
+        <span class="v">${avg} ${src.unit}</span></div>
+    </div>`;
+}
+
+// ============================================================
+// ステータス
+// ============================================================
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.innerHTML = msg;
+  el.className = type ? `s-${type}` : '';
+}
+
+</script>
 </body>
 </html>
