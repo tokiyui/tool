@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>衛星観測・リアルタイム波高マップ</title>
+    <title>衛星・予測モデル リアルタイム波高マップ</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body, html {
@@ -15,9 +15,8 @@
         #map {
             height: 100%;
             width: 100%;
-            background-color: #0d1117; /* 宇宙・海っぽいダーク背景 */
+            background-color: #0d1117;
         }
-        /* 凡例のスタイル */
         .legend {
             padding: 10px;
             font: 14px/16px Arial, Helvetica, sans-serif;
@@ -44,16 +43,16 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         // 1. 地図の初期化（日本近海を中心に設定）
-        const map = L.map('map').setView([30, 138], 4);
+        const map = L.map('map').setView([35, 138], 5);
 
-        // 背景地図（無地に近いシンプルなダークマップを使用。海データが映えます）
+        // 背景地図（ダークマップ）
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO'
         }).addTo(map);
 
-        // 2. ユーザー指定の色分けロジック
+        // 2. 指定の色分けロジック
         const getColor = h => {
-            if (h === null || h === undefined) return "transparent"; // データがない場合
+            if (h === null || h === undefined || isNaN(h)) return "transparent";
             if (h < 0.5) return "dodgerblue";
             if (h < 1.0) return "limegreen";
             if (h < 1.5) return "greenyellow";
@@ -62,44 +61,48 @@
             return "orangered";
         };
 
-        // 3. CORS回避用プロキシとNOAA ERDDAP API URL
+        // 3. CORS回避用プロキシと 2026年最新WaveWatch III API URL
         const proxy = "https://worker.ryohorita105.workers.dev/?url=";
-        const targetUrl = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/noaacwNrtJ3S3aS3bS6aSwhMerged.geoJson?sign_wave_height[(last)][(0.0):1:(-0.0)][(-80.0):1:(80.0)][(0.0):1:(360.0)]";
+        
+        // 【修正ポイント】
+        // サーバーを最新のWaveWatch_2026に変更し、日本近海（緯度20~50, 経度120~150）に切り出し。
+        // 変数名を「Thgt (波高)」に修正しています。
+        const targetUrl = "https://erddap.aoml.noaa.gov/hdb/erddap/griddap/WaveWatch_2026.geoJson?Thgt[(last)][(20.0):1:(50.0)][(120.0):1:(150.0)]";
 
-        // プロキシURLとターゲットURLをエンコードして結合し、データを取得
         fetch(proxy + encodeURIComponent(targetUrl))
             .then(response => {
-                if (!response.ok) throw new Error('ネットワークまたはプロキシエラーが発生しました');
+                if (!response.ok) throw new Error('データサーバーまたはプロキシからの応答がありません');
                 return response.json();
             })
             .then(data => {
-                // GeoJSONとして地図に追加
+                // GeoJSONデータを地図に展開
                 L.geoJSON(data, {
                     pointToLayer: function (feature, latlng) {
-                        // 波高の値を取得
-                        const h = feature.properties.sign_wave_height;
+                        // WaveWatch 2026のプロパティ名「Thgt」を取得
+                        const h = feature.properties.Thgt;
                         
                         // 指定の色ロジックを適用
                         const markerColor = getColor(h);
 
-                        // データがある場所だけサークルマーカーを描画
+                        if (markerColor === "transparent") return null;
+
                         return L.circleMarker(latlng, {
-                            radius: 4,               // マーカーの大きさ
+                            radius: 5,               // 見やすさのためサイズを少し調整
                             fillColor: markerColor,
-                            color: markerColor,      // 枠線の色
-                            weight: 1,
+                            color: markerColor,
+                            weight: 0.5,
                             opacity: 0.8,
-                            fillOpacity: 0.7
+                            fillOpacity: 0.6
                         }).bindPopup(`<b>有義波高:</b> ${h.toFixed(2)} m`);
                     }
                 }).addTo(map);
             })
             .catch(error => {
                 console.error("データ取得エラー:", error);
-                alert("データの取得に失敗しました。時間をおいて試してください。");
+                alert("データの取得に失敗しました。時間をおいて再読み込みしてください。");
             });
 
-        // 4. 画面右下に凡例（カラーバー）を追加
+        // 4. 画面右下に凡例を追加
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function (map) {
             const div = L.DomUtil.create('div', 'info legend');
