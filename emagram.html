@@ -171,7 +171,7 @@ async function loadStations(region) {
    MSM取得
 ========================= */
 async function fetchWeatherData(stationCode) {
-  const proxy = "https://api.allorigins.win/raw?url=";
+  const proxy = "https://worker.ryohorita105.workers.dev/?url=";
   const url = proxy + encodeURIComponent(
     `https://lab.weathermap.co.jp/GPV_point_api/v1/get.py?model=MSM&ini=${initTimeStr}&ftmax=78&amedas=${stationCode}`
   );
