@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>気象モデル比較表</title>
+<style>
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 40px;
+  }
+
+  th, td {
+    border: 1px solid #999;
+    padding: 5px;
+    text-align: center;
+  }
+
+  th {
+    background-color: #eee;
+  }
+
+  .green {
+    background-color: #9f9;
+  }
+
+  td {
+    width: 4%;
+  }
+</style>
+</head>
+
+<body>
+
+<h1>気象モデル比較表</h1>
+<div id="tables"></div>
+
+<script>
+
+// ================= 設定 =================
+
+const models = [
+  "ecmwf_ifs025",
+  "gfs_global",
+  "icon_global",
+  "gem_global",
+  "meteofrance_arpege_world",
+  "ukmo_global_deterministic_10km",
+  "jma_gsm"
+];
+
+const hPaLevels = ["400", "500", "700", "850", "925"];
+
+const latitude  = 35.75;
+const longitude = 139.75;
+
+// 表示時刻（3時間刻み）
+const hours = Array.from(
+  {length: 24},
+  (_, i) => ((3 + i * 3) % 24).toString().padStart(2, "0")
+);
+
+
+// ============================================================
+// 気象庁式：飽和相当温位 θe*
+// ============================================================
+//
+// 気象庁資料の式:
+//
+// θe* = T × (1000 / (P - es))^(Rd/Cpd)
+//       × exp[(3036/T - 1.78) × rs × (1 + 0.448 rs)]
+//
+// T  : 気温 [K]
+// P  : 気圧 [hPa]
+// es : 飽和水蒸気圧 [hPa]
+// rs : 飽和混合比 [kg/kg]
+//
+// Rd/Cpd = 0.2854
+//
+// 飽和水蒸気圧:
+//
+// es = 6.112 × exp[17.67(T-273.15)/(T-29.65)]
+//
+// 飽和混合比:
+//
+// rs = 0.622 × es / (P - es)
+//
+// ============================================================
+
+function saturationEquivalentPotentialTemperature(T, P) {
+
+  const Rd_Cpd = 0.2854;
+  const epsilon = 0.622;
+
+  // -----------------------------
+  // 飽和水蒸気圧 es [hPa]
+  // -----------------------------
+  const es =
+    6.112 *
+    Math.exp(
+      17.67 * (T - 273.15) /
+      (T - 29.65)
+    );
+
+  // -----------------------------
+  // 飽和混合比 rs [kg/kg]
+  // -----------------------------
+  const rs =
+    epsilon * es / (P - es);
+
+  // -----------------------------
+  // 気象庁式 飽和相当温位
+  // -----------------------------
+  const thetaE =
+    T *
+    Math.pow(
+      1000 / (P - es),
+      Rd_Cpd
+    ) *
+    Math.exp(
+      (
+        3036.0 / T - 1.78
+      ) *
+      rs *
+      (1 + 0.448 * rs)
+    );
+
+  return thetaE;
+}
+
+
+// ============================================================
+// 隣接する気圧面とのθe*の差を判定
+// ============================================================
+//
+// 例:
+//
+// 400hPa = 330 K
+// 500hPa = 332 K
+//
+// 差 = 2 K → 両方緑
+//
+// 500hPa = 332 K
+// 700hPa = 338 K
+//
+// 差 = 6 K → 緑にしない
+//
+// ============================================================
+
+function markSmallDifferences(thetaValues) {
+
+  const green = new Array(thetaValues.length).fill(false);
+
+  for (let i = 0; i < thetaValues.length - 1; i++) {
+
+    const diff =
+      Math.abs(thetaValues[i] - thetaValues[i + 1]);
+
+    if (diff <= 3.0) {
+      green[i] = true;
+      green[i + 1] = true;
+    }
+  }
+
+  return green;
+}
+
+
+// ============================================================
+// 表作成
+// ============================================================
+
+async function createTables() {
+
+  const container =
+    document.getElementById("tables");
+
+  for (const model of models) {
+
+    // ========================================================
+    // Open-Meteo API
+    // ========================================================
+
+    const url = `https://api.open-meteo.com/v1/forecast
+?latitude=${latitude}
+&longitude=${longitude}
+&cell_selection=nearest
+&hourly=
+precipitation,
+relative_humidity_925hPa,relative_humidity_850hPa,
+relative_humidity_700hPa,relative_humidity_500hPa,
+relative_humidity_400hPa,
+temperature_925hPa,temperature_850hPa,
+temperature_700hPa,temperature_500hPa,
+temperature_400hPa
+&models=${model}
+&timezone=Asia%2FTokyo
+&forecast_days=3`.replace(/\s+/g, "");
+
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const hourly = data.hourly;
+
+
+    // ========================================================
+    // モデル名
+    // ========================================================
+
+    const title =
+      document.createElement("h2");
+
+    title.textContent = model;
+
+    container.appendChild(title);
+
+
+    // ========================================================
+    // 表
+    // ========================================================
+
+    const table =
+      document.createElement("table");
+
+    container.appendChild(table);
+
+
+    // ========================================================
+    // ヘッダ
+    // ========================================================
+
+    const thead =
+      document.createElement("thead");
+
+    const trh =
+      document.createElement("tr");
+
+    const th0 =
+      document.createElement("th");
+
+    th0.textContent = "時刻";
+
+    trh.appendChild(th0);
+
+
+    hours.forEach(h => {
+
+      const th =
+        document.createElement("th");
+
+      th.textContent = h;
+
+      trh.appendChild(th);
+
+    });
+
+
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+
+    const tbody =
+      document.createElement("tbody");
+
+
+    // ========================================================
+    // 各気圧面
+    // ========================================================
+
+    for (const level of hPaLevels) {
+
+      const tr =
+        document.createElement("tr");
+
+
+      // 気圧面名
+
+      const tdLevel =
+        document.createElement("td");
+
+      tdLevel.textContent =
+        `${level}hPa`;
+
+      tr.appendChild(tdLevel);
+
+
+      // ------------------------------------------------------
+      // 各時刻について計算
+      // ------------------------------------------------------
+
+      hours.forEach((h, i) => {
+
+        const hourIndex =
+          i * 3 + 2;
+
+
+        const T =
+          hourly[
+            `temperature_${level}hPa`
+          ][hourIndex];
+
+
+        const P =
+          Number(level);
+
+
+        // 気象庁式 飽和相当温位
+        const thetaE =
+          saturationEquivalentPotentialTemperature(
+            T,
+            P
+          );
+
+
+        const td =
+          document.createElement("td");
+
+
+        // 整数に丸める
+        td.textContent =
+          Math.round(thetaE);
+
+
+        // 後で隣接気圧面との比較をするため
+        td.dataset.theta =
+          thetaE;
+
+
+        tr.appendChild(td);
+
+      });
+
+
+      tbody.appendChild(tr);
+
+    }
+
+
+    // ========================================================
+    // 3時間降水量
+    // ========================================================
+
+    const trP =
+      document.createElement("tr");
+
+
+    const tdP =
+      document.createElement("td");
+
+    tdP.textContent =
+      "3時間降水量";
+
+    trP.appendChild(tdP);
+
+
+    hours.forEach((h, i) => {
+
+      const hourIndex =
+        i * 3 + 2;
+
+
+      const precipitation =
+        hourly.precipitation;
+
+
+      const sum =
+        precipitation
+          .slice(
+            hourIndex - 2,
+            hourIndex + 1
+          )
+          .reduce(
+            (a, b) => a + b,
+            0
+          );
+
+
+      const td =
+        document.createElement("td");
+
+
+      td.textContent =
+        sum.toFixed(1);
+
+
+      trP.appendChild(td);
+
+    });
+
+
+    tbody.appendChild(trP);
+
+
+    // ========================================================
+    // 表に追加
+    // ========================================================
+
+    table.appendChild(tbody);
+
+
+    // ========================================================
+    // θe*の隣接高度差 <= 3 K を緑色にする
+    // ========================================================
+    //
+    // 各時刻について
+    //
+    // 400 - 500
+    // 500 - 700
+    // 700 - 850
+    // 850 - 925
+    //
+    // を比較する。
+    //
+    // 差が3 K以下なら、その2高度のセルを緑色。
+    //
+    // ========================================================
+
+    for (let timeIndex = 0;
+         timeIndex < hours.length;
+         timeIndex++) {
+
+      const thetaValues = [];
+
+
+      // ------------------------------------------------------
+      // 5気圧面のθe*を取得
+      // ------------------------------------------------------
+
+      for (const level of hPaLevels) {
+
+        const hourIndex =
+          timeIndex * 3 + 2;
+
+
+        const T =
+          hourly[
+            `temperature_${level}hPa`
+          ][hourIndex];
+
+
+        const P =
+          Number(level);
+
+
+        const thetaE =
+          saturationEquivalentPotentialTemperature(
+            T,
+            P
+          );
+
+
+        thetaValues.push(thetaE);
+
+      }
+
+
+      // ------------------------------------------------------
+      // 隣接高度との差 <= 3 K
+      // ------------------------------------------------------
+
+      const greenFlags =
+        markSmallDifferences(thetaValues);
+
+
+      // ------------------------------------------------------
+      // 該当するセルを緑色にする
+      // ------------------------------------------------------
+
+      for (let levelIndex = 0;
+           levelIndex < hPaLevels.length;
+           levelIndex++) {
+
+        if (greenFlags[levelIndex]) {
+
+          // tbody内の
+          // 該当気圧面の行を取得
+          const row =
+            tbody.rows[levelIndex];
+
+          // 時刻列を除くので +1
+          const cell =
+            row.cells[timeIndex + 1];
+
+          cell.classList.add("green");
+        }
+      }
+
+    }
+
+  }
+
+}
+
+
+// ============================================================
+// 実行
+// ============================================================
+
+createTables();
+
+</script>
+
+</body>
+</html>
