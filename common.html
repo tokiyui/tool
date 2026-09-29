@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -31,12 +32,14 @@ async function fetchActorId(actorName) {
     const searchUrl = proxyUrl + encodeURIComponent(
         `https://www.eventernote.com/actors/search?keyword=${encodeURIComponent(actorName)}`
     );
+
     const response = await fetch(searchUrl);
     const text = await response.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
 
     const actorLinks = doc.querySelectorAll('li a');
+
     for (const link of actorLinks) {
         if (link.textContent.trim().includes(actorName)) {
             const actorUrl = link.getAttribute('href');
@@ -44,6 +47,7 @@ async function fetchActorId(actorName) {
             return actorUrl.split('/').pop();
         }
     }
+
     return null;
 }
 
@@ -90,11 +94,11 @@ async function fetchEventData(url) {
             : 'Venue not available';
 
         let eventUrl = null;
-        const links = event.querySelectorAll('a');
 
-        for (const link of links) {
+        for (const link of event.querySelectorAll('a')) {
             const href = link.getAttribute('href');
-            if (href && href.includes('/events/')) {
+
+            if (href && /\/events\/\d+/.test(href)) {
                 eventUrl = href.startsWith('/')
                     ? 'https://www.eventernote.com' + href
                     : href;
@@ -113,48 +117,73 @@ async function fetchEventData(url) {
 
 // イベント詳細ページから出演者を取得
 async function fetchEventActors(eventUrl) {
-    if (!eventUrl) return [];
+    if (!eventUrl) return null;
 
-    const response = await fetch(proxyUrl + encodeURIComponent(eventUrl));
+    const response = await fetch(
+        proxyUrl + encodeURIComponent(eventUrl)
+    );
+
     const text = await response.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
-    const actors = [];
 
-    const actorLinks = doc.querySelectorAll('a[href*="/actors/"]');
+    // 「出演者」という文字を持つ要素を探す
+    const elements = [...doc.querySelectorAll('*')];
+    const performerLabel = elements.find(
+        el => el.children.length === 0 &&
+              el.textContent.trim() === '出演者'
+    );
 
-    actorLinks.forEach(link => {
-        const href = link.getAttribute('href');
-        if (!href) return;
+    if (!performerLabel) return null;
 
-        const match = href.match(/\/actors\/(\d+)/);
-        if (!match) return;
+    /*
+     * 「出演者」の親要素を起点に出演者リンクを探す。
+     * Eventernoteでは出演者欄が
+     *
+     * 出演者
+     *   ・A
+     *   ・B
+     *   ・C
+     *
+     * のような構造になっているため、
+     * まず近い親要素を調べる。
+     */
+    let container = performerLabel.parentElement;
 
-        actors.push({
-            id: match[1],
-            name: link.textContent.trim()
-        });
-    });
+    for (let i = 0; i < 3 && container; i++) {
+        const actorLinks = container.querySelectorAll('a[href*="/actors/"]');
 
-    const uniqueActors = [];
-    const seen = new Set();
+        if (actorLinks.length > 0) {
+            const actorIds = [];
 
-    actors.forEach(actor => {
-        if (!seen.has(actor.id)) {
-            seen.add(actor.id);
-            uniqueActors.push(actor);
+            actorLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                const match = href && href.match(/\/actors\/(\d+)/);
+
+                if (match) {
+                    actorIds.push(match[1]);
+                }
+            });
+
+            return [...new Set(actorIds)];
         }
-    });
 
-    return uniqueActors;
+        container = container.parentElement;
+    }
+
+    return [];
 }
 
-// A以外の出演者がいないか判定
+// A単独イベント判定
 async function isAOnly(event, actorId1) {
-    const actors = await fetchEventActors(event.url);
-    if (actors.length === 0) return false;
+    const actorIds = await fetchEventActors(event.url);
 
-    return actors.every(actor => actor.id === String(actorId1));
+    if (actorIds === null || actorIds.length === 0) {
+        return false;
+    }
+
+    return actorIds.length === 1 &&
+           actorIds[0] === String(actorId1);
 }
 
 // 結果表示
@@ -185,7 +214,7 @@ async function findCommonEvents() {
     }
 
     if (mode === 'and' && !actor2) {
-        alert('A and Bモードではアーティスト名2も入力してください');
+        alert('「共演した」ではアーティスト名2も入力してください');
         return;
     }
 
@@ -202,17 +231,19 @@ async function findCommonEvents() {
 
     statusDiv.textContent = '出演イベントを取得中です...';
 
-    const url1 = `https://www.eventernote.com/actors/${actorId1}/events?limit=2000`;
+    const url1 =
+        `https://www.eventernote.com/actors/${actorId1}/events?limit=2000`;
+
     const data1 = await fetchEventData(url1);
 
-    // A all
+    // 全てのイベント
     if (mode === 'all') {
         statusDiv.textContent = '';
         displayEvents(data1, resultDiv);
         return;
     }
 
-    // A and B
+    // 共演したイベント
     if (mode === 'and') {
         statusDiv.textContent = '出演イベントを取得中です...';
 
@@ -224,10 +255,12 @@ async function findCommonEvents() {
             return;
         }
 
-        const url2 = `https://www.eventernote.com/actors/${actorId2}/events?limit=2000`;
+        const url2 =
+            `https://www.eventernote.com/actors/${actorId2}/events?limit=2000`;
+
         const data2 = await fetchEventData(url2);
 
-        statusDiv.textContent = '共通イベントを検索中です...';
+        statusDiv.textContent = '共演イベントを検索中です...';
 
         const commonEvents = data1.filter(event1 =>
             data2.some(event2 =>
@@ -240,12 +273,13 @@ async function findCommonEvents() {
         return;
     }
 
-    // A only
+    // 単独のイベント
     if (mode === 'only') {
         const onlyEvents = [];
 
         for (let i = 0; i < data1.length; i++) {
-            statusDiv.textContent = `判定中です... ${i + 1} / ${data1.length}`;
+            statusDiv.textContent =
+                `判定中です... ${i + 1} / ${data1.length}`;
 
             if (await isAOnly(data1[i], actorId1)) {
                 onlyEvents.push(data1[i]);
@@ -257,8 +291,11 @@ async function findCommonEvents() {
     }
 }
 
-document.getElementById('searchBtn').addEventListener('click', findCommonEvents);
+document
+    .getElementById('searchBtn')
+    .addEventListener('click', findCommonEvents);
 </script>
 
 </body>
 </html>
+```
