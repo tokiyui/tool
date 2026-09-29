@@ -21,7 +21,7 @@ th {
 }
 
 .bold {
-  font-weight: bold;
+  font-weight: 900;
 }
 
 td {
@@ -75,6 +75,7 @@ function equivalentPotentialTemperature(T, P, RH) {
   }
 
   const lnRatio = Math.log(e / 6.112);
+
   const Td =
     243.5 * lnRatio / (17.67 - lnRatio) + 273.15;
 
@@ -121,7 +122,7 @@ function sumPrecipitation(hourIndex, precipitation) {
     .reduce((a, b) => a + (b ?? 0), 0);
 }
 
-// 表示値に対応する色
+// θe / θe* の値からセル背景色を決定
 function thetaColor(value) {
   const points = [
     { value: 282, color: [28, 63, 117] },
@@ -260,8 +261,10 @@ async function createTables() {
             ? Math.round(value)
             : "NaN";
 
+        // 数字は黒、セルの背景色を変更
         if (Number.isFinite(value)) {
-          td.style.color = thetaColor(value);
+          td.style.backgroundColor = thetaColor(value);
+          td.style.color = "black";
         }
 
         tr.appendChild(td);
@@ -293,7 +296,7 @@ async function createTables() {
     tbody.appendChild(trP);
     table.appendChild(tbody);
 
-    // θe* − θe <= 3K のセルを太字にする
+    // θe* − θe <= 3K のセルを極太にする
     for (let timeIndex = 0; timeIndex < hours.length; timeIndex++) {
       const hourIndex = 3 + timeIndex * 3;
 
