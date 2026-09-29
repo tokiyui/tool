@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8,121 +9,258 @@
 <body>
 
 <h2>共通イベント検索</h2>
+
 <input type="text" id="actor1" placeholder="アーティスト名1を入力">
 <input type="text" id="actor2" placeholder="アーティスト名2を入力">
+
+<select id="mode">
+    <option value="and">A and B</option>
+    <option value="all">A all</option>
+    <option value="only">A only</option>
+</select>
+
 <button id="searchBtn">検索</button>
 
-<div id="status"></div> <!-- 検索中のメッセージ表示用 -->
+<div id="status"></div>
 <div id="result"></div>
 
 <script>
-    const proxyUrl = 'https://worker.ryohorita105.workers.dev/?url=';
+const proxyUrl = 'https://worker.ryohorita105.workers.dev/?url=';
 
-    async function fetchActorId(actorName) {
-        const searchUrl = proxyUrl + encodeURIComponent(`https://www.eventernote.com/actors/search?keyword=${actorName}`);
-        const response = await fetch(searchUrl);
-        const text = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
+// アーティストID取得
+async function fetchActorId(actorName) {
+    const searchUrl = proxyUrl + encodeURIComponent(
+        `https://www.eventernote.com/actors/search?keyword=${encodeURIComponent(actorName)}`
+    );
+    const response = await fetch(searchUrl);
+    const text = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
 
-        // アーティスト名が一致するリンクを探す
-        const actorLinks = doc.querySelectorAll('li a');
-        for (let link of actorLinks) {
-            if (link.textContent.includes(actorName)) {
-                const actorUrl = link.getAttribute('href');
-                const actorId = actorUrl.split('/').pop(); // URLからアーティストIDを取得
-                return actorId;
-            }
+    const actorLinks = doc.querySelectorAll('li a');
+    for (const link of actorLinks) {
+        if (link.textContent.trim().includes(actorName)) {
+            const actorUrl = link.getAttribute('href');
+            if (!actorUrl) continue;
+            return actorUrl.split('/').pop();
         }
-        return null; // 見つからなかった場合
     }
+    return null;
+}
 
-    async function fetchEventData(url) {
-        const response = await fetch(proxyUrl + encodeURIComponent(url));
-        const text = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
+// イベント一覧取得
+async function fetchEventData(url) {
+    const response = await fetch(proxyUrl + encodeURIComponent(url));
+    const text = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
+    const events = doc.querySelectorAll('li.clearfix');
+    const data = [];
 
-        const events = doc.querySelectorAll('li.clearfix');
-        const data = [];
+    events.forEach(event => {
+        const dateElem = event.querySelector('p[class^="day"]');
 
-        events.forEach(event => {
-            const dateElem = event.querySelector('p[class^="day"]');
-            if (dateElem) {
-                const dateStr = dateElem.textContent.trim();
-                const dateInfo = dateStr.split(' ');
-                const year = dateInfo[0].slice(0, 4);
-                const month = dateInfo[0].slice(5, 7);
-                const day = dateInfo[0].slice(8, 10);
-                const weekday = dateInfo[1].charAt(1);
-
-                const startTimeElem = event.querySelector('span.s');
-                const startTime = startTimeElem ? startTimeElem.textContent.trim().split(' ')[3] : '--:--';
-
-                const titleElem = event.querySelector('h4');
-                const title = titleElem ? titleElem.textContent.trim() : 'Title not available';
-
-                const venueElem = event.querySelector('div.place');
-                const venue = venueElem ? venueElem.textContent.trim().replace('会場:', '').trim() : 'Venue not available';
-
-                data.push([year, month, day, weekday, startTime, title, venue]);
-            } else {
-                data.push(['Date information not available', '', '', '', '', 'Title not available', 'Venue not available']);
-            }
-        });
-        return data;
-    }
-
-    async function findCommonEvents() {
-        const actor1 = document.getElementById('actor1').value.trim();
-        const actor2 = document.getElementById('actor2').value.trim();
-        const statusDiv = document.getElementById('status');
-        const resultDiv = document.getElementById('result');
-
-        if (!actor1 || !actor2) {
-            alert('両方のアーティスト名を入力してください');
+        if (!dateElem) {
+            data.push({
+                data: ['Date information not available', '', '', '', '', 'Title not available', 'Venue not available'],
+                url: null
+            });
             return;
         }
 
-        // 検索中メッセージを表示
-        statusDiv.textContent = "検索中です...";
-        resultDiv.innerHTML = ''; // 結果をクリア
+        const dateStr = dateElem.textContent.trim();
+        const dateInfo = dateStr.split(' ');
+        const year = dateInfo[0].slice(0, 4);
+        const month = dateInfo[0].slice(5, 7);
+        const day = dateInfo[0].slice(8, 10);
+        const weekday = dateInfo[1] ? dateInfo[1].charAt(1) : '';
 
-        // アーティストIDを取得
-        const actorId1 = await fetchActorId(actor1);
+        const startTimeElem = event.querySelector('span.s');
+        const startTime = startTimeElem
+            ? startTimeElem.textContent.trim().split(' ')[3]
+            : '--:--';
+
+        const titleElem = event.querySelector('h4');
+        const title = titleElem
+            ? titleElem.textContent.trim()
+            : 'Title not available';
+
+        const venueElem = event.querySelector('div.place');
+        const venue = venueElem
+            ? venueElem.textContent.trim().replace('会場:', '').trim()
+            : 'Venue not available';
+
+        let eventUrl = null;
+        const links = event.querySelectorAll('a');
+
+        for (const link of links) {
+            const href = link.getAttribute('href');
+            if (href && href.includes('/events/')) {
+                eventUrl = href.startsWith('/')
+                    ? 'https://www.eventernote.com' + href
+                    : href;
+                break;
+            }
+        }
+
+        data.push({
+            data: [year, month, day, weekday, startTime, title, venue],
+            url: eventUrl
+        });
+    });
+
+    return data;
+}
+
+// イベント詳細ページから出演者を取得
+async function fetchEventActors(eventUrl) {
+    if (!eventUrl) return [];
+
+    const response = await fetch(proxyUrl + encodeURIComponent(eventUrl));
+    const text = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
+    const actors = [];
+
+    const actorLinks = doc.querySelectorAll('a[href*="/actors/"]');
+
+    actorLinks.forEach(link => {
+        const href = link.getAttribute('href');
+        if (!href) return;
+
+        const match = href.match(/\/actors\/(\d+)/);
+        if (!match) return;
+
+        actors.push({
+            id: match[1],
+            name: link.textContent.trim()
+        });
+    });
+
+    const uniqueActors = [];
+    const seen = new Set();
+
+    actors.forEach(actor => {
+        if (!seen.has(actor.id)) {
+            seen.add(actor.id);
+            uniqueActors.push(actor);
+        }
+    });
+
+    return uniqueActors;
+}
+
+// A以外の出演者がいないか判定
+async function isAOnly(event, actorId1) {
+    const actors = await fetchEventActors(event.url);
+    if (actors.length === 0) return false;
+
+    return actors.every(actor => actor.id === String(actorId1));
+}
+
+// 結果表示
+function displayEvents(events, resultDiv) {
+    if (events.length === 0) {
+        resultDiv.textContent = '該当するイベントはありません';
+        return;
+    }
+
+    events.forEach(event => {
+        const p = document.createElement('p');
+        p.textContent = event.data.join(', ');
+        resultDiv.appendChild(p);
+    });
+}
+
+// メイン処理
+async function findCommonEvents() {
+    const actor1 = document.getElementById('actor1').value.trim();
+    const actor2 = document.getElementById('actor2').value.trim();
+    const mode = document.getElementById('mode').value;
+    const statusDiv = document.getElementById('status');
+    const resultDiv = document.getElementById('result');
+
+    if (!actor1) {
+        alert('アーティスト名1を入力してください');
+        return;
+    }
+
+    if (mode === 'and' && !actor2) {
+        alert('A and Bモードではアーティスト名2も入力してください');
+        return;
+    }
+
+    statusDiv.textContent = 'アーティストを検索中です...';
+    resultDiv.innerHTML = '';
+
+    const actorId1 = await fetchActorId(actor1);
+
+    if (!actorId1) {
+        alert('アーティスト名1が見つかりませんでした');
+        statusDiv.textContent = '';
+        return;
+    }
+
+    statusDiv.textContent = 'Aの出演イベントを取得中です...';
+
+    const url1 = `https://www.eventernote.com/actors/${actorId1}/events?limit=2000`;
+    const data1 = await fetchEventData(url1);
+
+    // A all
+    if (mode === 'all') {
+        statusDiv.textContent = '';
+        displayEvents(data1, resultDiv);
+        return;
+    }
+
+    // A and B
+    if (mode === 'and') {
+        statusDiv.textContent = 'Bの出演イベントを取得中です...';
+
         const actorId2 = await fetchActorId(actor2);
 
-        if (!actorId1 || !actorId2) {
-            alert('アーティスト名が見つかりませんでした');
-            statusDiv.textContent = ''; // 検索中メッセージを削除
+        if (!actorId2) {
+            alert('アーティスト名2が見つかりませんでした');
+            statusDiv.textContent = '';
             return;
         }
 
-        const url1 = `https://www.eventernote.com/actors/${actorId1}/events?limit=2000`;
         const url2 = `https://www.eventernote.com/actors/${actorId2}/events?limit=2000`;
-
-        const data1 = await fetchEventData(url1);
         const data2 = await fetchEventData(url2);
 
-        const commonEvents = data1.filter(eventData => data2.some(e => JSON.stringify(e) === JSON.stringify(eventData)));
+        statusDiv.textContent = '共通イベントを検索中です...';
 
-        // 検索完了後の処理
-        statusDiv.textContent = ''; // 検索中メッセージを削除
+        const commonEvents = data1.filter(event1 =>
+            data2.some(event2 =>
+                JSON.stringify(event1.data) === JSON.stringify(event2.data)
+            )
+        );
 
-        if (commonEvents.length > 0) {
-            commonEvents.forEach(event => {
-                const eventStr = event.join(', ');
-                const p = document.createElement('p');
-                p.textContent = eventStr;
-                resultDiv.appendChild(p);
-            });
-        } else {
-            resultDiv.textContent = "共通するイベントはありません";
-        }
+        statusDiv.textContent = '';
+        displayEvents(commonEvents, resultDiv);
+        return;
     }
 
-    document.getElementById('searchBtn').addEventListener('click', findCommonEvents);
+    // A only
+    if (mode === 'only') {
+        const onlyEvents = [];
+
+        for (let i = 0; i < data1.length; i++) {
+            statusDiv.textContent = `A only判定中です... ${i + 1} / ${data1.length}`;
+
+            if (await isAOnly(data1[i], actorId1)) {
+                onlyEvents.push(data1[i]);
+            }
+        }
+
+        statusDiv.textContent = '';
+        displayEvents(onlyEvents, resultDiv);
+    }
+}
+
+document.getElementById('searchBtn').addEventListener('click', findCommonEvents);
 </script>
 
 </body>
 </html>
+```
