@@ -13,9 +13,9 @@
 <input type="text" id="actor2" placeholder="アーティスト名2を入力">
 
 <select id="mode">
-    <option value="and">A and B</option>
-    <option value="all">A all</option>
-    <option value="only">A only</option>
+    <option value="and">共演した</option>
+    <option value="all">全ての</option>
+    <option value="only">単独の</option>
 </select>
 
 <button id="searchBtn">検索</button>
@@ -200,7 +200,7 @@ async function findCommonEvents() {
         return;
     }
 
-    statusDiv.textContent = 'Aの出演イベントを取得中です...';
+    statusDiv.textContent = '出演イベントを取得中です...';
 
     const url1 = `https://www.eventernote.com/actors/${actorId1}/events?limit=2000`;
     const data1 = await fetchEventData(url1);
@@ -214,7 +214,7 @@ async function findCommonEvents() {
 
     // A and B
     if (mode === 'and') {
-        statusDiv.textContent = 'Bの出演イベントを取得中です...';
+        statusDiv.textContent = '出演イベントを取得中です...';
 
         const actorId2 = await fetchActorId(actor2);
 
@@ -245,7 +245,7 @@ async function findCommonEvents() {
         const onlyEvents = [];
 
         for (let i = 0; i < data1.length; i++) {
-            statusDiv.textContent = `A only判定中です... ${i + 1} / ${data1.length}`;
+            statusDiv.textContent = `判定中です... ${i + 1} / ${data1.length}`;
 
             if (await isAOnly(data1[i], actorId1)) {
                 onlyEvents.push(data1[i]);
