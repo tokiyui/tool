@@ -2,18 +2,37 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>各国モデル安定度比較(@東京、400/500/700hPa：飽和相当温位、850/925hPa：温位)</title>
+<title>各国モデル安定度比較</title>
 <style>
-table { border-collapse: collapse; width: 100%; margin-bottom: 40px; }
-th, td { border: 1px solid #999; padding: 5px; text-align: center; }
-th { background-color: #eee; }
-.green { background-color: #9f9; }
-td { width: 4%; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 40px;
+}
+
+th, td {
+  border: 1px solid #999;
+  padding: 5px;
+  text-align: center;
+}
+
+th {
+  background-color: #eee;
+}
+
+.bold {
+  font-weight: bold;
+}
+
+td {
+  width: 4%;
+}
 </style>
 </head>
 <body>
 
-<h1>気象モデル比較表</h1>
+<h1>各国モデル安定度比較(@東京、400/500/700hPa：飽和相当温位、850/925hPa：相当温位)</h1>
+
 <div id="tables"></div>
 
 <script>
@@ -31,47 +50,68 @@ const hPaLevels = ["400", "500", "700", "850", "925"];
 const latitude = 35.75;
 const longitude = 139.75;
 
-// 表示時刻：03, 06, ... 21, 00
 const hours = Array.from({length: 24}, (_, i) =>
   ((3 + i * 3) % 24).toString().padStart(2, "0")
 );
 
 // 飽和水蒸気圧 [hPa]
 function saturationVaporPressure(T) {
-  return 6.112 * Math.exp(17.67 * (T - 273.15) / (T - 29.65));
+  return 6.112 * Math.exp(
+    17.67 * (T - 273.15) / (T - 29.65)
+  );
 }
 
-// 相当温位 θe [K]（Bolton式）
+// 相当温位 θe [K]
 function equivalentPotentialTemperature(T, P, RH) {
   const Rd_Cpd = 0.2854;
   const epsilon = 0.622;
+
   const es = saturationVaporPressure(T);
   const e = es * RH / 100;
   const x = epsilon * e / (P - e);
 
-  if (!Number.isFinite(x) || P - e <= 0 || e <= 0) return NaN;
+  if (!Number.isFinite(x) || P - e <= 0 || e <= 0) {
+    return NaN;
+  }
 
   const lnRatio = Math.log(e / 6.112);
-  const Td = 243.5 * lnRatio / (17.67 - lnRatio) + 273.15;
-  const TLCL = 1 / (1 / (Td - 56) - Math.log(T / Td) / 800) + 56;
+  const Td =
+    243.5 * lnRatio / (17.67 - lnRatio) + 273.15;
+
+  const TLCL =
+    1 / (
+      1 / (Td - 56) -
+      Math.log(T / Td) / 800
+    ) + 56;
 
   return T *
     Math.pow(1000 / (P - e), Rd_Cpd) *
-    Math.exp((3036 / TLCL - 1.78) * x * (1 + 0.448 * x));
+    Math.exp(
+      (3036 / TLCL - 1.78) *
+      x *
+      (1 + 0.448 * x)
+    );
 }
 
 // 飽和相当温位 θe* [K]
 function saturationEquivalentPotentialTemperature(T, P) {
   const Rd_Cpd = 0.2854;
   const epsilon = 0.622;
+
   const es = saturationVaporPressure(T);
   const x = epsilon * es / (P - es);
 
-  if (!Number.isFinite(x) || P - es <= 0) return NaN;
+  if (!Number.isFinite(x) || P - es <= 0) {
+    return NaN;
+  }
 
   return T *
     Math.pow(1000 / (P - es), Rd_Cpd) *
-    Math.exp((3036 / T - 1.78) * x * (1 + 0.448 * x));
+    Math.exp(
+      (3036 / T - 1.78) *
+      x *
+      (1 + 0.448 * x)
+    );
 }
 
 // 3時間降水量
@@ -79,6 +119,50 @@ function sumPrecipitation(hourIndex, precipitation) {
   return precipitation
     .slice(hourIndex - 2, hourIndex + 1)
     .reduce((a, b) => a + (b ?? 0), 0);
+}
+
+// 表示値に対応する色
+function thetaColor(value) {
+  const points = [
+    { value: 282, color: [28, 63, 117] },
+    { value: 300, color: [6, 143, 185] },
+    { value: 318, color: [241, 226, 53] },
+    { value: 336, color: [214, 78, 139] },
+    { value: 354, color: [115, 14, 34] }
+  ];
+
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  if (value <= points[0].value) {
+    return `rgb(${points[0].color.join(",")})`;
+  }
+
+  if (value >= points[points.length - 1].value) {
+    return `rgb(${points[points.length - 1].color.join(",")})`;
+  }
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+
+    if (value <= p2.value) {
+      const ratio =
+        (value - p1.value) /
+        (p2.value - p1.value);
+
+      const color = p1.color.map((c, j) =>
+        Math.round(
+          c + (p2.color[j] - c) * ratio
+        )
+      );
+
+      return `rgb(${color.join(",")})`;
+    }
+  }
+
+  return "";
 }
 
 async function createTables() {
@@ -104,7 +188,6 @@ async function createTables() {
     const data = await res.json();
 
     if (!res.ok || data.error) {
-      console.error(model, data.reason || res.statusText);
       continue;
     }
 
@@ -143,8 +226,13 @@ async function createTables() {
 
       hours.forEach((h, i) => {
         const hourIndex = 3 + i * 3;
-        const T_C = hourly[`temperature_${level}hPa`][hourIndex];
-        const RH = hourly[`relative_humidity_${level}hPa`][hourIndex];
+
+        const T_C =
+          hourly[`temperature_${level}hPa`][hourIndex];
+
+        const RH =
+          hourly[`relative_humidity_${level}hPa`][hourIndex];
+
         const td = document.createElement("td");
 
         if (!Number.isFinite(T_C) || !Number.isFinite(RH)) {
@@ -162,14 +250,19 @@ async function createTables() {
         const thetaE =
           equivalentPotentialTemperature(T, P, RH);
 
-        // 400/500/700hPaはθe*、850/925hPaはθeを表示
         const value =
           ["400", "500", "700"].includes(level)
             ? thetaES
             : thetaE;
 
         td.textContent =
-          Number.isFinite(value) ? Math.round(value) : "NaN";
+          Number.isFinite(value)
+            ? Math.round(value)
+            : "NaN";
+
+        if (Number.isFinite(value)) {
+          td.style.color = thetaColor(value);
+        }
 
         tr.appendChild(td);
       });
@@ -179,13 +272,19 @@ async function createTables() {
 
     // 3時間降水量
     const trP = document.createElement("tr");
+
     const tdP = document.createElement("td");
     tdP.textContent = "3時間降水量";
     trP.appendChild(tdP);
 
     hours.forEach((h, i) => {
       const hourIndex = 3 + i * 3;
-      const sum = sumPrecipitation(hourIndex, hourly.precipitation);
+      const sum =
+        sumPrecipitation(
+          hourIndex,
+          hourly.precipitation
+        );
+
       const td = document.createElement("td");
       td.textContent = sum.toFixed(1);
       trP.appendChild(td);
@@ -194,16 +293,29 @@ async function createTables() {
     tbody.appendChild(trP);
     table.appendChild(tbody);
 
-    // θe* − θe <= 3K のセルを緑色にする
+    // θe* − θe <= 3K のセルを太字にする
     for (let timeIndex = 0; timeIndex < hours.length; timeIndex++) {
       const hourIndex = 3 + timeIndex * 3;
 
-      for (let levelIndex = 0; levelIndex < hPaLevels.length; levelIndex++) {
+      for (
+        let levelIndex = 0;
+        levelIndex < hPaLevels.length;
+        levelIndex++
+      ) {
         const level = hPaLevels[levelIndex];
-        const T_C = hourly[`temperature_${level}hPa`][hourIndex];
-        const RH = hourly[`relative_humidity_${level}hPa`][hourIndex];
 
-        if (!Number.isFinite(T_C) || !Number.isFinite(RH)) continue;
+        const T_C =
+          hourly[`temperature_${level}hPa`][hourIndex];
+
+        const RH =
+          hourly[`relative_humidity_${level}hPa`][hourIndex];
+
+        if (
+          !Number.isFinite(T_C) ||
+          !Number.isFinite(RH)
+        ) {
+          continue;
+        }
 
         const T = T_C + 273.15;
         const P = Number(level);
@@ -216,10 +328,13 @@ async function createTables() {
 
         const difference = thetaES - thetaE;
 
-        if (Number.isFinite(difference) && difference <= 3.0) {
+        if (
+          Number.isFinite(difference) &&
+          difference <= 3.0
+        ) {
           tbody.rows[levelIndex]
             .cells[timeIndex + 1]
-            .classList.add("green");
+            .classList.add("bold");
         }
       }
     }
