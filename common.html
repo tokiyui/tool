@@ -44,7 +44,11 @@ async function fetchActorId(actorName) {
         if (link.textContent.trim().includes(actorName)) {
             const actorUrl = link.getAttribute('href');
             if (!actorUrl) continue;
-            return actorUrl.split('/').pop();
+
+            const match = actorUrl.match(/\/actors\/(?:[^/]+\/)?(\d+)\/?$/);
+            if (match) return match[1];
+
+            return actorUrl.split('/').filter(Boolean).pop();
         }
     }
 
@@ -65,7 +69,15 @@ async function fetchEventData(url) {
 
         if (!dateElem) {
             data.push({
-                data: ['Date information not available', '', '', '', '', 'Title not available', 'Venue not available'],
+                data: [
+                    'Date information not available',
+                    '',
+                    '',
+                    '',
+                    '',
+                    'Title not available',
+                    'Venue not available'
+                ],
                 url: null
             });
             return;
@@ -115,7 +127,7 @@ async function fetchEventData(url) {
     return data;
 }
 
-// イベント詳細ページから出演者を取得
+// 「出演者」欄だけから出演者IDを取得
 async function fetchEventActors(eventUrl) {
     if (!eventUrl) return null;
 
@@ -127,58 +139,67 @@ async function fetchEventActors(eventUrl) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
 
-    // 「出演者」という文字を持つ要素を探す
-    const elements = [...doc.querySelectorAll('*')];
-    const performerLabel = elements.find(
-        el => el.children.length === 0 &&
-              el.textContent.trim() === '出演者'
-    );
+    let performerContainer = null;
 
-    if (!performerLabel) return null;
-
-    /*
-     * 「出演者」の親要素を起点に出演者リンクを探す。
-     * Eventernoteでは出演者欄が
-     *
-     * 出演者
-     *   ・A
-     *   ・B
-     *   ・C
-     *
-     * のような構造になっているため、
-     * まず近い親要素を調べる。
-     */
-    let container = performerLabel.parentElement;
-
-    for (let i = 0; i < 3 && container; i++) {
-        const actorLinks = container.querySelectorAll('a[href*="/actors/"]');
-
-        if (actorLinks.length > 0) {
-            const actorIds = [];
-
-            actorLinks.forEach(link => {
-                const href = link.getAttribute('href');
-                const match = href && href.match(/\/actors\/(\d+)/);
-
-                if (match) {
-                    actorIds.push(match[1]);
-                }
-            });
-
-            return [...new Set(actorIds)];
+    // まず dt → dd の構造を探す
+    for (const dt of doc.querySelectorAll('dt')) {
+        if (dt.textContent.trim() === '出演者') {
+            performerContainer = dt.nextElementSibling;
+            break;
         }
-
-        container = container.parentElement;
     }
 
-    return [];
+    // 次に th → td の構造を探す
+    if (!performerContainer) {
+        for (const th of doc.querySelectorAll('th')) {
+            if (th.textContent.trim() === '出演者') {
+                performerContainer = th.nextElementSibling;
+                break;
+            }
+        }
+    }
+
+    // 最後に「出演者」という文字を持つ要素から次の兄弟を探す
+    if (!performerContainer) {
+        for (const element of doc.querySelectorAll('body *')) {
+            if (
+                element.children.length === 0 &&
+                element.textContent.trim() === '出演者'
+            ) {
+                performerContainer = element.nextElementSibling;
+                if (performerContainer) break;
+            }
+        }
+    }
+
+    if (!performerContainer) {
+        console.warn('出演者欄が見つかりません:', eventUrl);
+        return null;
+    }
+
+    const actorIds = [];
+
+    performerContainer
+        .querySelectorAll('a[href*="/actors/"]')
+        .forEach(link => {
+            const href = link.getAttribute('href');
+            if (!href) return;
+
+            const match = href.match(/\/actors\/(?:[^/]+\/)?(\d+)\/?$/);
+
+            if (match) {
+                actorIds.push(match[1]);
+            }
+        });
+
+    return [...new Set(actorIds)];
 }
 
-// A単独イベント判定
+// Aだけが出演しているか判定
 async function isAOnly(event, actorId1) {
     const actorIds = await fetchEventActors(event.url);
 
-    if (actorIds === null || actorIds.length === 0) {
+    if (actorIds === null) {
         return false;
     }
 
@@ -264,7 +285,8 @@ async function findCommonEvents() {
 
         const commonEvents = data1.filter(event1 =>
             data2.some(event2 =>
-                JSON.stringify(event1.data) === JSON.stringify(event2.data)
+                JSON.stringify(event1.data) ===
+                JSON.stringify(event2.data)
             )
         );
 
