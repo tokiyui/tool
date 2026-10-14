@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Nitter 投稿一括保存ツール</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px; background-color: #f4f6f8; color: #333; }
+        .controls { position: sticky; top: 0; background: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; z-index: 100; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        input, select, button { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #1da1f2; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #0d8ddb; }
+        button.save-btn { background-color: #17bf63; }
+        button.save-btn:hover { background-color: #129d51; }
+        #status { font-weight: bold; margin-left: 10px; color: #555; }
+        .tweet-card { background: white; border: 1px solid #e1e8ed; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+        .tweet-header { font-size: 12px; color: #657786; margin-bottom: 6px; }
+        .tweet-text { font-size: 14px; line-height: 1.4; whitespace: pre-wrap; }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <label>インスタンス:</label>
+    <select id="instanceSelect">
+        <option value="https://nitter.netbub.com">nitter.netbub.com (USA)</option>
+        <option value="https://shitter.thepixora.com">shitter.thepixora.com (CAN)</option>
+        <option value="https://nitter.meowing.monster">nitter.meowing.monster (MDA)</option>
+        <option value="https://nitter.pp.ua">nitter.pp.ua (CAN)</option>
+        <option value="https://nitter.miningtcup.me">nitter.miningtcup.me (USA)</option>
+    </select>
+    
+    <label>ユーザーID:</label>
+    <input type="text" id="usernameInput" value="sendenbu_staff" placeholder="例: sendenbu_staff">
+    
+    <button onclick="loadTweets()">読み込み・追加</button>
+    <button class="save-btn" onclick="exportToCSV()">蓄積データをCSV保存</button>
+    
+    <span id="status">蓄積数: 0 件</span>
+</div>
+
+<div id="tweetContainer"></div>
+
+<script>
+let accumulatedTweets = new Map(); // 重複排除用のデータ格納用マップ
+
+async function loadTweets() {
+    const instance = document.getElementById('instanceSelect').value;
+    const username = document.getElementById('usernameInput').value.trim();
+    const statusEl = document.getElementById('status');
+    const container = document.getElementById('tweetContainer');
+
+    if (!username) {
+        alert('ユーザーIDを入力してください');
+        return;
+    }
+
+    statusEl.innerText = '取得中...';
+
+    // CORS回避のためのプロキシ経由取得
+    const targetUrl = `${instance}/${username}`;
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
+    try {
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error('通信エラー');
+        const data = await response.json();
+        
+        if (!data.contents) {
+            throw new Error('データが空です');
+        }
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(data.contents, 'text/html');
+        const items = doc.querySelectorAll('.timeline-item, .tweet-body');
+
+        let newCount = 0;
+
+        items.forEach(item => {
+            const textEl = item.querySelector('.tweet-content, .tweet-text');
+            const linkEl = item.querySelector('.tweet-date a');
+
+            if (textEl && linkEl) {
+                const text = textEl.innerText.trim();
+                const link = linkEl.getAttribute('href');
+                const tweetId = link.split('/status/')[1] ? link.split('/status/')[1].split('#')[0] : '';
+                const fullUrl = link.startsWith('http') ? link : `https://x.com${link}`;
+
+                if (tweetId && !accumulatedTweets.has(tweetId)) {
+                    accumulatedTweets.set(tweetId, { id: tweetId, url: fullUrl, text: text });
+                    newCount++;
+
+                    // 画面描画
+                    const card = document.createElement('div');
+                    card.className = 'tweet-card';
+                    card.innerHTML = `
+                        <div class="tweet-header">ID: ${tweetId} | <a href="${fullUrl}" target="_blank">元の投稿</a></div>
+                        <div class="tweet-text">${escapeHtml(text)}</div>
+                    `;
+                    container.appendChild(card);
+                }
+            }
+        });
+
+        statusEl.innerText = `蓄積数: ${accumulatedTweets.size} 件 (今回 +${newCount} 件)`;
+
+    } catch (err) {
+        console.error(err);
+        statusEl.innerText = '取得失敗（別のインスタンスを試してください）';
+    }
+}
+
+function exportToCSV() {
+    if (accumulatedTweets.size === 0) {
+        alert('保存するデータがありません。先に読み込みを実行してください。');
+        return;
+    }
+
+    let csvContent = "\uFEFFTweet_ID,URL,Text\n";
+
+    accumulatedTweets.forEach(tweet => {
+        const cleanText = tweet.text.replace(/\n/g, ' ').replace(/"/g, '""');
+        csvContent += `"${tweet.id}","${tweet.url}","${cleanText}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nitter_tweets_${document.getElementById('usernameInput').value}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+</script>
+
+</body>
+</html>
