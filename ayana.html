@@ -390,7 +390,7 @@ const PRODUCT   = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";
 const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
 const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
-const OBS_HOURS = 6;    // 現在から何時間以内の観測を描くか(NRTは数時間遅れる)
+const OBS_HOURS = 24;    // 現在から何時間以内の観測を描くか(NRTは数時間遅れる)
 const THIN      = 3;     // 点の間引き(3なら3点に1点)
 
 // ---------- UI ----------
@@ -521,12 +521,11 @@ function parseNC3(buf) {
 
 const UNIT_MS = { seconds:1e3, minutes:6e4, hours:36e5, days:864e5 };
 
-function readNc(buf) {
-  const nc = parseNC3(buf);
-  const nm = c => c.find(n => nc.names.includes(n));
-  const t = nc.get(nm(["time", "TIME"])), la = nc.get(nm(["latitude", "LATITUDE", "lat"])),
-        lo = nc.get(nm(["longitude", "LONGITUDE", "lon"])), h = nc.get(nm(["VAVH", "swh", "SWH"]));
-  if (!t || !la || !lo || !h) throw new Error("必要な変数なし: " + nc.names.join(","));
+function toPoints(names, get) {
+  const nm = c => c.find(n => names.includes(n));
+  const t = get(nm(["time", "TIME"])), la = get(nm(["latitude", "LATITUDE", "lat"])),
+        lo = get(nm(["longitude", "LONGITUDE", "lon"])), h = get(nm(["VAVH", "swh", "SWH"]));
+  if (!t || !la || !lo || !h) throw new Error("必要な変数なし: " + names.join(","));
   const m = /(seconds|minutes|hours|days)\s+since\s+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(t.units);
   if (!m) throw new Error("時刻単位を解釈できない: " + t.units);
   const base = Date.parse(`${m[2]}T${m[3] || "00:00:00"}Z`);
@@ -536,6 +535,57 @@ function readNc(buf) {
     lon: lo.v[i] > 180 ? lo.v[i] - 360 : lo.v[i],
     swh: h.v[i]
   }));
+}
+
+// NetCDF4(HDF5)は h5wasm、NetCDF3は自前パーサで読む
+let h5mod = null;
+async function readHdf5(buf) {
+  h5mod ??= (await import("https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js")).default;
+  const { FS } = await h5mod.ready;
+  const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
+  FS.writeFile(name, new Uint8Array(buf));
+  const f = new h5mod.File(name, "r");
+  try {
+    const get = n => {
+      const d = n && f.get(n);
+      if (!d) return null;
+      const a = d.attrs || {};
+      const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
+      const fill = a._FillValue?.value;
+      const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
+      const v = Array.from(d.value, x => {
+        const y = Number(x);
+        return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
+      });
+      return { v, units: String(a.units?.value ?? "") };
+    };
+    return toPoints(f.keys(), get);
+  } finally {
+    f.close(); FS.unlink(name);
+  }
+}
+
+async function readNc(buf) {
+  const b = new Uint8Array(buf, 0, 8);
+  if (b[0] === 0x89 && b[1] === 0x48 && b[2] === 0x44 && b[3] === 0x46) return readHdf5(buf);   // \x89HDF
+  if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return toPoints(nc.names, nc.get); }
+  if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
+    throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
+  throw new Error("未知のファイル形式");
+}
+
+// バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
+let directOK = null;
+async function fetchBin(url) {
+  if (directOK !== false) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) { directOK = true; return await r.arrayBuffer(); }
+    } catch { directOK = false; console.log("S3直接取得不可(CORS)。Worker経由に切替"); }
+  }
+  const r = await viaProxy(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.arrayBuffer();
 }
 
 // ---------- 衛星ごとの処理 ----------
@@ -565,11 +615,8 @@ async function loadSat(sat, folders) {
 
   for (const f of files) {
     try {
-      const buf = await viaProxy(`${S3}/${f.key}`).then(r => {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.arrayBuffer();
-      });
-      const pts = readNc(buf);
+      const buf = await fetchBin(`${S3}/${f.key}`);
+      const pts = await readNc(buf);
       pts.forEach((p, i) => {
         if (i % THIN) return;
         if (!(p.swh >= 0 && p.swh < 30)) return;
