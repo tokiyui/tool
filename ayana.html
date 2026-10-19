@@ -386,7 +386,8 @@ fetchAll();
 import h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js";
 
 // ---------- 設定 ----------
-const S3        = "https://s3.waw3-1.cloudferro.com/mdl-native-14";
+const S3_HOST   = "https://s3.waw3-1.cloudferro.com";
+let   S3        = null;   // バケットは自動検出
 const PRODUCT   = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";
 const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
@@ -424,6 +425,32 @@ async function listS3(params) {
       ? doc.querySelector("NextContinuationToken")?.textContent : null;
   } while (token);
   return { prefixes, objects };
+}
+
+// ---------- バケット自動検出 ----------
+async function findBucket() {
+  const cands = ["mdl-native",
+    ...Array.from({length:9}, (_,i) => `mdl-native-0${i+1}`),
+    ...Array.from({length:30}, (_,i) => `mdl-native-${i+1}`)];
+  const cached = localStorage.getItem("cmemsBucket");
+  if (cached) cands.unshift(cached);
+  const samples = {};
+  const q = new URLSearchParams({ "list-type":"2", prefix:PRODUCT, delimiter:"/", "max-keys":"50" });
+  const res = await Promise.all(cands.map(async b => {
+    try {
+      const xml = await viaProxy(`${S3_HOST}/${b}?${q}`).then(r => r.text());
+      samples[b] = xml.slice(0, 150);
+      return xml.includes("<CommonPrefixes>") ? b : null;
+    } catch (e) { samples[b] = String(e); return null; }
+  }));
+  const hit = res.find(Boolean);
+  if (!hit) {
+    console.error("バケット検出失敗。応答サンプル:", samples);
+    return null;
+  }
+  try { localStorage.setItem("cmemsBucket", hit); } catch {}
+  console.log("バケット:", hit);
+  return `${S3_HOST}/${hit}`;
 }
 
 // ---------- NetCDF(HDF5)読み取り ----------
@@ -513,8 +540,10 @@ async function loadSat(sat, folders) {
 
 (async () => {
   try {
+    S3 = await findBucket();
+    if (!S3) throw new Error("該当バケットが見つからない(コンソールの応答サンプルを確認)");
     const { prefixes } = await listS3({ prefix: PRODUCT, delimiter: "/" });
-    if (!prefixes.length) throw new Error("データセット一覧が空(プロキシ/パスを確認)");
+    if (!prefixes.length) throw new Error("データセット一覧が空");
     await Promise.allSettled(Object.keys(SATS).map(s => loadSat(s, prefixes)));
     setStatus(`衛星波高: ${total} 点`);
   } catch (e) {
