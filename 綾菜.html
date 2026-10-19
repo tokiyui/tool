@@ -697,7 +697,7 @@ async function runScat(base) {
       if (!f) { console.log(`[${id}-${pass}] 直近のファイルなし`); return []; }
       console.log(`[${id}-${pass}]`, f.key);
       try {
-        const pts = readScat(await fetchBin(`${base}/${f.key}`));
+        const pts = await readScat(await fetchBin(`${base}/${f.key}`));
         return pts.map(p => ({ ...p, label: `${label} ${pass === "asc" ? "(昇交点)" : "(降交点)"}`,
                                file: f.key.split("/").pop() }));
       } catch (e) { console.warn(`[${id}-${pass}] 失敗:`, e); return []; }
