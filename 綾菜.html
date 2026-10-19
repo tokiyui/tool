@@ -381,37 +381,50 @@ fetchAll();
 
 </script>
 
-<!-- ===== 衛星高度計SWH(CMEMS native files / 匿名S3。NetCDF3を自前で解析) ===== -->
+<!-- ===== 衛星観測(波高・風) CMEMS native files(匿名S3) ===== -->
 <script type="module">
 // ---------- 設定 ----------
 const S3_HOST   = "https://s3.waw3-1.cloudferro.com";
-let   S3        = null;   // バケットは自動検出(確認済み: mdl-native-05)
-const PRODUCT   = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";
+const PRODUCT_W = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";   // 高度計: 波高(軌道データ)
+const PRODUCT_N = "native/WIND_GLO_PHY_L3_NRT_012_002/";       // 散乱計: 風向風速(日別格子)
 const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
+const SCATS     = [ ["metopb-ascat","ASCAT Metop-B"], ["metopc-ascat","ASCAT Metop-C"],
+                    ["hy2b-hscat","HY-2B HSCAT"], ["oceansat3-oscat","Oceansat-3 OSCAT"] ];
 const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
-const OBS_HOURS = 9;    // 現在から何時間以内の観測を描くか(NRTは数時間遅れる)
-const THIN      = 1;     // 点の間引き(3なら3点に1点)
+const OBS_HOURS = 24;    // 高度計: 現在から何時間以内の観測を描くか
+const THIN      = 3;     // 高度計: 点の間引き(3なら3点に1点)
+const SCAT_HOURS = 36;   // 散乱計: S3上の更新が何時間以内のファイルを使うか
+const SCAT_STEP  = 8;    // 散乱計: 格子の間引き(0.25°×8 = 約2°ごとに矢印1本)
 
 // ---------- UI ----------
-const satLayer = L.layerGroup().addTo(map);
-L.control.layers(null, { "衛星波高": satLayer }, { position:"topright" }).addTo(map);
+const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
+const scatLayer    = L.layerGroup().addTo(map);   // 散乱計 風(矢印)
+L.control.layers(null, {
+  "衛星 波高(高度計)": satLayer,
+  "衛星 風向風速(散乱計・矢印)": scatLayer
+}, { position:"topright" }).addTo(map);
 const status = L.control({ position:"bottomleft" });
-status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; d.textContent="衛星波高: 読込中…"; return d; };
+status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; return d; };
 status.addTo(map);
-const setStatus = t => { document.getElementById("sat-status").textContent = t; };
+const cnt = { wave:0, scat:0, note:"読込中…" };
+const setStatus = () => {
+  document.getElementById("sat-status").innerHTML =
+    `衛星 波高 ${cnt.wave}点 / 衛星風(散乱計) ${cnt.scat}本<br><small>${cnt.note}</small>`;
+};
+setStatus();
 document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
-  '<div style="clear:both;margin-top:4px">黒縁の小さい丸＝衛星高度計</div>');
+  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>黒縁の矢印＝衛星風(散乱計)</div>');
 
 // ---------- S3アクセス(既存のproxy経由) ----------
 const viaProxy = url => fetch(proxy + encodeURIComponent(url));
 
-async function listS3(params) {
+async function listS3(base, params) {
   let token = null; const prefixes = [], objects = [];
   do {
     const q = new URLSearchParams({ "list-type":"2", ...params });
     if (token) q.set("continuation-token", token);
-    const xml = await viaProxy(`${S3}?${q}`).then(r => r.text());
+    const xml = await viaProxy(`${base}?${q}`).then(r => r.text());
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     doc.querySelectorAll("CommonPrefixes > Prefix").forEach(e => prefixes.push(e.textContent));
     doc.querySelectorAll("Contents").forEach(c => objects.push({
@@ -424,33 +437,41 @@ async function listS3(params) {
   return { prefixes, objects };
 }
 
-// ---------- バケット自動検出 ----------
-async function findBucket() {
-  const cands = ["mdl-native-05", "mdl-native",
+// 製品ごとにバケットを自動検出(結果はブラウザに保存)
+async function findBase(product) {
+  const ck = "cmemsBucket:" + product;
+  const cands = [...new Set([localStorage.getItem(ck), "mdl-native-05", "mdl-native",
     ...Array.from({length:9}, (_,i) => `mdl-native-0${i+1}`),
-    ...Array.from({length:30}, (_,i) => `mdl-native-${i+1}`)];
-  const cached = localStorage.getItem("cmemsBucket");
-  if (cached) cands.unshift(cached);
-  const samples = {};
-  const q = new URLSearchParams({ "list-type":"2", prefix:PRODUCT, delimiter:"/", "max-keys":"50" });
-  // 先頭候補(キャッシュ/確認済み)から順に1つずつ試す。ダメなら残りを並行で試す
-  for (const b of cands.slice(0, 2)) {
+    ...Array.from({length:30}, (_,i) => `mdl-native-${i+1}`)].filter(Boolean))];
+  const q = new URLSearchParams({ "list-type":"2", prefix:product, delimiter:"/", "max-keys":"50" });
+  const probe = async b => {
     try {
       const xml = await viaProxy(`${S3_HOST}/${b}?${q}`).then(r => r.text());
-      if (xml.includes("<CommonPrefixes>")) { try { localStorage.setItem("cmemsBucket", b); } catch {} return `${S3_HOST}/${b}`; }
-    } catch {}
-  }
-  const res = await Promise.all(cands.slice(2).map(async b => {
-    try {
-      const xml = await viaProxy(`${S3_HOST}/${b}?${q}`).then(r => r.text());
-      samples[b] = xml.slice(0, 150);
       return xml.includes("<CommonPrefixes>") ? b : null;
-    } catch (e) { samples[b] = String(e); return null; }
-  }));
+    } catch { return null; }
+  };
+  for (const b of cands.slice(0, 2)) {
+    if (await probe(b)) { try { localStorage.setItem(ck, b); } catch {} return `${S3_HOST}/${b}`; }
+  }
+  const res = await Promise.all(cands.slice(2).map(probe));
   const hit = res.find(Boolean);
-  if (!hit) { console.error("バケット検出失敗。応答サンプル:", samples); return null; }
-  try { localStorage.setItem("cmemsBucket", hit); } catch {}
+  if (!hit) { console.error("バケット検出失敗:", product); return null; }
+  try { localStorage.setItem(ck, hit); } catch {}
   return `${S3_HOST}/${hit}`;
+}
+
+// バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
+let directOK = null;
+async function fetchBin(url) {
+  if (directOK !== false) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) { directOK = true; return await r.arrayBuffer(); }
+    } catch { directOK = false; console.log("S3直接取得不可(CORS)。Worker経由に切替"); }
+  }
+  const r = await viaProxy(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.arrayBuffer();
 }
 
 // ---------- NetCDF3(classic / 64bit offset)パーサ ----------
@@ -478,13 +499,10 @@ function parseNC3(buf) {
     for (let k = 0; k < n; k++) { const name = str(), t = i32(), c = i32(); a[name] = vals(t, c); }
     return a;
   };
-
   let numrecs = i32();
-  // 次元
   let tag = i32(), n = i32(); const dims = [];
   if (tag !== 0) for (let k = 0; k < n; k++) dims.push({ name: str(), size: i32() });
-  attrs(); // グローバル属性は読み飛ばし
-  // 変数
+  attrs();
   tag = i32(); n = i32(); const vars = [];
   if (tag !== 0) for (let k = 0; k < n; k++) {
     const name = str(), nd = i32(), dimids = [];
@@ -513,15 +531,50 @@ function parseNC3(buf) {
     const sf = v.attrs.scale_factor?.[0] ?? 1, off = v.attrs.add_offset?.[0] ?? 0, fill = v.attrs._FillValue?.[0];
     return {
       v: out.map(x => (fill !== undefined && x === fill) || Math.abs(x) > 1e30 ? NaN : x * sf + off),
-      units: typeof v.attrs.units === "string" ? v.attrs.units : ""
+      units: typeof v.attrs.units === "string" ? v.attrs.units : "",
+      shape: v.dimids.map((d, i) => (i === 0 && rec) ? numrecs : dims[d].size)
     };
   };
   return { names, get };
 }
 
+// ---------- NetCDF読み取り(HDF5はh5wasm、NetCDF3は自前) ----------
+let h5mod = null;
+async function withNc(buf, fn) {
+  const b = new Uint8Array(buf, 0, 8);
+  if (b[0] === 0x89 && b[1] === 0x48 && b[2] === 0x44 && b[3] === 0x46) {      // \x89HDF
+    h5mod ??= (await import("https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js")).default;
+    const { FS } = await h5mod.ready;
+    const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
+    FS.writeFile(name, new Uint8Array(buf));
+    const f = new h5mod.File(name, "r");
+    try {
+      const get = n => {
+        const d = n && f.get(n);
+        if (!d) return null;
+        const a = d.attrs || {};
+        const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
+        const fill = a._FillValue?.value;
+        const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
+        const v = Array.from(d.value, x => {
+          const y = Number(x);
+          return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
+        });
+        return { v, units: String(a.units?.value ?? ""), shape: d.shape };
+      };
+      return fn(f.keys(), get);
+    } finally { f.close(); FS.unlink(name); }
+  }
+  if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return fn(nc.names, nc.get); }
+  if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
+    throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
+  throw new Error("未知のファイル形式");
+}
+
 const UNIT_MS = { seconds:1e3, minutes:6e4, hours:36e5, days:864e5 };
 
-function toPoints(names, get) {
+// 高度計(軌道データ): 時刻・緯度・経度・波高
+const readTrack = buf => withNc(buf, (names, get) => {
   const nm = c => c.find(n => names.includes(n));
   const t = get(nm(["time", "TIME"])), la = get(nm(["latitude", "LATITUDE", "lat"])),
         lo = get(nm(["longitude", "LONGITUDE", "lon"])), h = get(nm(["VAVH", "swh", "SWH"]));
@@ -535,74 +588,50 @@ function toPoints(names, get) {
     lon: lo.v[i] > 180 ? lo.v[i] - 360 : lo.v[i],
     swh: h.v[i]
   }));
-}
+});
 
-// NetCDF4(HDF5)は h5wasm、NetCDF3は自前パーサで読む
-let h5mod = null;
-async function readHdf5(buf) {
-  h5mod ??= (await import("https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js")).default;
-  const { FS } = await h5mod.ready;
-  const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
-  FS.writeFile(name, new Uint8Array(buf));
-  const f = new h5mod.File(name, "r");
-  try {
-    const get = n => {
-      const d = n && f.get(n);
-      if (!d) return null;
-      const a = d.attrs || {};
-      const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
-      const fill = a._FillValue?.value;
-      const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
-      const v = Array.from(d.value, x => {
-        const y = Number(x);
-        return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
-      });
-      return { v, units: String(a.units?.value ?? "") };
-    };
-    return toPoints(f.keys(), get);
-  } finally {
-    f.close(); FS.unlink(name);
+// 散乱計(日別格子): 間引きつつ領域内の風向風速を取り出す
+const readScat = buf => withNc(buf, (names, get) => {
+  const nm = c => c.find(n => names.includes(n));
+  const lat = get(nm(["latitude", "lat"])), lon = get(nm(["longitude", "lon"])),
+        sp = get(nm(["wind_speed"])), dr = get(nm(["wind_to_dir"])),
+        u = get(nm(["eastward_wind"])), v = get(nm(["northward_wind"]));
+  if (!lat || !lon || !sp) throw new Error("必要な変数なし: " + names.join(","));
+  const nlat = lat.v.length, nlon = lon.v.length;
+  if (sp.v.length < nlat * nlon) throw new Error("格子サイズが合わない: " + sp.shape);
+  const seen = new Set(), out = [];
+  for (let i = 0; i < nlat; i++) {
+    const la = lat.v[i];
+    if (la < AREA.latMin || la > AREA.latMax) continue;
+    for (let j = 0; j < nlon; j++) {
+      const lo = lon.v[j] > 180 ? lon.v[j] - 360 : lon.v[j];
+      if (lo < AREA.lonMin || lo > AREA.lonMax) continue;
+      const key = ((i / SCAT_STEP) | 0) + "," + ((j / SCAT_STEP) | 0);
+      if (seen.has(key)) continue;
+      const idx = i * nlon + j, s = sp.v[idx];
+      if (!(s >= 0 && s < 100)) continue;
+      let d = dr ? dr.v[idx] : NaN;
+      if (!(d >= 0) && u && v) d = (Math.atan2(u.v[idx], v.v[idx]) * 180 / Math.PI + 360) % 360;
+      if (!Number.isFinite(d)) continue;
+      seen.add(key);
+      out.push({ lat: la, lon: lo, speed: s, dir: d });   // dir = 風が吹いていく向き
+    }
   }
-}
+  return out;
+});
 
-async function readNc(buf) {
-  const b = new Uint8Array(buf, 0, 8);
-  if (b[0] === 0x89 && b[1] === 0x48 && b[2] === 0x44 && b[3] === 0x46) return readHdf5(buf);   // \x89HDF
-  if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return toPoints(nc.names, nc.get); }
-  if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
-    throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
-  throw new Error("未知のファイル形式");
-}
-
-// バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
-let directOK = null;
-async function fetchBin(url) {
-  if (directOK !== false) {
-    try {
-      const r = await fetch(url);
-      if (r.ok) { directOK = true; return await r.arrayBuffer(); }
-    } catch { directOK = false; console.log("S3直接取得不可(CORS)。Worker経由に切替"); }
-  }
-  const r = await viaProxy(url);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.arrayBuffer();
-}
-
-// ---------- 衛星ごとの処理 ----------
+// ---------- 高度計(波高) ----------
 const renderer = L.canvas({ padding: 0.5 });
-let total = 0;
 const parseT = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:${s.slice(13,15)}Z`);
+const ymList = (...ds) => [...new Set(ds.map(d => `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/`))];
 
-async function loadSat(sat, folders) {
+async function loadSat(base, sat, folders) {
   const folder = folders.filter(p => p.includes(`_${sat}-l3_PT1S`)).sort().pop();
   if (!folder) { console.warn("衛星フォルダなし:", sat); return; }
-
   const now = new Date(), since = new Date(now - OBS_HOURS * 36e5);
-  const months = new Set([now, since].map(d =>
-    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/`));
   const latest = new Map();   // 同じ観測窓の再処理ファイルは最新だけ使う
-  for (const ym of months) {
-    const { objects } = await listS3({ prefix: folder + ym });
+  for (const ym of ymList(now, since)) {
+    const { objects } = await listS3(base, { prefix: folder + ym });
     for (const o of objects) {
       const m = /_(\d{8}T\d{6})_(\d{8}T\d{6})_\d{8}T\d{6}\.nc$/.exec(o.key);
       if (!m || parseT(m[2]) < since) continue;
@@ -612,44 +641,94 @@ async function loadSat(sat, folders) {
   }
   const files = [...latest.values()];
   console.log(`[${sat}] ${files.length} ファイル`);
-
   for (const f of files) {
     try {
-      const buf = await fetchBin(`${S3}/${f.key}`);
-      const pts = await readNc(buf);
+      const pts = await readTrack(await fetchBin(`${base}/${f.key}`));
       pts.forEach((p, i) => {
         if (i % THIN) return;
-        if (!(p.swh >= 0 && p.swh < 30)) return;
         if (p.time < since) return;
         if (p.lon < AREA.lonMin || p.lon > AREA.lonMax || p.lat < AREA.latMin || p.lat > AREA.latMax) return;
-        const c = L.circleMarker([p.lat, p.lon], {
-          renderer, radius: 4, color: "#000", weight: 1,
-          fillColor: getColor(p.swh), fillOpacity: 0.9
-        }).addTo(satLayer);
-        c.on("click", e => L.popup({ maxWidth: 200 }).setLatLng(e.latlng).setContent(
-          `衛星 ${SATS[sat]}<br>波高: ${p.swh.toFixed(2)} m<br>` +
-          `観測: ${p.time.toLocaleString("ja-JP")}`).openOn(map));
-        total++;
+        if (!(p.swh >= 0 && p.swh < 30)) return;
+        const info = `衛星 ${SATS[sat]}<br>波高: ${p.swh.toFixed(2)} m<br>観測: ${p.time.toLocaleString("ja-JP")}`;
+        L.circleMarker([p.lat, p.lon], { renderer, radius: 4, color: "#000", weight: 1,
+          fillColor: getColor(p.swh), fillOpacity: 0.9 })
+          .addTo(satLayer)
+          .on("click", e => L.popup({ maxWidth: 220 }).setLatLng(e.latlng).setContent(info).openOn(map));
+        cnt.wave++;
       });
-      setStatus(`衛星波高: ${total} 点`);
-    } catch (e) {
-      console.warn(`[${sat}] ${f.key} 失敗:`, e);
-    }
+      setStatus();
+    } catch (e) { console.warn(`[${sat}] ${f.key} 失敗:`, e); }
   }
 }
 
-(async () => {
-  try {
-    S3 = await findBucket();
-    if (!S3) throw new Error("該当バケットが見つからない(コンソールの応答サンプルを確認)");
-    const { prefixes } = await listS3({ prefix: PRODUCT, delimiter: "/" });
-    if (!prefixes.length) throw new Error("データセット一覧が空");
-    await Promise.allSettled(Object.keys(SATS).map(s => loadSat(s, prefixes)));
-    setStatus(`衛星波高: ${total} 点`);
-  } catch (e) {
-    console.error(e);
-    setStatus("衛星波高: 取得失敗(コンソール参照)");
+async function runTrack(base) {
+  const { prefixes } = await listS3(base, { prefix: PRODUCT_W, delimiter: "/" });
+  if (!prefixes.length) throw new Error("高度計データセット一覧が空");
+  await Promise.allSettled(Object.keys(SATS).map(s => loadSat(base, s, prefixes)));
+}
+
+// ---------- 散乱計(風向風速の矢印) ----------
+const makeSatWindIcon = (angle, speed, color) => L.divIcon({
+  className: "sat-wind",
+  html: `<div style="position:relative;width:30px;height:30px;">
+    <svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${angle}deg);position:absolute;">
+      <line x1="15" y1="2" x2="15" y2="20" stroke="#000" stroke-width="4"/>
+      <polygon points="15,0 20,9 15,7 10,9" fill="#000"/>
+      <line x1="15" y1="2" x2="15" y2="20" stroke="${color}" stroke-width="2"/>
+      <polygon points="15,2 18.5,8 15,6.5 11.5,8" fill="${color}"/>
+    </svg>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:bold 11px sans-serif;
+      color:#000;text-shadow:0 0 3px #fff,0 0 3px #fff;pointer-events:none;">${Math.round(speed)}</div></div>`,
+  iconSize: [30, 30], iconAnchor: [15, 15]
+});
+
+async function runScat(base) {
+  const { prefixes } = await listS3(base, { prefix: PRODUCT_N, delimiter: "/" });
+  if (!prefixes.length) throw new Error("散乱計データセット一覧が空");
+  const now = new Date(), since = new Date(now - SCAT_HOURS * 36e5);
+  const jobs = [];
+  for (const [id, label] of SCATS) for (const pass of ["asc", "des"]) {
+    const folder = prefixes.filter(p => p.includes(`l3-${id}-${pass}-0.25deg_P1D-i`)).sort().pop();
+    if (!folder) { console.warn("散乱計フォルダなし:", id, pass); continue; }
+    jobs.push((async () => {
+      let objs = [];
+      for (const ym of ymList(now, since)) objs = objs.concat((await listS3(base, { prefix: folder + ym })).objects);
+      const f = objs.filter(o => o.key.endsWith(".nc") && o.modified >= since).sort((a, b) => a.key < b.key ? -1 : 1).pop();
+      if (!f) { console.log(`[${id}-${pass}] 直近のファイルなし`); return []; }
+      console.log(`[${id}-${pass}]`, f.key);
+      try {
+        const pts = readScat(await fetchBin(`${base}/${f.key}`));
+        return pts.map(p => ({ ...p, label: `${label} ${pass === "asc" ? "(昇交点)" : "(降交点)"}`,
+                               file: f.key.split("/").pop() }));
+      } catch (e) { console.warn(`[${id}-${pass}] 失敗:`, e); return []; }
+    })());
   }
+  const results = await Promise.all(jobs);      // SCATS順(ASCAT優先)で、同じ約2°セルは先に来たものを採用
+  const used = new Set();
+  results.flat().forEach(p => {
+    const key = Math.floor(p.lat / 2) + "," + Math.floor(p.lon / 2);
+    if (used.has(key)) return;
+    used.add(key);
+    const from = (p.dir + 180) % 360;
+    const info = `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
+                 `<small>日別格子 ${p.file}</small>`;
+    L.marker([p.lat, p.lon], { icon: makeSatWindIcon(p.dir, p.speed, getArrowColor(p.speed)) })
+      .bindPopup(info, { maxWidth: 240 }).addTo(scatLayer);
+    cnt.scat++;
+  });
+  setStatus();
+}
+
+// ---------- 実行 ----------
+(async () => {
+  const [bw, bn] = await Promise.all([findBase(PRODUCT_W), findBase(PRODUCT_N)]);
+  const errs = [];
+  await Promise.allSettled([
+    bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明"),
+    bn ? runScat(bn).catch(e => { console.error(e); errs.push("散乱計: " + e.message); }) : errs.push("散乱計バケット不明")
+  ]);
+  cnt.note = errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了";
+  setStatus();
 })();
 </script>
 </body>
