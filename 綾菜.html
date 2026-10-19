@@ -399,22 +399,24 @@ const SCAT_STEP  = 8;    // 散乱計: 格子の間引き(0.25°×8 = 約2°ご�
 
 // ---------- UI ----------
 const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
-const scatLayer    = L.layerGroup().addTo(map);   // 散乱計 風(矢印)
+const ascatLayer   = L.layerGroup().addTo(map);   // ASCAT 風(矢印・約2時間遅れ)
+const scatLayer    = L.layerGroup();               // CMEMS日別格子 風(矢印・約2日遅れ。既定は非表示)
 L.control.layers(null, {
   "衛星 波高(高度計)": satLayer,
-  "衛星 風向風速(散乱計・矢印)": scatLayer
+  "衛星 風向風速 ASCAT(約2時間遅れ)": ascatLayer,
+  "衛星 風向風速 CMEMS日別格子(約2日遅れ)": scatLayer
 }, { position:"topright" }).addTo(map);
 const status = L.control({ position:"bottomleft" });
 status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; return d; };
 status.addTo(map);
-const cnt = { wave:0, scat:0, note:"読込中…" };
+const cnt = { wave:0, ascat:0, scat:0, note:"読込中…" };
 const setStatus = () => {
   document.getElementById("sat-status").innerHTML =
-    `衛星 波高 ${cnt.wave}点 / 衛星風(散乱計) ${cnt.scat}本<br><small>${cnt.note}</small>`;
+    `衛星 波高 ${cnt.wave}点 / 衛星風 ASCAT ${cnt.ascat}本 / CMEMS日別 ${cnt.scat}本<br><small>${cnt.note}</small>`;
 };
 setStatus();
 document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
-  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>黒縁の矢印＝衛星風(散乱計)</div>');
+  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>黒縁の矢印＝衛星風(散乱計。ASCAT=新しい、CMEMS日別=約2日前)</div>');
 
 // ---------- S3アクセス(既存のproxy経由) ----------
 const viaProxy = url => fetch(proxy + encodeURIComponent(url));
@@ -461,13 +463,14 @@ async function findBase(product) {
 }
 
 // バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
-let directOK = null;
+const directOK = {};
 async function fetchBin(url) {
-  if (directOK !== false) {
+  const host = new URL(url).hostname;
+  if (directOK[host] !== false) {
     try {
       const r = await fetch(url);
-      if (r.ok) { directOK = true; return await r.arrayBuffer(); }
-    } catch { directOK = false; console.log("S3直接取得不可(CORS)。Worker経由に切替"); }
+      if (r.ok) { directOK[host] = true; return await r.arrayBuffer(); }
+    } catch { directOK[host] = false; console.log(host + " 直接取得不可(CORS)。Worker経由に切替"); }
   }
   const r = await viaProxy(url);
   if (!r.ok) throw new Error("HTTP " + r.status);
@@ -532,6 +535,7 @@ function parseNC3(buf) {
     return {
       v: out.map(x => (fill !== undefined && x === fill) || Math.abs(x) > 1e30 ? NaN : x * sf + off),
       units: typeof v.attrs.units === "string" ? v.attrs.units : "",
+      desc: String(v.attrs.standard_name ?? "") + " " + String(v.attrs.long_name ?? ""),
       shape: v.dimids.map((d, i) => (i === 0 && rec) ? numrecs : dims[d].size)
     };
   };
@@ -560,7 +564,8 @@ async function withNc(buf, fn) {
           const y = Number(x);
           return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
         });
-        return { v, units: String(a.units?.value ?? ""), shape: d.shape };
+        return { v, units: String(a.units?.value ?? ""), shape: d.shape,
+                 desc: String(a.standard_name?.value ?? "") + " " + String(a.long_name?.value ?? "") };
       };
       return fn(f.keys(), get);
     } finally { f.close(); FS.unlink(name); }
@@ -667,6 +672,89 @@ async function runTrack(base) {
   await Promise.allSettled(Object.keys(SATS).map(s => loadSat(base, s, prefixes)));
 }
 
+// ---------- ASCAT(KNMI Open Data API)。軌道ごとのファイルで、約2時間遅れ ----------
+const KNMI_API = "https://api.dataplatform.knmi.nl/open-data/v1";
+const KNMI_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9"; // KNMI公開の共有匿名キー(2027-08-01まで)
+const ASCAT_SETS  = [ ["osisaf_ascat_b_250", "ASCAT Metop-B"], ["osisaf_ascat_c_250", "ASCAT Metop-C"] ];
+const ASCAT_FILES = 8;    // 衛星ごとに最新から何ファイル読むか(1ファイル=約1周回)
+const ASCAT_HOURS = 12;   // 観測時刻が現在から何時間以内の風を描くか
+
+let knmiDirect = null;
+async function knmiJson(url) {
+  if (knmiDirect !== false) {
+    try {
+      const r = await fetch(url, { headers: { Authorization: KNMI_KEY } });
+      knmiDirect = true;
+      if (!r.ok) throw new Error("KNMI API " + r.status);
+      return await r.json();
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e;
+      knmiDirect = false; console.log("KNMI API直接取得不可(CORS)。Worker経由に切替");
+    }
+  }
+  const r = await fetch(proxy + encodeURIComponent(url) + "&auth=" + encodeURIComponent(KNMI_KEY));
+  if (!r.ok) throw new Error("KNMI API " + r.status + "(Workerが auth を転送していない可能性)");
+  return r.json();
+}
+
+// ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
+const readSwath = (buf, since) => withNc(buf, (names, get) => {
+  const nm = c => c.find(n => names.includes(n));
+  const la = get(nm(["lat", "latitude"])), lo = get(nm(["lon", "longitude"])),
+        sp = get(nm(["wind_speed"])), dr = get(nm(["wind_dir"])), t = get(nm(["time"]));
+  if (!la || !lo || !sp || !dr) throw new Error("必要な変数なし: " + names.join(","));
+  const toDir = /(^|_)to(_|$)|toward/i.test(dr.desc);     // 属性が「吹いていく向き」なら変換しない
+  let tb = null, tu = null;
+  const m = t && /(seconds|minutes|hours|days)\s+since\s+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(t.units);
+  if (m) { tb = Date.parse(`${m[2]}T${m[3] || "00:00:00"}Z`); tu = UNIT_MS[m[1]]; }
+  const seen = new Set(), out = [];
+  for (let i = 0; i < sp.v.length; i++) {
+    const lat = la.v[i], lon0 = lo.v[i], s = sp.v[i], d = dr.v[i];
+    if (!(s >= 0 && s < 100) || !Number.isFinite(d)) continue;
+    const lon = lon0 > 180 ? lon0 - 360 : lon0;
+    if (lat < AREA.latMin || lat > AREA.latMax || lon < AREA.lonMin || lon > AREA.lonMax) continue;
+    const time = tb !== null ? new Date(tb + t.v[i] * tu) : null;
+    if (time && time < since) continue;
+    const key = Math.floor(lat / 2) + "," + Math.floor(lon / 2);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ lat, lon, speed: s, dir: toDir ? d % 360 : (d + 180) % 360, time });   // dir = 吹いていく向き
+  }
+  return out;
+});
+
+async function runAscat() {
+  const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
+  const per = await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
+    const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
+    const names = (lst.files || []).map(f => f.filename).filter(n => n.endsWith(".nc"));
+    console.log(`[${ds}] ${names.length} ファイル`, names[0]);
+    const arr = [];
+    for (const fn of names) {
+      try {
+        const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
+        const pts = await readSwath(await fetchBin(u.temporaryDownloadUrl), since);
+        pts.forEach(p => arr.push({ ...p, label, file: fn }));
+      } catch (e) { console.warn(`[${ds}] ${fn} 失敗:`, e); }
+    }
+    return arr;
+  }));
+  // 新しい観測を優先し、同じ約2°セルは1本だけ描く
+  const used = new Set();
+  per.flat().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(p => {
+    const key = Math.floor(p.lat / 2) + "," + Math.floor(p.lon / 2);
+    if (used.has(key)) return;
+    used.add(key);
+    const from = (p.dir + 180) % 360;
+    const info = `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
+                 `観測: ${p.time ? p.time.toLocaleString("ja-JP") : "不明"}`;
+    L.marker([p.lat, p.lon], { icon: makeSatWindIcon(p.dir, p.speed, getArrowColor(p.speed)) })
+      .bindPopup(info, { maxWidth: 240 }).addTo(ascatLayer);
+    cnt.ascat++;
+  });
+  setStatus();
+}
+
 // ---------- 散乱計(風向風速の矢印) ----------
 const makeSatWindIcon = (angle, speed, color) => L.divIcon({
   className: "sat-wind",
@@ -724,6 +812,7 @@ async function runScat(base) {
   const [bw, bn] = await Promise.all([findBase(PRODUCT_W), findBase(PRODUCT_N)]);
   const errs = [];
   await Promise.allSettled([
+    runAscat().catch(e => { console.error(e); errs.push("ASCAT: " + e.message); }),
     bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明"),
     bn ? runScat(bn).catch(e => { console.error(e); errs.push("散乱計: " + e.message); }) : errs.push("散乱計バケット不明")
   ]);
