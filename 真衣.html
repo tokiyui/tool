@@ -664,6 +664,14 @@ async function knmiJson(url) {
   return chk(await r.json());
 }
 
+// .gz圧縮されていれば展開する
+async function gunzipIfNeeded(buf) {
+  const b = new Uint8Array(buf, 0, 2);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  const ds = new DecompressionStream("gzip");
+  return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
+}
+
 // ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
 const readSwath = (buf, since) => withNc(buf, (names, get) => {
   const nm = c => c.find(n => names.includes(n));
@@ -694,13 +702,14 @@ async function runAscat() {
   const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
   const per = await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
     const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
-    const names = (lst.files || []).map(f => f.filename).filter(n => n.endsWith(".nc"));
-    console.log(`[${ds}] ${names.length} ファイル`, names[0]);
+    const names = (lst.files || []).map(f => f.filename);
+    console.log(`[${ds}] ${names.length} ファイル`, names.slice(0, 2));
+    if (!names.length) console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
     const arr = [];
     for (const fn of names) {
       try {
         const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
-        const pts = await readSwath(await fetchBin(u.temporaryDownloadUrl), since);
+        const pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), since);
         pts.forEach(p => arr.push({ ...p, label, file: fn }));
       } catch (e) { console.warn(`[${ds}] ${fn} 失敗:`, e); }
     }
