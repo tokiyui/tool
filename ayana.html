@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>風・波統合マップ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+html, body { margin:0; height:100%; }
+#map { height:100vh; width:100vw; }
+
+.wind-speed-label {
+  font-size: 18px;
+  font-weight: bold;
+  color: black;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.leaflet-div-icon {
+  background: none;
+  border: none;
+  pointer-events: auto;
+}
+
+.legend {
+  background: white;
+  padding: 6px 8px;
+  font-size: 14px;
+  line-height: 18px;
+  color: #333;
+}
+
+.legend i {
+  width: 18px;
+  height: 18px;
+  float: left;
+  margin-right: 6px;
+  opacity: 0.8;
+}
+</style>
+</head>
+
+<body>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ========== Map Setup ==========
+const map = L.map("map").setView([36,138],5);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution:"&copy; OpenStreetMap contributors"
+}).addTo(map);
+
+const proxy = "https://worker.ryohorita105.workers.dev/?url=";
+
+// ========== Helper Functions ==========
+const getArrowColor = s => s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
+const dirs=["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+const windDirText16 = d => (d>=0&&d<=16)?dirs[d]:null;
+const windDirJMA = dir => ({
+ "北":180,"北北東":202.5,"北東":225,"東北東":247.5,
+ "東":270,"東南東":292.5,"南東":315,"南南東":337.5,
+ "南":0,"南南西":22.5,"南西":45,"西南西":67.5,
+ "西":90,"西北西":112.5,"北西":135,"北北西":157.5
+}[dir] ?? null);
+
+const windDir16ToAngle = d => (d>=0&&d<=16)?d*22.5+180:null;
+
+const makeWindIcon = (angle,speed,color) => L.divIcon({
+  html:`
+  <div style="position:relative;width:48px;height:48px;">
+    <svg width="48" height="48" viewBox="0 0 48 48"
+      style="transform:rotate(${angle}deg);position:absolute;">
+      <polygon points="24,2 28,10 24,8 20,10" fill="${color}"/>
+      <line x1="24" y1="2" x2="24" y2="28"
+        stroke="${color}" stroke-width="2"/>
+    </svg>
+    <div class="wind-speed-label">${speed}</div>
+  </div>`,
+  iconSize:[48,48], iconAnchor:[24,24]
+});
+
+const getColor = h => {
+  if(h<0.5) return "dodgerblue";
+  if(h<1.0) return "limegreen";
+  if(h<1.5) return "greenyellow";
+  if(h<2.0) return "gold";
+  if(h<3.0) return "darkorange";
+  return "orangered";
+};
+
+const pointData = {};
+const pointKey = (lat,lon) => `${lat.toFixed(3)},${lon.toFixed(3)}`;
+
+// ========== Fetch Data ==========
+async function fetchAll() {
+
+  // --- 風：海保 ---
+  await fetch(proxy+encodeURIComponent(
+    "https://www6.kaiho.mlit.go.jp/micsgis/KishouGenkyouPoint/attribute"+
+    "?lon=135&lat=35&stlon=105&stlat=20&edlon=165&edlat=50"
+  )).then(r=>r.json()).then(data=>{
+    data.forEach(e=>{
+      if(!e.shp) return;
+      const m=e.shp.match(/POINT\(([-\d.]+)\s+([-\d.]+)\)/);
+      if(!m) return;
+
+      const lon=+m[1], lat=+m[2];
+      const key=pointKey(lat,lon);
+      if(!pointData[key]) pointData[key]={lat,lon};
+
+      /* --- 波高（数値のみ） --- */
+      if(e.hakou && !isNaN(wv=parseFloat(e.hakou))){
+      pointData[key].waveType  = "灯台";
+      pointData[key].waveName  = e.kansokujo_mei;
+      pointData[key].waveHeight = wv;
+      }
+
+      /* --- 風（数値のみ） --- */
+      const a = windDirJMA(e.fuukou);
+      const s = e.fuusoku ? parseFloat(e.fuusoku) : NaN;
+      if(a===null || isNaN(s)) return;
+
+      pointData[key].windType  = "灯台";
+      pointData[key].windName  = e.kansokujo_mei;
+      pointData[key].windUrl   = e.url;
+      pointData[key].iconAngle = a;
+      pointData[key].iconSpeed = s;
+      pointData[key].iconColor = getArrowColor(s);
+    });
+  });
+
+  // --- 風：AMeDAS ---
+  const timeStr=(()=>{
+   const d=new Date();
+   d.setMinutes(d.getMinutes()-10);
+   d.setMinutes(Math.floor(d.getMinutes()/10)*10);
+   return d.getFullYear()
+     +String(d.getMonth()+1).padStart(2,"0")
+     +String(d.getDate()).padStart(2,"0")
+     +String(d.getHours()).padStart(2,"0")
+     +String(d.getMinutes()).padStart(2,"0")+"00";
+  })();
+  await Promise.all([
+    fetch(`https://www.jma.go.jp/bosai/amedas/data/map/${timeStr}.json`).then(r=>r.json()),
+    fetch("https://www.jma.go.jp/bosai/amedas/const/amedastable.json").then(r=>r.json())
+  ]).then(([amedas,table])=>{
+    Object.keys(amedas).forEach(code=>{
+      const o=amedas[code], m=table[code];
+      if(!m) return;
+      const s=o.wind?.[0], d=o.windDirection?.[0];
+      if(s==null||d==null) return;
+      if(s < 8) return;
+      const txt = windDirText16(d);
+      const ang = windDir16ToAngle(d);
+      if(ang===null||!txt) return;
+      const lat=m.lat[0]+m.lat[1]/60;
+      const lon=m.lon[0]+m.lon[1]/60;
+      const key=pointKey(lat,lon);
+      if(!pointData[key]) pointData[key]={lat,lon};
+      pointData[key].windType="アメダス";
+      pointData[key].windName=m.kjName;
+      pointData[key].windUrl=`https://www.jma.go.jp/bosai/amedas/#amdno=${code}`;
+      pointData[key].iconAngle=ang;
+      pointData[key].iconSpeed=s.toFixed(1);
+      pointData[key].iconColor=getArrowColor(s);
+    });
+  });
+
+  // --- JMA SSVB 波（最新6時間以内のみ） ---
+  await (async()=>{
+    try {
+      const ssvb = await fetch(proxy+encodeURIComponent(
+        "https://www.jma.go.jp/bosai/wave/data/ssvb/map_ssvb.json"
+      )).then(r=>r.json());
+
+      // 現在時刻UTC
+      const now = new Date();
+
+      Object.values(ssvb).forEach(station=>{
+        // stationは時間キーごとのオブジェクト
+        const times = Object.keys(station);
+        if(times.length===0) return;
+
+        // 最新時刻
+        const latestTimeStr = times.sort().reverse()[0];
+        const latestDate = new Date(latestTimeStr);
+        const diffHours = (now - latestDate)/36e5; // 時間差
+
+        if(diffHours>6 || diffHours<0) return; // 6時間以内のみ
+
+        const d = station[latestTimeStr];
+        if(!d.latlon || !d.wave_height) return;
+        const [lat, lon] = d.latlon;
+        const key = pointKey(lat, lon);
+        if(!pointData[key]) pointData[key]={lat, lon};
+        pointData[key].waveType = "気象庁ブイ";
+        pointData[key].waveName = `${d.id}`;
+        pointData[key].waveUrl = `https://www.jma.go.jp/bosai/wave/#code=${d.id}&type=buoy`;
+        pointData[key].waveHeight = d.wave_height;
+      });
+    } catch {}
+  })();
+  
+  // --- NOAA 風＆波 ---
+  await fetch(proxy+encodeURIComponent(
+   "https://www.ndbc.noaa.gov/ship_obs.php?uom=M&time=2"
+  )).then(r=>r.text()).then(text=>{
+    (text.match(/<span>SHIP.*?<\/span>/g)||[]).forEach(s=>{
+      const p=s.replace(/<[^>]+>/g,"").trim().split(/\s+/);
+      if(p.length<8) return;
+      const lat=+p[2], lon=+p[3];
+      if(lat<15||lat>60||lon<90||lon>180) return;
+      const wdir=+p[4]+180, wspd=+p[5];
+      const wv=+p[7]*0.3048;
+      const key=pointKey(lat,lon);
+      if(!pointData[key]) pointData[key]={lat,lon};
+      if(Number.isFinite(wdir)&&Number.isFinite(wspd)) {
+        pointData[key].windType="船舶";
+        pointData[key].windName="";
+        pointData[key].iconAngle=wdir;
+        pointData[key].iconSpeed=wspd.toFixed(1);
+        pointData[key].iconColor=getArrowColor(wspd);
+      }
+      if(Number.isFinite(wv)) {
+        pointData[key].waveType="船舶";
+        pointData[key].waveName="";
+        pointData[key].waveHeight=wv;
+      }
+    });
+  });
+
+  // --- NOWPHAS 波 ---
+  await (async()=>{
+    const setupXML = await fetch(proxy+encodeURIComponent(
+      "https://nowphas.mlit.go.jp/PROG/xml/POINT_SETUP.xml"
+    )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+    const dataXML = await fetch(proxy+encodeURIComponent(
+      "https://nowphas.mlit.go.jp/mapxml/DataMap.xml"
+    )).then(r=>r.text()).then(t=>new DOMParser().parseFromString(t,"application/xml"));
+    const pts={};
+    [...setupXML.getElementsByTagName("point")].forEach(p=>{
+      pts[p.getAttribute("code")]={
+        name:p.getAttribute("name"),
+        lat:+p.getAttribute("lat"),
+        lon:+p.getAttribute("lon")
+      };
+    });
+    [...dataXML.getElementsByTagName("mapdata")].forEach(md=>{
+      const code=md.getAttribute("code");
+      const y=md.getElementsByTagName("yugiha")[0]?.textContent;
+      if(!y||!pts[code]) return;
+      const h=parseFloat(y);
+      if(h>=100) return;
+      const {name,lat,lon}=pts[code];
+      const key=pointKey(lat,lon);
+      if(!pointData[key]) pointData[key]={lat,lon};
+      pointData[key].waveType="ナウファス";
+      pointData[key].waveName=name;
+      pointData[key].waveUrl=`https://nowphas.mlit.go.jp/yugiha_graph/${code}/7/`;
+      pointData[key].waveHeight=h;
+    });
+  })();
+
+  // --- 河川局 波 ---
+  await (async()=>{
+    const prefCodes=[ "102","103","104","105","201","301","401","501","601","701","801","901",
+     "1001","1101","1201","1301","1401","1501","1601","1701","1801","1901",
+     "2001","2101","2201","2301","2401","2501","2601","2701","2801","2901",
+     "3001","3101","3201","3301","3401","3501","3601","3701","3801","3901",
+     "4001","4101","4201","4301","4401","4501","4601","4701" ];
+    for(const code of prefCodes){
+      try{
+        const info=await fetch(proxy+encodeURIComponent(
+          `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/obs/coast/${code}.json`
+        )).then(r=>r.json());
+        const tm=await fetch(proxy+encodeURIComponent(
+          `https://www.river.go.jp/kawabou/file/files/obslist/twninfo/tm/coast/${code}.json`
+        )).then(r=>r.json());
+        const pos={};
+        info.prefTwn?.forEach(t=>{
+          t.coast?.forEach(c=>{
+            if(c.lat&&c.lon) pos[c.obsFcd]={lat:+c.lat,lon:+c.lon,name:c.obsNm};
+          });
+        });
+        tm.prefTwn?.forEach(t=>{
+          t.coast?.forEach(c=>{
+            const p=pos[c.obsFcd];
+            if(!p||!c.onthwvHght||Number(c.onthwvHght)===0) return;
+            const key=pointKey(p.lat,p.lon);
+            if(!pointData[key]) pointData[key]={lat:p.lat,lon:p.lon};
+            pointData[key].waveType="河川局";
+            pointData[key].waveName=p.name;
+            pointData[key].waveHeight=+c.onthwvHght;
+          });
+        });
+      }catch{}
+    }
+  })();
+
+  drawPoints();
+}
+
+// ========== Draw ==========
+function drawPoints(){
+  let currentPopup = null; // 現在表示中のポップアップを記憶
+
+  Object.values(pointData).forEach(p=>{
+    let lines=[];
+
+    if(p.windType){
+      const type=p.windType;
+      const nameHtml = p.windUrl?`<a href="${p.windUrl}" target="_blank">${p.windName}</a>`:p.windName;
+      lines.push(`${type} ${nameHtml}`);
+      if(p.iconAngle!=null){
+        // 日本語16方位
+        const idx = ((Math.round((p.iconAngle-180)/22.5)%16)+16)%16;
+        lines.push(`風向: ${dirs[idx]}`);
+      }
+      if(p.iconSpeed!=null) lines.push(`風速: ${p.iconSpeed} m/s`);
+    }
+
+    if(p.waveType){
+      const wtype=p.waveType;
+      const wnameHtml = p.waveUrl?`<a href="${p.waveUrl}" target="_blank">${p.waveName}</a>`:p.waveName;
+      if(!p.windType) lines.push(`${wtype} ${wnameHtml}`);
+      lines.push(`波高: ${p.waveHeight.toFixed(2)} m`);
+    }
+
+    const popupHtml = lines.join("<br>");
+
+    // 風マーカー
+    if(p.iconAngle!=null){
+      const m = L.marker([p.lat,p.lon], {icon: makeWindIcon(p.iconAngle, p.iconSpeed, p.iconColor)}).addTo(map);
+      m.bindPopup(popupHtml, { maxWidth: 200, autoClose:false, closeOnClick:false });
+      m.on("mouseover", e=>{
+        if(currentPopup) currentPopup.close();  // 前のポップアップを閉じる
+        e.target.openPopup();
+        currentPopup = e.target.getPopup();
+      });
+    }
+
+    // 波マーカー
+    if(p.waveHeight!=null){
+      const c = L.circleMarker([p.lat,p.lon],{
+        radius:8,
+        color:getColor(p.waveHeight),
+        fillColor:getColor(p.waveHeight),
+        fillOpacity:0.8,
+        weight:1
+      }).addTo(map);
+      c.bindPopup(popupHtml, { maxWidth: 200, autoClose:false, closeOnClick:false });
+      c.on("mouseover", e=>{
+        if(currentPopup) currentPopup.close();
+        e.target.openPopup();
+        currentPopup = e.target.getPopup();
+      });
+    }
+  });
+}
+
+
+// ========== Legend ==========
+const legend=L.control({position:"bottomright"});
+legend.onAdd=function(){
+  const d=L.DomUtil.create("div","legend");
+  const g=[0,0.5,1,1.5,2,3];
+  d.innerHTML+="<b>波高 (m)</b><br>";
+  for(let i=0;i<g.length;i++){
+    d.innerHTML+=`<i style="background:${getColor(g[i]+0.01)}"></i>${g[i]}${g[i+1]?"–"+g[i+1]:"+"}<br>`;
+  }
+  return d;
+};
+legend.addTo(map);
+
+fetchAll();
+
+</script>
+
+<!-- ===== 衛星高度計SWH(CMEMS native files / 匿名S3 + h5wasm) ===== -->
+<script type="module">
+import h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js";
+
+// ---------- 設定 ----------
+const S3        = "https://s3.waw3-1.cloudferro.com/mdl-native-14";
+const PRODUCT   = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";
+const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
+                    c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
+const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
+const FILE_HOURS = 12;   // S3上の更新が直近何時間のファイルを読むか
+const OBS_HOURS  = 6;    // 観測時刻が現在から何時間以内の点を描くか
+const THIN       = 3;    // 点の間引き(3なら3点に1点)
+
+// ---------- UI ----------
+const satLayer = L.layerGroup().addTo(map);
+L.control.layers(null, { "衛星波高": satLayer }, { position:"topright" }).addTo(map);
+const status = L.control({ position:"bottomleft" });
+status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; d.textContent="衛星波高: 読込中…"; return d; };
+status.addTo(map);
+const setStatus = t => { document.getElementById("sat-status").textContent = t; };
+document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
+  '<div style="clear:both;margin-top:4px">黒縁の小さい丸＝衛星高度計</div>');
+
+// ---------- S3アクセス(既存のproxy経由) ----------
+const viaProxy = url => fetch(proxy + encodeURIComponent(url));
+
+async function listS3(params) {
+  let token = null; const prefixes = [], objects = [];
+  do {
+    const q = new URLSearchParams({ "list-type":"2", ...params });
+    if (token) q.set("continuation-token", token);
+    const xml = await viaProxy(`${S3}?${q}`).then(r => r.text());
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    doc.querySelectorAll("CommonPrefixes > Prefix").forEach(e => prefixes.push(e.textContent));
+    doc.querySelectorAll("Contents").forEach(c => objects.push({
+      key: c.querySelector("Key").textContent,
+      modified: new Date(c.querySelector("LastModified").textContent)
+    }));
+    token = doc.querySelector("IsTruncated")?.textContent === "true"
+      ? doc.querySelector("NextContinuationToken")?.textContent : null;
+  } while (token);
+  return { prefixes, objects };
+}
+
+// ---------- NetCDF(HDF5)読み取り ----------
+const UNIT_MS = { seconds:1e3, minutes:6e4, hours:36e5, days:864e5 };
+
+async function readNc(buf) {
+  const { FS } = await h5wasm.ready;
+  const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
+  FS.writeFile(name, new Uint8Array(buf));
+  const f = new h5wasm.File(name, "r");
+  try {
+    const read = n => {
+      const d = f.get(n);
+      if (!d) return null;
+      const a = d.attrs || {};
+      const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
+      const fill = a._FillValue?.value;
+      const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
+      const v = Array.from(d.value, x => {
+        const n = Number(x);
+        return (fv !== null && n === fv) ? NaN : n * sf + off;
+      });
+      return { v, units: a.units?.value };
+    };
+    const t = read("time"), la = read("latitude"), lo = read("longitude"), h = read("VAVH");
+    if (!t || !la || !lo || !h) throw new Error("必要な変数なし");
+    const m = /(seconds|minutes|hours|days)\s+since\s+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(t.units || "");
+    if (!m) throw new Error("時刻単位を解釈できない: " + t.units);
+    const base = Date.parse(`${m[2]}T${m[3] || "00:00:00"}Z`);
+    return t.v.map((x, i) => ({
+      time: new Date(base + x * UNIT_MS[m[1]]),
+      lat: la.v[i],
+      lon: lo.v[i] > 180 ? lo.v[i] - 360 : lo.v[i],
+      swh: h.v[i]
+    }));
+  } finally {
+    f.close(); FS.unlink(name);
+  }
+}
+
+// ---------- 衛星ごとの処理 ----------
+const renderer = L.canvas({ padding: 0.5 });
+let total = 0;
+
+async function loadSat(sat, folders) {
+  const folder = folders.filter(p => p.includes(`_${sat}-l3_PT1S`)).sort().pop();
+  if (!folder) { console.warn("衛星フォルダなし:", sat); return; }
+
+  const now = new Date(), since = new Date(now - FILE_HOURS * 36e5);
+  const months = new Set([now, since].map(d =>
+    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/`));
+  let files = [];
+  for (const ym of months) {
+    const { objects } = await listS3({ prefix: folder + ym });
+    files = files.concat(objects.filter(o => o.key.endsWith(".nc") && o.modified >= since));
+  }
+  console.log(`[${sat}] ${files.length} ファイル`);
+
+  for (const f of files) {
+    try {
+      const buf = await viaProxy(`${S3}/${f.key}`).then(r => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.arrayBuffer();
+      });
+      const pts = await readNc(buf);
+      const limit = new Date(now - OBS_HOURS * 36e5);
+      pts.forEach((p, i) => {
+        if (i % THIN) return;
+        if (!(p.swh >= 0 && p.swh < 30)) return;
+        if (p.time < limit) return;
+        if (p.lon < AREA.lonMin || p.lon > AREA.lonMax || p.lat < AREA.latMin || p.lat > AREA.latMax) return;
+        const c = L.circleMarker([p.lat, p.lon], {
+          renderer, radius: 4, color: "#000", weight: 1,
+          fillColor: getColor(p.swh), fillOpacity: 0.9
+        }).addTo(satLayer);
+        c.on("click", e => L.popup({ maxWidth: 200 }).setLatLng(e.latlng).setContent(
+          `衛星 ${SATS[sat]}<br>波高: ${p.swh.toFixed(2)} m<br>` +
+          `観測: ${p.time.toLocaleString("ja-JP")}`).openOn(map));
+        total++;
+      });
+      setStatus(`衛星波高: ${total} 点`);
+    } catch (e) {
+      console.warn(`[${sat}] ${f.key} 失敗:`, e);
+    }
+  }
+}
+
+(async () => {
+  try {
+    const { prefixes } = await listS3({ prefix: PRODUCT, delimiter: "/" });
+    if (!prefixes.length) throw new Error("データセット一覧が空(プロキシ/パスを確認)");
+    await Promise.allSettled(Object.keys(SATS).map(s => loadSat(s, prefixes)));
+    setStatus(`衛星波高: ${total} 点`);
+  } catch (e) {
+    console.error(e);
+    setStatus("衛星波高: 取得失敗(コンソール参照)");
+  }
+})();
+</script>
+</body>
+</html>
