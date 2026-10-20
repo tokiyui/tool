@@ -390,10 +390,77 @@ const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sen
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
 const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
 const OBS_HOURS = 12;    // 高度計: 現在から何時間以内の観測を描くか
-const THIN      = 3;     // 高度計: 点の間引き(3なら3点に1点)
+const THIN      = 1;     // 高度計: 点の間引き(1=全点。重い場合は 2 や 3 にする)
+// ---------- 矢印を大量に描くためのcanvasレイヤー(個々のマーカーを作らないので数万本でも軽い) ----------
+const ArrowLayer = L.Layer.extend({
+  initialize() { this.pts = []; },
+  onAdd(map) {
+    this._map = map;
+    this._cv = document.createElement("canvas");
+    this._cv.style.cssText = "position:absolute;pointer-events:none;z-index:450;";
+    map.getPane("overlayPane").appendChild(this._cv);
+    this._h = { moveend: this._reset, zoomstart: this._hide, resize: this._reset, click: this._click };
+    map.on(this._h, this);
+    this._reset();
+  },
+  onRemove(map) { map.off(this._h, this); this._cv.remove(); },
+  setPoints(p) { this.pts = p; if (this._map) this._draw(); },
+  _hide() { this._cv.style.opacity = 0; },
+  _reset() {
+    const m = this._map, s = m.getSize();
+    this._cv.width = s.x; this._cv.height = s.y;
+    L.DomUtil.setPosition(this._cv, m.containerPointToLayerPoint([0, 0]));
+    this._cv.style.opacity = 1;
+    this._draw();
+  },
+  _draw() {
+    const m = this._map, cv = this._cv, ctx = cv.getContext("2d"), z = m.getZoom();
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const len = Math.max(8, Math.min(34, 6 + (z - 4) * 4)), hl = len * 0.35;
+    const groups = {}; let nVis = 0;
+    for (const p of this.pts) {
+      const c = m.latLngToContainerPoint([p.lat, p.lon]);
+      if (c.x < -40 || c.y < -40 || c.x > cv.width + 40 || c.y > cv.height + 40) continue;
+      (groups[getArrowColor(p.speed)] ??= []).push([c.x, c.y, p.dir, p.speed]);
+      nVis++;
+    }
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (const [pass, lw] of [["#000", 3.6], [null, 1.8]]) {
+      for (const col in groups) {
+        ctx.beginPath();
+        for (const [x, y, d] of groups[col]) {
+          const t = d * Math.PI / 180, ux = Math.sin(t), uy = -Math.cos(t);
+          const x1 = x + ux * len / 2, y1 = y + uy * len / 2;
+          ctx.moveTo(x - ux * len / 2, y - uy * len / 2); ctx.lineTo(x1, y1);
+          for (const da of [-0.45, 0.45]) {
+            const a = t + Math.PI + da;
+            ctx.moveTo(x1, y1); ctx.lineTo(x1 + Math.sin(a) * hl, y1 - Math.cos(a) * hl);
+          }
+        }
+        ctx.strokeStyle = pass || col; ctx.lineWidth = lw; ctx.stroke();
+      }
+    }
+    if (z >= 8 && nVis <= 4000) {            // 拡大時は風速(m/s)の数字も添える
+      ctx.font = "bold 11px sans-serif"; ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.fillStyle = "#000";
+      for (const col in groups) for (const [x, y, d, s] of groups[col]) {
+        const t = d * Math.PI / 180, tx = x - Math.cos(t) * 10, ty = y - Math.sin(t) * 10;
+        ctx.strokeText(Math.round(s), tx, ty); ctx.fillText(Math.round(s), tx, ty);
+      }
+    }
+  },
+  _click(e) {
+    const m = this._map, cp = e.containerPoint; let best = null, bd = 14 * 14;
+    for (const p of this.pts) {
+      const c = m.latLngToContainerPoint([p.lat, p.lon]), dx = c.x - cp.x, dy = c.y - cp.y, dd = dx * dx + dy * dy;
+      if (dd < bd) { bd = dd; best = p; }
+    }
+    if (best) L.popup({ maxWidth: 240 }).setLatLng([best.lat, best.lon]).setContent(ascatInfo(best)).openOn(m);
+  }
+});
+
 // ---------- UI ----------
 const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
-const ascatLayer   = L.layerGroup().addTo(map);   // ASCAT 風(矢印・約2時間遅れ)
+const ascatLayer   = new ArrowLayer().addTo(map);   // ASCAT 風(矢印・全点)
 L.control.layers(null, {
   "衛星 波高(高度計)": satLayer,
   "衛星 風向風速(ASCAT)": ascatLayer
@@ -404,7 +471,7 @@ status.addTo(map);
 const cnt = { wave:0, ascat:0, note:"読込中…" };
 const setStatus = () => {
   document.getElementById("sat-status").innerHTML =
-    `衛星 波高 ${cnt.wave}点 / 衛星風(ASCAT) ${cnt.ascat}本<br><small>${cnt.note}</small>`;
+    `衛星 波高 ${cnt.wave}点 / 衛星風(ASCAT) ${cnt.ascat}点<br><small>${cnt.note}</small>`;
 };
 setStatus();
 document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
@@ -636,18 +703,12 @@ async function runTrack(base) {
 
 // ---------- ASCAT(KNMI Open Data API)。軌道ごとのファイルで、約2時間遅れ ----------
 const KNMI_API = "https://api.dataplatform.knmi.nl/open-data/v1";
-// KNMI公開の共有匿名キー(2027-08-01まで)。全員で回数制限を共有する。
-// (自分のキーがあれば、URLに ?knmikey=… を付けて1回開くと、このブラウザに保存されて以後それを使う)
-const KNMI_KEY = (() => {
-  const u = new URLSearchParams(location.search).get("knmikey");
-  if (u) { try { localStorage.setItem("knmiKey", u); } catch {} return u; }
-  return localStorage.getItem("knmiKey") ||
-    "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9";
-})();
+const KNMI_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9"; // KNMI公開の共有匿名キー(2027-08-01まで)
 const ASCAT_SETS  = [ ["osisaf_ascat_b_250", "ASCAT Metop-B"], ["osisaf_ascat_c_250", "ASCAT Metop-C"] ];
-const ASCAT_FILES = 6;    // 衛星ごとに最新から何ファイルを一覧に出すか(1ファイル=約1周回)
+const ASCAT_FILES = 9;    // 衛星ごとに最新から何ファイルを一覧に出すか(1ファイル=約1周回、9≒15時間分で12時間を余裕でカバー)
 const ASCAT_HOURS = 12;   // 観測時刻が現在から何時間以内の風を描くか
 const ASCAT_RETRY = 6;    // 回数制限のとき、待って再試行する最大回数(20秒,40秒,60秒…)
+const ASCAT_GEOFILTER = false;  // true にすると、軌道の幾何から領域を通らない周回のファイルを読まない(KNMI呼び出しの節約。取りこぼしの恐れあり)
 let ascatNote = "";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -683,10 +744,6 @@ async function gunzipIfNeeded(buf) {
   return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
 }
 
-// ブラウザ内キャッシュ(KNMIの回数制限を節約)
-const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-
 // ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
 const readSwath = (buf, since) => withNc(buf, (names, get) => {
   const nm = c => c.find(n => names.includes(n));
@@ -697,7 +754,7 @@ const readSwath = (buf, since) => withNc(buf, (names, get) => {
   let tb = null, tu = null;
   const m = t && /(seconds|minutes|hours|days)\s+since\s+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(t.units);
   if (m) { tb = Date.parse(`${m[2]}T${m[3] || "00:00:00"}Z`); tu = UNIT_MS[m[1]]; }
-  const seen = new Set(), out = [];
+  const out = [];
   for (let i = 0; i < sp.v.length; i++) {
     const lat = la.v[i], lon0 = lo.v[i], s = sp.v[i], d = dr.v[i];
     if (!(s >= 0 && s < 100) || !Number.isFinite(d)) continue;
@@ -705,9 +762,6 @@ const readSwath = (buf, since) => withNc(buf, (names, get) => {
     if (lat < AREA.latMin || lat > AREA.latMax || lon < AREA.lonMin || lon > AREA.lonMax) continue;
     const time = tb !== null ? new Date(tb + t.v[i] * tu) : null;
     if (time && time < since) continue;
-    const key = Math.floor(lat / 2) + "," + Math.floor(lon / 2);
-    if (seen.has(key)) continue;
-    seen.add(key);
     out.push({ lat, lon, speed: s, dir: toDir ? d % 360 : (d + 180) % 360, time });   // dir = 吹いていく向き
   }
   return out;
@@ -718,22 +772,29 @@ const ascatStart = fn => {
   return m ? new Date(`${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}T${m[2].slice(0,2)}:${m[2].slice(2,4)}:${m[2].slice(4,6)}Z`) : null;
 };
 
-// 取得できた分から順に描く(新しい観測を優先し、同じ約2°セルは1本だけ)
+// Metopは太陽同期軌道(降交点の地方時 約9:30、昇交点 約21:30)。ファイル先頭時刻(UTC)から、
+// その周回(約100分)が対象領域の経度帯を通りうるかを、余裕(±1時間+スワス幅8°)を見て判定する
+function mayCoverArea(start) {
+  const h = start.getUTCHours() + start.getUTCMinutes() / 60;
+  for (const lt of [9.75, 21.75]) {
+    const lo = lt - (AREA.lonMax + 8) / 15 - 1, hi = lt - (AREA.lonMin - 8) / 15 + 1;   // この時間帯(UTC時)に領域上空
+    for (const k of [-1, 0, 1]) if (h + 24 * k <= hi && h + 24 * k + 1.75 >= lo) return true;
+  }
+  return false;
+}
+
+// ポップアップ用の説明
+function ascatInfo(p) {
+  const from = (p.dir + 180) % 360;
+  return `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
+         `観測: ${p.time ? p.time.toLocaleString("ja-JP") : "不明"}`;
+}
+
+// 取得できた分から順に描く(間引きなし。新しい観測が上に重なる)
 const ascatAll = [];
 function renderAscat() {
-  ascatLayer.clearLayers(); cnt.ascat = 0;
-  const used = new Set();
-  ascatAll.slice().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(p => {
-    const key = Math.floor(p.lat / 2) + "," + Math.floor(p.lon / 2);
-    if (used.has(key)) return;
-    used.add(key);
-    const from = (p.dir + 180) % 360;
-    const info = `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
-                 `観測: ${p.time ? p.time.toLocaleString("ja-JP") : "不明"}`;
-    L.marker([p.lat, p.lon], { icon: makeSatWindIcon(p.dir, p.speed, getArrowColor(p.speed)) })
-      .bindPopup(info, { maxWidth: 240 }).addTo(ascatLayer);
-    cnt.ascat++;
-  });
+  ascatLayer.setPoints(ascatAll.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
+  cnt.ascat = ascatAll.length;
   setStatus();
 }
 
@@ -741,69 +802,31 @@ async function runAscat() {
   const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
   let limited = false;
   await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
-    // ファイル一覧(空でなければ5分間キャッシュ)
-    const lk = "ascatList:" + ds, c = lsGet(lk);
-    let all;
-    if (c && c.names?.length && Date.now() - c.t < 5 * 60e3) all = c.names;
-    else {
+    const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
+    const all = (lst.files || []).map(f => f.filename);
+    if (!all.length) console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
+    // 観測期間にかかる周回(1周回≒110分を加味)で、領域を通りうるものだけ読む
+    const names = all.filter(fn => {
+      const st = ascatStart(fn);
+      return !st || (st >= new Date(since - 110 * 60e3) && (!ASCAT_GEOFILTER || mayCoverArea(st)));
+    });
+    console.log(`[${ds}] 一覧 ${all.length} / 読む ${names.length} ファイル`, names);
+    for (const fn of names) {
+      if (limited) break;
       try {
-        const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
-        all = (lst.files || []).map(f => f.filename);
-        if (all.length) lsSet(lk, { t: Date.now(), names: all });
-        else console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
+        const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
+        const pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), since);
+        pts.forEach(p => ascatAll.push({ ...p, label, file: fn }));
+        if (pts.length) renderAscat();
       } catch (e) {
         if (/回数制限/.test(e.message)) limited = true;
-        if (!c?.names?.length) throw e;
-        all = c.names;            // 制限中でも前回の一覧があればそれで続行
+        console.warn(`[${ds}] ${fn} 失敗:`, e);
       }
-    }
-    // 観測期間にかかる軌道(1周回≒110分を加味)だけ読む
-    const names = all.filter(fn => { const st = ascatStart(fn); return !st || st >= new Date(since - 110 * 60e3); });
-    console.log(`[${ds}] 一覧 ${all.length} / 対象 ${names.length} ファイル`, names.slice(0, 2));
-    // 一覧から消えた古いファイルのキャッシュを掃除
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i), pre = `ascatFile:${ds}:`;
-      if (k && k.startsWith(pre) && !all.includes(k.slice(pre.length))) localStorage.removeItem(k);
-    }
-    for (const fn of names) {
-      const fk = `ascatFile:${ds}:${fn}`;
-      let pts = lsGet(fk);          // 取得済みのファイルは再取得しない(ファイルは後から変わらない)
-      if (!pts && !limited) {
-        try {
-          const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
-          pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), new Date(0));
-          lsSet(fk, pts);
-        } catch (e) {
-          if (/回数制限/.test(e.message)) limited = true;
-          console.warn(`[${ds}] ${fn} 失敗:`, e);
-        }
-      }
-      (pts || []).forEach(p => {
-        const time = p.time ? new Date(p.time) : null;
-        if (time && time < since) return;
-        ascatAll.push({ ...p, time, label, file: fn });
-      });
-      if (pts?.length) renderAscat();
     }
   }));
-  if (limited) ascatNote = "KNMI共有キーの回数制限により一部未取得(開き直すと続きから取得します)";
+  if (limited) ascatNote = "KNMI共有キーの回数制限により一部未取得(時間をおいて開き直してください)";
   renderAscat();
 }
-
-// ---------- 風向風速の矢印アイコン ----------
-const makeSatWindIcon = (angle, speed, color) => L.divIcon({
-  className: "sat-wind",
-  html: `<div style="position:relative;width:30px;height:30px;">
-    <svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${angle}deg);position:absolute;">
-      <line x1="15" y1="2" x2="15" y2="20" stroke="#000" stroke-width="4"/>
-      <polygon points="15,0 20,9 15,7 10,9" fill="#000"/>
-      <line x1="15" y1="2" x2="15" y2="20" stroke="${color}" stroke-width="2"/>
-      <polygon points="15,2 18.5,8 15,6.5 11.5,8" fill="${color}"/>
-    </svg>
-    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:bold 11px sans-serif;
-      color:#000;text-shadow:0 0 3px #fff,0 0 3px #fff;pointer-events:none;">${Math.round(speed)}</div></div>`,
-  iconSize: [30, 30], iconAnchor: [15, 15]
-});
 
 // ---------- 実行 ----------
 (async () => {
