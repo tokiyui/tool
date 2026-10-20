@@ -636,32 +636,43 @@ async function runTrack(base) {
 
 // ---------- ASCAT(KNMI Open Data API)。軌道ごとのファイルで、約2時間遅れ ----------
 const KNMI_API = "https://api.dataplatform.knmi.nl/open-data/v1";
-const KNMI_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9"; // KNMI公開の共有匿名キー(2027-08-01まで)
+// KNMI公開の共有匿名キー(2027-08-01まで)。全員で回数制限を共有する。
+// (自分のキーがあれば、URLに ?knmikey=… を付けて1回開くと、このブラウザに保存されて以後それを使う)
+const KNMI_KEY = (() => {
+  const u = new URLSearchParams(location.search).get("knmikey");
+  if (u) { try { localStorage.setItem("knmiKey", u); } catch {} return u; }
+  return localStorage.getItem("knmiKey") ||
+    "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9";
+})();
 const ASCAT_SETS  = [ ["osisaf_ascat_b_250", "ASCAT Metop-B"], ["osisaf_ascat_c_250", "ASCAT Metop-C"] ];
-const ASCAT_FILES = 8;    // 衛星ごとに最新から何ファイル読むか(1ファイル=約1周回)
+const ASCAT_FILES = 6;    // 衛星ごとに最新から何ファイルを一覧に出すか(1ファイル=約1周回)
 const ASCAT_HOURS = 12;   // 観測時刻が現在から何時間以内の風を描くか
+const ASCAT_RETRY = 6;    // 回数制限のとき、待って再試行する最大回数(20秒,40秒,60秒…)
+let ascatNote = "";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-let knmiDirect = null;
 const chk = j => {
-  if (j && !j.files && !j.temporaryDownloadUrl)
-    throw new Error("KNMI API: " + (j.message || j.error || JSON.stringify(j).slice(0, 120)) + "(Workerが auth を転送していない可能性)");
+  if (j && !j.files && !j.temporaryDownloadUrl) {
+    const msg = String(j.message || j.error || JSON.stringify(j).slice(0, 120));
+    if (/rate limit/i.test(msg)) throw new Error("KNMI APIの回数制限(共有キーが使い切られている)");
+    throw new Error("KNMI API: " + msg + "(Workerが auth を転送していない可能性)");
+  }
   return j;
 };
+// KNMI APIはCORS非対応なので常にWorker経由。回数制限なら待って再試行する
 async function knmiJson(url) {
-  if (knmiDirect !== false) {
+  for (let k = 0; ; k++) {
     try {
-      const r = await fetch(url, { headers: { Authorization: KNMI_KEY } });
-      knmiDirect = true;
+      const r = await fetch(proxy + encodeURIComponent(url) + "&auth=" + encodeURIComponent(KNMI_KEY));
       if (!r.ok) throw new Error("KNMI API " + r.status);
       return chk(await r.json());
     } catch (e) {
-      if (!(e instanceof TypeError)) throw e;
-      knmiDirect = false; console.log("KNMI API直接取得不可(CORS)。Worker経由に切替");
+      if (!/回数制限/.test(e.message) || k >= ASCAT_RETRY) throw e;
+      const w = Math.min(60, 20 * (k + 1));
+      cnt.note = `KNMI回数制限のため${w}秒待機中(${k + 1}/${ASCAT_RETRY})…`; setStatus();
+      await sleep(w * 1000);
     }
   }
-  const r = await fetch(proxy + encodeURIComponent(url) + "&auth=" + encodeURIComponent(KNMI_KEY));
-  if (!r.ok) throw new Error("KNMI API " + r.status + "(Workerが auth を転送していない可能性)");
-  return chk(await r.json());
 }
 
 // .gz圧縮されていれば展開する
@@ -671,6 +682,10 @@ async function gunzipIfNeeded(buf) {
   const ds = new DecompressionStream("gzip");
   return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
 }
+
+// ブラウザ内キャッシュ(KNMIの回数制限を節約)
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
 // ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
 const readSwath = (buf, since) => withNc(buf, (names, get) => {
@@ -698,26 +713,17 @@ const readSwath = (buf, since) => withNc(buf, (names, get) => {
   return out;
 });
 
-async function runAscat() {
-  const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
-  const per = await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
-    const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
-    const names = (lst.files || []).map(f => f.filename);
-    console.log(`[${ds}] ${names.length} ファイル`, names.slice(0, 2));
-    if (!names.length) console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
-    const arr = [];
-    for (const fn of names) {
-      try {
-        const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
-        const pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), since);
-        pts.forEach(p => arr.push({ ...p, label, file: fn }));
-      } catch (e) { console.warn(`[${ds}] ${fn} 失敗:`, e); }
-    }
-    return arr;
-  }));
-  // 新しい観測を優先し、同じ約2°セルは1本だけ描く
+const ascatStart = fn => {
+  const m = /_(\d{8})_(\d{6})_/.exec(fn);
+  return m ? new Date(`${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}T${m[2].slice(0,2)}:${m[2].slice(2,4)}:${m[2].slice(4,6)}Z`) : null;
+};
+
+// 取得できた分から順に描く(新しい観測を優先し、同じ約2°セルは1本だけ)
+const ascatAll = [];
+function renderAscat() {
+  ascatLayer.clearLayers(); cnt.ascat = 0;
   const used = new Set();
-  per.flat().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(p => {
+  ascatAll.slice().sort((a, b) => (b.time || 0) - (a.time || 0)).forEach(p => {
     const key = Math.floor(p.lat / 2) + "," + Math.floor(p.lon / 2);
     if (used.has(key)) return;
     used.add(key);
@@ -729,6 +735,59 @@ async function runAscat() {
     cnt.ascat++;
   });
   setStatus();
+}
+
+async function runAscat() {
+  const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
+  let limited = false;
+  await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
+    // ファイル一覧(空でなければ5分間キャッシュ)
+    const lk = "ascatList:" + ds, c = lsGet(lk);
+    let all;
+    if (c && c.names?.length && Date.now() - c.t < 5 * 60e3) all = c.names;
+    else {
+      try {
+        const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
+        all = (lst.files || []).map(f => f.filename);
+        if (all.length) lsSet(lk, { t: Date.now(), names: all });
+        else console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
+      } catch (e) {
+        if (/回数制限/.test(e.message)) limited = true;
+        if (!c?.names?.length) throw e;
+        all = c.names;            // 制限中でも前回の一覧があればそれで続行
+      }
+    }
+    // 観測期間にかかる軌道(1周回≒110分を加味)だけ読む
+    const names = all.filter(fn => { const st = ascatStart(fn); return !st || st >= new Date(since - 110 * 60e3); });
+    console.log(`[${ds}] 一覧 ${all.length} / 対象 ${names.length} ファイル`, names.slice(0, 2));
+    // 一覧から消えた古いファイルのキャッシュを掃除
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i), pre = `ascatFile:${ds}:`;
+      if (k && k.startsWith(pre) && !all.includes(k.slice(pre.length))) localStorage.removeItem(k);
+    }
+    for (const fn of names) {
+      const fk = `ascatFile:${ds}:${fn}`;
+      let pts = lsGet(fk);          // 取得済みのファイルは再取得しない(ファイルは後から変わらない)
+      if (!pts && !limited) {
+        try {
+          const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
+          pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), new Date(0));
+          lsSet(fk, pts);
+        } catch (e) {
+          if (/回数制限/.test(e.message)) limited = true;
+          console.warn(`[${ds}] ${fn} 失敗:`, e);
+        }
+      }
+      (pts || []).forEach(p => {
+        const time = p.time ? new Date(p.time) : null;
+        if (time && time < since) return;
+        ascatAll.push({ ...p, time, label, file: fn });
+      });
+      if (pts?.length) renderAscat();
+    }
+  }));
+  if (limited) ascatNote = "KNMI共有キーの回数制限により一部未取得(開き直すと続きから取得します)";
+  renderAscat();
 }
 
 // ---------- 風向風速の矢印アイコン ----------
@@ -754,7 +813,7 @@ const makeSatWindIcon = (angle, speed, color) => L.divIcon({
     runAscat().catch(e => { console.error(e); errs.push("ASCAT: " + e.message); }),
     bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明")
   ]);
-  cnt.note = errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了";
+  cnt.note = (errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了") + (ascatNote ? " / " + ascatNote : "");
   setStatus();
 })();
 </script>
