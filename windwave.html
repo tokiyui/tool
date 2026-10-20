@@ -381,37 +381,111 @@ fetchAll();
 
 </script>
 
-<!-- ===== 衛星高度計SWH(CMEMS native files / 匿名S3。NetCDF3を自前で解析) ===== -->
+<!-- ===== 衛星観測(波高・風) CMEMS native files(匿名S3) ===== -->
 <script type="module">
 // ---------- 設定 ----------
 const S3_HOST   = "https://s3.waw3-1.cloudferro.com";
-let   S3        = null;   // バケットは自動検出(確認済み: mdl-native-05)
-const PRODUCT   = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";
+const PRODUCT_W = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";   // 高度計: 波高(軌道データ)
 const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
 const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
-const OBS_HOURS = 9;    // 現在から何時間以内の観測を描くか(NRTは数時間遅れる)
-const THIN      = 1;     // 点の間引き(3なら3点に1点)
+const OBS_HOURS = 12;    // 高度計: 現在から何時間以内の観測を描くか
+const THIN      = 1;     // 高度計: 点の間引き(1=全点。重い場合は 2 や 3 にする)
+// ---------- 矢印を大量に描くためのcanvasレイヤー(個々のマーカーを作らないので数万本でも軽い) ----------
+const ArrowLayer = L.Layer.extend({
+  initialize() { this.pts = []; },
+  onAdd(map) {
+    this._map = map;
+    this._cv = document.createElement("canvas");
+    this._cv.style.cssText = "position:absolute;pointer-events:none;z-index:450;";
+    map.getPane("overlayPane").appendChild(this._cv);
+    this._h = { moveend: this._reset, zoomstart: this._hide, resize: this._reset, click: this._click };
+    map.on(this._h, this);
+    this._reset();
+  },
+  onRemove(map) { map.off(this._h, this); this._cv.remove(); },
+  setPoints(p) { this.pts = p; if (this._map) this._draw(); },
+  _hide() { this._cv.style.opacity = 0; },
+  _reset() {
+    const m = this._map, s = m.getSize();
+    this._cv.width = s.x; this._cv.height = s.y;
+    L.DomUtil.setPosition(this._cv, m.containerPointToLayerPoint([0, 0]));
+    this._cv.style.opacity = 1;
+    this._draw();
+  },
+  _draw() {
+    const m = this._map, cv = this._cv, ctx = cv.getContext("2d"), z = m.getZoom();
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const len = Math.max(8, Math.min(34, 6 + (z - 4) * 4)), hl = len * 0.35;
+    const groups = {}; let nVis = 0;
+    for (const p of this.pts) {
+      const c = m.latLngToContainerPoint([p.lat, p.lon]);
+      if (c.x < -40 || c.y < -40 || c.x > cv.width + 40 || c.y > cv.height + 40) continue;
+      (groups[getArrowColor(p.speed)] ??= []).push([c.x, c.y, p.dir, p.speed]);
+      nVis++;
+    }
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (const [pass, lw] of [["#000", 3.6], [null, 1.8]]) {
+      for (const col in groups) {
+        ctx.beginPath();
+        for (const [x, y, d] of groups[col]) {
+          const t = d * Math.PI / 180, ux = Math.sin(t), uy = -Math.cos(t);
+          const x1 = x + ux * len / 2, y1 = y + uy * len / 2;
+          ctx.moveTo(x - ux * len / 2, y - uy * len / 2); ctx.lineTo(x1, y1);
+          for (const da of [-0.45, 0.45]) {
+            const a = t + Math.PI + da;
+            ctx.moveTo(x1, y1); ctx.lineTo(x1 + Math.sin(a) * hl, y1 - Math.cos(a) * hl);
+          }
+        }
+        ctx.strokeStyle = pass || col; ctx.lineWidth = lw; ctx.stroke();
+      }
+    }
+    if (z >= 8 && nVis <= 4000) {            // 拡大時は風速(m/s)の数字も添える
+      ctx.font = "bold 11px sans-serif"; ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.fillStyle = "#000";
+      for (const col in groups) for (const [x, y, d, s] of groups[col]) {
+        const t = d * Math.PI / 180, tx = x - Math.cos(t) * 10, ty = y - Math.sin(t) * 10;
+        ctx.strokeText(Math.round(s), tx, ty); ctx.fillText(Math.round(s), tx, ty);
+      }
+    }
+  },
+  _click(e) {
+    const m = this._map, cp = e.containerPoint; let best = null, bd = 14 * 14;
+    for (const p of this.pts) {
+      const c = m.latLngToContainerPoint([p.lat, p.lon]), dx = c.x - cp.x, dy = c.y - cp.y, dd = dx * dx + dy * dy;
+      if (dd < bd) { bd = dd; best = p; }
+    }
+    if (best) L.popup({ maxWidth: 240 }).setLatLng([best.lat, best.lon]).setContent(ascatInfo(best)).openOn(m);
+  }
+});
 
 // ---------- UI ----------
-const satLayer = L.layerGroup().addTo(map);
-L.control.layers(null, { "衛星波高": satLayer }, { position:"topright" }).addTo(map);
+const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
+const ascatLayer   = new ArrowLayer().addTo(map);   // ASCAT 風(矢印・全点)
+L.control.layers(null, {
+  "衛星 波高(高度計)": satLayer,
+  "衛星 風向風速(ASCAT)": ascatLayer
+}, { position:"topright" }).addTo(map);
 const status = L.control({ position:"bottomleft" });
-status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; d.textContent="衛星波高: 読込中…"; return d; };
+status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; return d; };
 status.addTo(map);
-const setStatus = t => { document.getElementById("sat-status").textContent = t; };
+const cnt = { wave:0, ascat:0, note:"読込中…" };
+const setStatus = () => {
+  document.getElementById("sat-status").innerHTML =
+    `衛星 波高 ${cnt.wave}点 / 衛星風(ASCAT) ${cnt.ascat}点<br><small>${cnt.note}</small>`;
+};
+setStatus();
 document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
-  '<div style="clear:both;margin-top:4px">黒縁の小さい丸＝衛星高度計</div>');
+  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>黒縁の矢印＝衛星風(ASCAT)</div>');
 
 // ---------- S3アクセス(既存のproxy経由) ----------
 const viaProxy = url => fetch(proxy + encodeURIComponent(url));
 
-async function listS3(params) {
+async function listS3(base, params) {
   let token = null; const prefixes = [], objects = [];
   do {
     const q = new URLSearchParams({ "list-type":"2", ...params });
     if (token) q.set("continuation-token", token);
-    const xml = await viaProxy(`${S3}?${q}`).then(r => r.text());
+    const xml = await viaProxy(`${base}?${q}`).then(r => r.text());
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     doc.querySelectorAll("CommonPrefixes > Prefix").forEach(e => prefixes.push(e.textContent));
     doc.querySelectorAll("Contents").forEach(c => objects.push({
@@ -424,33 +498,42 @@ async function listS3(params) {
   return { prefixes, objects };
 }
 
-// ---------- バケット自動検出 ----------
-async function findBucket() {
-  const cands = ["mdl-native-05", "mdl-native",
+// 製品ごとにバケットを自動検出(結果はブラウザに保存)
+async function findBase(product) {
+  const ck = "cmemsBucket:" + product;
+  const cands = [...new Set([localStorage.getItem(ck), "mdl-native-05", "mdl-native",
     ...Array.from({length:9}, (_,i) => `mdl-native-0${i+1}`),
-    ...Array.from({length:30}, (_,i) => `mdl-native-${i+1}`)];
-  const cached = localStorage.getItem("cmemsBucket");
-  if (cached) cands.unshift(cached);
-  const samples = {};
-  const q = new URLSearchParams({ "list-type":"2", prefix:PRODUCT, delimiter:"/", "max-keys":"50" });
-  // 先頭候補(キャッシュ/確認済み)から順に1つずつ試す。ダメなら残りを並行で試す
-  for (const b of cands.slice(0, 2)) {
+    ...Array.from({length:30}, (_,i) => `mdl-native-${i+1}`)].filter(Boolean))];
+  const q = new URLSearchParams({ "list-type":"2", prefix:product, delimiter:"/", "max-keys":"50" });
+  const probe = async b => {
     try {
       const xml = await viaProxy(`${S3_HOST}/${b}?${q}`).then(r => r.text());
-      if (xml.includes("<CommonPrefixes>")) { try { localStorage.setItem("cmemsBucket", b); } catch {} return `${S3_HOST}/${b}`; }
-    } catch {}
-  }
-  const res = await Promise.all(cands.slice(2).map(async b => {
-    try {
-      const xml = await viaProxy(`${S3_HOST}/${b}?${q}`).then(r => r.text());
-      samples[b] = xml.slice(0, 150);
       return xml.includes("<CommonPrefixes>") ? b : null;
-    } catch (e) { samples[b] = String(e); return null; }
-  }));
+    } catch { return null; }
+  };
+  for (const b of cands.slice(0, 2)) {
+    if (await probe(b)) { try { localStorage.setItem(ck, b); } catch {} return `${S3_HOST}/${b}`; }
+  }
+  const res = await Promise.all(cands.slice(2).map(probe));
   const hit = res.find(Boolean);
-  if (!hit) { console.error("バケット検出失敗。応答サンプル:", samples); return null; }
-  try { localStorage.setItem("cmemsBucket", hit); } catch {}
+  if (!hit) { console.error("バケット検出失敗:", product); return null; }
+  try { localStorage.setItem(ck, hit); } catch {}
   return `${S3_HOST}/${hit}`;
+}
+
+// バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
+const directOK = {};
+async function fetchBin(url) {
+  const host = new URL(url).hostname;
+  if (directOK[host] !== false) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) { directOK[host] = true; return await r.arrayBuffer(); }
+    } catch { directOK[host] = false; console.log(host + " 直接取得不可(CORS)。Worker経由に切替"); }
+  }
+  const r = await viaProxy(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.arrayBuffer();
 }
 
 // ---------- NetCDF3(classic / 64bit offset)パーサ ----------
@@ -478,13 +561,10 @@ function parseNC3(buf) {
     for (let k = 0; k < n; k++) { const name = str(), t = i32(), c = i32(); a[name] = vals(t, c); }
     return a;
   };
-
   let numrecs = i32();
-  // 次元
   let tag = i32(), n = i32(); const dims = [];
   if (tag !== 0) for (let k = 0; k < n; k++) dims.push({ name: str(), size: i32() });
-  attrs(); // グローバル属性は読み飛ばし
-  // 変数
+  attrs();
   tag = i32(); n = i32(); const vars = [];
   if (tag !== 0) for (let k = 0; k < n; k++) {
     const name = str(), nd = i32(), dimids = [];
@@ -513,15 +593,52 @@ function parseNC3(buf) {
     const sf = v.attrs.scale_factor?.[0] ?? 1, off = v.attrs.add_offset?.[0] ?? 0, fill = v.attrs._FillValue?.[0];
     return {
       v: out.map(x => (fill !== undefined && x === fill) || Math.abs(x) > 1e30 ? NaN : x * sf + off),
-      units: typeof v.attrs.units === "string" ? v.attrs.units : ""
+      units: typeof v.attrs.units === "string" ? v.attrs.units : "",
+      desc: String(v.attrs.standard_name ?? "") + " " + String(v.attrs.long_name ?? ""),
+      shape: v.dimids.map((d, i) => (i === 0 && rec) ? numrecs : dims[d].size)
     };
   };
   return { names, get };
 }
 
+// ---------- NetCDF読み取り(HDF5はh5wasm、NetCDF3は自前) ----------
+let h5mod = null;
+async function withNc(buf, fn) {
+  const b = new Uint8Array(buf, 0, 8);
+  if (b[0] === 0x89 && b[1] === 0x48 && b[2] === 0x44 && b[3] === 0x46) {      // \x89HDF
+    h5mod ??= (await import("https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js")).default;
+    const { FS } = await h5mod.ready;
+    const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
+    FS.writeFile(name, new Uint8Array(buf));
+    const f = new h5mod.File(name, "r");
+    try {
+      const get = n => {
+        const d = n && f.get(n);
+        if (!d) return null;
+        const a = d.attrs || {};
+        const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
+        const fill = a._FillValue?.value;
+        const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
+        const v = Array.from(d.value, x => {
+          const y = Number(x);
+          return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
+        });
+        return { v, units: String(a.units?.value ?? ""), shape: d.shape,
+                 desc: String(a.standard_name?.value ?? "") + " " + String(a.long_name?.value ?? "") };
+      };
+      return fn(f.keys(), get);
+    } finally { f.close(); FS.unlink(name); }
+  }
+  if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return fn(nc.names, nc.get); }
+  if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
+    throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
+  throw new Error("未知のファイル形式");
+}
+
 const UNIT_MS = { seconds:1e3, minutes:6e4, hours:36e5, days:864e5 };
 
-function toPoints(names, get) {
+// 高度計(軌道データ): 時刻・緯度・経度・波高
+const readTrack = buf => withNc(buf, (names, get) => {
   const nm = c => c.find(n => names.includes(n));
   const t = get(nm(["time", "TIME"])), la = get(nm(["latitude", "LATITUDE", "lat"])),
         lo = get(nm(["longitude", "LONGITUDE", "lon"])), h = get(nm(["VAVH", "swh", "SWH"]));
@@ -535,74 +652,20 @@ function toPoints(names, get) {
     lon: lo.v[i] > 180 ? lo.v[i] - 360 : lo.v[i],
     swh: h.v[i]
   }));
-}
+});
 
-// NetCDF4(HDF5)は h5wasm、NetCDF3は自前パーサで読む
-let h5mod = null;
-async function readHdf5(buf) {
-  h5mod ??= (await import("https://cdn.jsdelivr.net/npm/h5wasm@0.7.8/dist/esm/hdf5_hl.js")).default;
-  const { FS } = await h5mod.ready;
-  const name = `/t_${Math.random().toString(36).slice(2)}.nc`;
-  FS.writeFile(name, new Uint8Array(buf));
-  const f = new h5mod.File(name, "r");
-  try {
-    const get = n => {
-      const d = n && f.get(n);
-      if (!d) return null;
-      const a = d.attrs || {};
-      const sf = a.scale_factor?.value ?? 1, off = a.add_offset?.value ?? 0;
-      const fill = a._FillValue?.value;
-      const fv = fill === undefined ? null : Number(Array.isArray(fill) || ArrayBuffer.isView(fill) ? fill[0] : fill);
-      const v = Array.from(d.value, x => {
-        const y = Number(x);
-        return ((fv !== null && y === fv) || Math.abs(y) > 1e30) ? NaN : y * sf + off;
-      });
-      return { v, units: String(a.units?.value ?? "") };
-    };
-    return toPoints(f.keys(), get);
-  } finally {
-    f.close(); FS.unlink(name);
-  }
-}
-
-async function readNc(buf) {
-  const b = new Uint8Array(buf, 0, 8);
-  if (b[0] === 0x89 && b[1] === 0x48 && b[2] === 0x44 && b[3] === 0x46) return readHdf5(buf);   // \x89HDF
-  if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return toPoints(nc.names, nc.get); }
-  if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
-    throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
-  throw new Error("未知のファイル形式");
-}
-
-// バイナリ取得: まず直接(CORS許可されていれば)、だめならWorker経由
-let directOK = null;
-async function fetchBin(url) {
-  if (directOK !== false) {
-    try {
-      const r = await fetch(url);
-      if (r.ok) { directOK = true; return await r.arrayBuffer(); }
-    } catch { directOK = false; console.log("S3直接取得不可(CORS)。Worker経由に切替"); }
-  }
-  const r = await viaProxy(url);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.arrayBuffer();
-}
-
-// ---------- 衛星ごとの処理 ----------
+// ---------- 高度計(波高) ----------
 const renderer = L.canvas({ padding: 0.5 });
-let total = 0;
 const parseT = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:${s.slice(13,15)}Z`);
+const ymList = (...ds) => [...new Set(ds.map(d => `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/`))];
 
-async function loadSat(sat, folders) {
+async function loadSat(base, sat, folders) {
   const folder = folders.filter(p => p.includes(`_${sat}-l3_PT1S`)).sort().pop();
   if (!folder) { console.warn("衛星フォルダなし:", sat); return; }
-
   const now = new Date(), since = new Date(now - OBS_HOURS * 36e5);
-  const months = new Set([now, since].map(d =>
-    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/`));
   const latest = new Map();   // 同じ観測窓の再処理ファイルは最新だけ使う
-  for (const ym of months) {
-    const { objects } = await listS3({ prefix: folder + ym });
+  for (const ym of ymList(now, since)) {
+    const { objects } = await listS3(base, { prefix: folder + ym });
     for (const o of objects) {
       const m = /_(\d{8}T\d{6})_(\d{8}T\d{6})_\d{8}T\d{6}\.nc$/.exec(o.key);
       if (!m || parseT(m[2]) < since) continue;
@@ -612,44 +675,169 @@ async function loadSat(sat, folders) {
   }
   const files = [...latest.values()];
   console.log(`[${sat}] ${files.length} ファイル`);
-
   for (const f of files) {
     try {
-      const buf = await fetchBin(`${S3}/${f.key}`);
-      const pts = await readNc(buf);
+      const pts = await readTrack(await fetchBin(`${base}/${f.key}`));
       pts.forEach((p, i) => {
         if (i % THIN) return;
-        if (!(p.swh >= 0 && p.swh < 30)) return;
         if (p.time < since) return;
         if (p.lon < AREA.lonMin || p.lon > AREA.lonMax || p.lat < AREA.latMin || p.lat > AREA.latMax) return;
-        const c = L.circleMarker([p.lat, p.lon], {
-          renderer, radius: 4, color: "#000", weight: 1,
-          fillColor: getColor(p.swh), fillOpacity: 0.9
-        }).addTo(satLayer);
-        c.on("click", e => L.popup({ maxWidth: 200 }).setLatLng(e.latlng).setContent(
-          `衛星 ${SATS[sat]}<br>波高: ${p.swh.toFixed(2)} m<br>` +
-          `観測: ${p.time.toLocaleString("ja-JP")}`).openOn(map));
-        total++;
+        if (!(p.swh >= 0 && p.swh < 30)) return;
+        const info = `衛星 ${SATS[sat]}<br>波高: ${p.swh.toFixed(2)} m<br>観測: ${p.time.toLocaleString("ja-JP")}`;
+        L.circleMarker([p.lat, p.lon], { renderer, radius: 4, color: "#000", weight: 1,
+          fillColor: getColor(p.swh), fillOpacity: 0.9 })
+          .addTo(satLayer)
+          .on("click", e => L.popup({ maxWidth: 220 }).setLatLng(e.latlng).setContent(info).openOn(map));
+        cnt.wave++;
       });
-      setStatus(`衛星波高: ${total} 点`);
+      setStatus();
+    } catch (e) { console.warn(`[${sat}] ${f.key} 失敗:`, e); }
+  }
+}
+
+async function runTrack(base) {
+  const { prefixes } = await listS3(base, { prefix: PRODUCT_W, delimiter: "/" });
+  if (!prefixes.length) throw new Error("高度計データセット一覧が空");
+  await Promise.allSettled(Object.keys(SATS).map(s => loadSat(base, s, prefixes)));
+}
+
+// ---------- ASCAT(KNMI Open Data API)。軌道ごとのファイルで、約2時間遅れ ----------
+const KNMI_API = "https://api.dataplatform.knmi.nl/open-data/v1";
+const KNMI_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9"; // KNMI公開の共有匿名キー(2027-08-01まで)
+const ASCAT_SETS  = [ ["osisaf_ascat_b_250", "ASCAT Metop-B"], ["osisaf_ascat_c_250", "ASCAT Metop-C"] ];
+const ASCAT_FILES = 9;    // 衛星ごとに最新から何ファイルを一覧に出すか(1ファイル=約1周回、9≒15時間分で12時間を余裕でカバー)
+const ASCAT_HOURS = 12;   // 観測時刻が現在から何時間以内の風を描くか
+const ASCAT_RETRY = 6;    // 回数制限のとき、待って再試行する最大回数(20秒,40秒,60秒…)
+const ASCAT_GEOFILTER = false;  // true にすると、軌道の幾何から領域を通らない周回のファイルを読まない(KNMI呼び出しの節約。取りこぼしの恐れあり)
+let ascatNote = "";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const chk = j => {
+  if (j && !j.files && !j.temporaryDownloadUrl) {
+    const msg = String(j.message || j.error || JSON.stringify(j).slice(0, 120));
+    if (/rate limit/i.test(msg)) throw new Error("KNMI APIの回数制限(共有キーが使い切られている)");
+    throw new Error("KNMI API: " + msg + "(Workerが auth を転送していない可能性)");
+  }
+  return j;
+};
+// KNMI APIはCORS非対応なので常にWorker経由。回数制限なら待って再試行する
+async function knmiJson(url) {
+  for (let k = 0; ; k++) {
+    try {
+      const r = await fetch(proxy + encodeURIComponent(url) + "&auth=" + encodeURIComponent(KNMI_KEY));
+      if (!r.ok) throw new Error("KNMI API " + r.status);
+      return chk(await r.json());
     } catch (e) {
-      console.warn(`[${sat}] ${f.key} 失敗:`, e);
+      if (!/回数制限/.test(e.message) || k >= ASCAT_RETRY) throw e;
+      const w = Math.min(60, 20 * (k + 1));
+      cnt.note = `KNMI回数制限のため${w}秒待機中(${k + 1}/${ASCAT_RETRY})…`; setStatus();
+      await sleep(w * 1000);
     }
   }
 }
 
-(async () => {
-  try {
-    S3 = await findBucket();
-    if (!S3) throw new Error("該当バケットが見つからない(コンソールの応答サンプルを確認)");
-    const { prefixes } = await listS3({ prefix: PRODUCT, delimiter: "/" });
-    if (!prefixes.length) throw new Error("データセット一覧が空");
-    await Promise.allSettled(Object.keys(SATS).map(s => loadSat(s, prefixes)));
-    setStatus(`衛星波高: ${total} 点`);
-  } catch (e) {
-    console.error(e);
-    setStatus("衛星波高: 取得失敗(コンソール参照)");
+// .gz圧縮されていれば展開する
+async function gunzipIfNeeded(buf) {
+  const b = new Uint8Array(buf, 0, 2);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  const ds = new DecompressionStream("gzip");
+  return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
+}
+
+// ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
+const readSwath = (buf, since) => withNc(buf, (names, get) => {
+  const nm = c => c.find(n => names.includes(n));
+  const la = get(nm(["lat", "latitude"])), lo = get(nm(["lon", "longitude"])),
+        sp = get(nm(["wind_speed"])), dr = get(nm(["wind_dir"])), t = get(nm(["time"]));
+  if (!la || !lo || !sp || !dr) throw new Error("必要な変数なし: " + names.join(","));
+  const toDir = /(^|_)to(_|$)|toward/i.test(dr.desc);     // 属性が「吹いていく向き」なら変換しない
+  let tb = null, tu = null;
+  const m = t && /(seconds|minutes|hours|days)\s+since\s+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(t.units);
+  if (m) { tb = Date.parse(`${m[2]}T${m[3] || "00:00:00"}Z`); tu = UNIT_MS[m[1]]; }
+  const out = [];
+  for (let i = 0; i < sp.v.length; i++) {
+    const lat = la.v[i], lon0 = lo.v[i], s = sp.v[i], d = dr.v[i];
+    if (!(s >= 0 && s < 100) || !Number.isFinite(d)) continue;
+    const lon = lon0 > 180 ? lon0 - 360 : lon0;
+    if (lat < AREA.latMin || lat > AREA.latMax || lon < AREA.lonMin || lon > AREA.lonMax) continue;
+    const time = tb !== null ? new Date(tb + t.v[i] * tu) : null;
+    if (time && time < since) continue;
+    out.push({ lat, lon, speed: s, dir: toDir ? d % 360 : (d + 180) % 360, time });   // dir = 吹いていく向き
   }
+  return out;
+});
+
+const ascatStart = fn => {
+  const m = /_(\d{8})_(\d{6})_/.exec(fn);
+  return m ? new Date(`${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}T${m[2].slice(0,2)}:${m[2].slice(2,4)}:${m[2].slice(4,6)}Z`) : null;
+};
+
+// Metopは太陽同期軌道(降交点の地方時 約9:30、昇交点 約21:30)。ファイル先頭時刻(UTC)から、
+// その周回(約100分)が対象領域の経度帯を通りうるかを、余裕(±1時間+スワス幅8°)を見て判定する
+function mayCoverArea(start) {
+  const h = start.getUTCHours() + start.getUTCMinutes() / 60;
+  for (const lt of [9.75, 21.75]) {
+    const lo = lt - (AREA.lonMax + 8) / 15 - 1, hi = lt - (AREA.lonMin - 8) / 15 + 1;   // この時間帯(UTC時)に領域上空
+    for (const k of [-1, 0, 1]) if (h + 24 * k <= hi && h + 24 * k + 1.75 >= lo) return true;
+  }
+  return false;
+}
+
+// ポップアップ用の説明
+function ascatInfo(p) {
+  const from = (p.dir + 180) % 360;
+  return `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
+         `観測: ${p.time ? p.time.toLocaleString("ja-JP") : "不明"}`;
+}
+
+// 取得できた分から順に描く(間引きなし。新しい観測が上に重なる)
+const ascatAll = [];
+function renderAscat() {
+  ascatLayer.setPoints(ascatAll.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
+  cnt.ascat = ascatAll.length;
+  setStatus();
+}
+
+async function runAscat() {
+  const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
+  let limited = false;
+  await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
+    const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
+    const all = (lst.files || []).map(f => f.filename);
+    if (!all.length) console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
+    // 観測期間にかかる周回(1周回≒110分を加味)で、領域を通りうるものだけ読む
+    const names = all.filter(fn => {
+      const st = ascatStart(fn);
+      return !st || (st >= new Date(since - 110 * 60e3) && (!ASCAT_GEOFILTER || mayCoverArea(st)));
+    });
+    console.log(`[${ds}] 一覧 ${all.length} / 読む ${names.length} ファイル`, names);
+    for (const fn of names) {
+      if (limited) break;
+      try {
+        const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
+        const pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), since);
+        pts.forEach(p => ascatAll.push({ ...p, label, file: fn }));
+        if (pts.length) renderAscat();
+      } catch (e) {
+        if (/回数制限/.test(e.message)) limited = true;
+        console.warn(`[${ds}] ${fn} 失敗:`, e);
+      }
+    }
+  }));
+  if (limited) ascatNote = "KNMI共有キーの回数制限により一部未取得(時間をおいて開き直してください)";
+  renderAscat();
+}
+
+// ---------- 実行 ----------
+(async () => {
+  const bw = await findBase(PRODUCT_W);
+  const errs = [];
+  await Promise.allSettled([
+    runAscat().catch(e => { console.error(e); errs.push("ASCAT: " + e.message); }),
+    bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明")
+  ]);
+  cnt.note = (errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了") + (ascatNote ? " / " + ascatNote : "");
+  setStatus();
 })();
 </script>
 </body>
