@@ -842,7 +842,7 @@ function decodeGrib2(buf, pick, all) {
     if (!(u8[p0] === 0x47 && u8[p0 + 1] === 0x52 && u8[p0 + 2] === 0x49 && u8[p0 + 3] === 0x42)) { p0++; continue; }   // "GRIB"
     const msgLen = dv.getUint32(p0 + 8) * 4294967296 + dv.getUint32(p0 + 12), end = p0 + msgLen;
     if (end > u8.length) break;                       // 途中で切れたメッセージ
-    let p = p0 + 16, grid = null, drs = null, bitmap = null, meta = { cat: null, num: null, lead: null }, sec7 = null;
+    let p = p0 + 16, grid = null, drs = null, bitmap = null, meta = { disc: u8[p0 + 6], cat: null, num: null, lead: null }, sec7 = null;
     while (p + 5 <= end - 4) {
       const len = dv.getUint32(p), sec = u8[p + 4], s = p;
       if (sec === 3) {
@@ -876,15 +876,16 @@ function decodeGrib2(buf, pick, all) {
       if (len < 5) break;
       p += len;
     }
-    seenMeta.push(`${meta.cat}/${meta.num}/f${meta.lead}`);
+    seenMeta.push(`${meta.disc}/${meta.cat}/${meta.num}/f${meta.lead}(5.${drs ? drs.tn : '?'})`);
     if (grid && drs && sec7 && (!pick || pick(meta))) {
       results.push({ ...decodeOne(grid, drs, bitmap, sec7), cat: meta.cat, num: meta.num, lead: meta.lead });
       if (!all) return results[0];
     }
     p0 = end > p0 ? end : p0 + 4;
   }
-  if (all) return results;
-  throw new Error("該当するGRIB2メッセージがない。見つかった要素(種別/番号/予報時間): " + seenMeta.slice(0, 12).join(", "));
+  if (all && results.length) return results;
+  throw new Error(seenMeta.length ? "該当するGRIB2メッセージがない。見つかった要素(分野/種別/番号/予報時間(圧縮)): " + seenMeta.slice(0, 12).join(", ") + " 計" + seenMeta.length + "件"
+    : "GRIB2メッセージが1つもない(先頭の文字: " + new TextDecoder().decode(u8.subarray(0, 80)).replace(/\s+/g, " ") + ")");
 
   function decodeOne(grid, drs, bitmap, D) {
     if (grid.tn !== 0) throw new Error("未対応の格子テンプレート 3." + grid.tn);
@@ -1037,16 +1038,22 @@ function decodeGrib2(buf, pick, all) {
 }
 let prevV = 0;
 
-// 領域で切り出す
+// 領域で切り出す。経度は 360°単位でずらして領域に合わせる(ECMWFの -180°始まりの格子は 180〜540° と読めるため)
 function cropField(g, A) {
-  const i0 = g.lats.findIndex(v => v >= A.latMin - 1e-6), j0 = g.lons.findIndex(v => v >= A.lonMin - 1e-6);
+  let lonsAll = g.lons;
+  for (const k of [0, -360, 360]) {
+    const sh = k ? g.lons.map(v => v + k) : g.lons;
+    if (sh.some(v => v >= A.lonMin - 1e-6 && v <= A.lonMax + 1e-6)) { lonsAll = sh; break; }
+  }
+  const i0 = g.lats.findIndex(v => v >= A.latMin - 1e-6), j0 = lonsAll.findIndex(v => v >= A.lonMin - 1e-6);
   let i1 = g.lats.length - 1; while (i1 > 0 && g.lats[i1] > A.latMax + 1e-6) i1--;
-  let j1 = g.lons.length - 1; while (j1 > 0 && g.lons[j1] > A.lonMax + 1e-6) j1--;
+  let j1 = lonsAll.length - 1; while (j1 > 0 && lonsAll[j1] > A.lonMax + 1e-6) j1--;
   const nj = i1 - i0 + 1, ni = j1 - j0 + 1;
-  if (nj < 2 || ni < 2) throw new Error("対象領域がデータの範囲外");
+  if (i0 < 0 || j0 < 0 || nj < 2 || ni < 2)
+    throw new Error(`対象領域がデータの範囲外(データ: 緯度 ${g.lats[0]}〜${g.lats[g.lats.length - 1]}、経度 ${g.lons[0]}〜${g.lons[g.lons.length - 1]}、${g.ni}×${g.nj})`);
   const values = new Float32Array(nj * ni);
   for (let i = 0; i < nj; i++) values.set(g.values.subarray((i0 + i) * g.ni + j0, (i0 + i) * g.ni + j0 + ni), i * ni);
-  return { ni, nj, lats: g.lats.slice(i0, i1 + 1), lons: g.lons.slice(j0, j1 + 1), values, lead: g.lead };
+  return { ni, nj, lats: g.lats.slice(i0, i1 + 1), lons: lonsAll.slice(j0, j1 + 1), values, lead: g.lead };
 }
 
 // ---------- 波高の予測: IFS 0.1° / GFS-Wave 0.16° / CWM 0.05° をラジオボタンで選んで等値線を描く ----------
@@ -1223,6 +1230,8 @@ const FC_IMPL = {
             const rd = r.body.getReader(), chunks = []; let got = 0;
             for (;;) { const { done, value } = await rd.read(); if (done) break; chunks.push(value); got += value.length; fcSay(`CWM取得中… ${(got / 1e6).toFixed(0)}MB`); }
             const u8 = new Uint8Array(got); let o = 0; for (const c of chunks) { u8.set(c, o); o += c.length; }
+            if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "GRIB")
+              throw new Error(`CWMのダウンロードがGRIB2ではない(${(got / 1e6).toFixed(1)}MB、先頭: ` + new TextDecoder().decode(u8.subarray(0, 100)).replace(/\s+/g, " ") + ")");
             fcSay("CWM解読中…");
             for (const g of decodeGrib2(u8.buffer, isWaveHeight, true)) { const f = cropField(g, AREA); f.grid = "0.05°"; map.set(g.lead, f); }
           }
