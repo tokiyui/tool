@@ -842,7 +842,7 @@ function decodeGrib2(buf, pick, all) {
     if (!(u8[p0] === 0x47 && u8[p0 + 1] === 0x52 && u8[p0 + 2] === 0x49 && u8[p0 + 3] === 0x42)) { p0++; continue; }   // "GRIB"
     const msgLen = dv.getUint32(p0 + 8) * 4294967296 + dv.getUint32(p0 + 12), end = p0 + msgLen;
     if (end > u8.length) break;                       // 途中で切れたメッセージ
-    let p = p0 + 16, grid = null, drs = null, bitmap = null, meta = { disc: u8[p0 + 6], cat: null, num: null, lead: null }, sec7 = null;
+    let p = p0 + 16, grid = null, drs = null, bitmap = null, meta = { disc: u8[p0 + 6], cat: null, num: null, lead: null }, fields = [];   // 1メッセージに複数の要素(節4〜7の繰り返し)が入ることがある
     while (p + 5 <= end - 4) {
       const len = dv.getUint32(p), sec = u8[p + 4], s = p;
       if (sec === 3) {
@@ -868,18 +868,23 @@ function decodeGrib2(buf, pick, all) {
           Object.assign(drs, { flags: u8[s + 21], block: u8[s + 22], rsi: dv.getUint16(s + 23) });
         }
       } else if (sec === 6) {
-        if (u8[s + 5] === 0) bitmap = u8.subarray(s + 6, s + len);
-        else if (u8[s + 5] !== 255) bitmap = { bad: u8[s + 5] };
+        const ind = u8[s + 5];
+        if (ind === 0) bitmap = u8.subarray(s + 6, s + len);
+        else if (ind === 255) bitmap = null;
+        else if (ind !== 254) bitmap = { bad: ind };          // 254 = 直前のビットマップをそのまま使う
       } else if (sec === 7) {
-        sec7 = u8.subarray(s + 5, s + len);
+        fields.push({ grid, drs, bitmap, meta: { ...meta }, data: u8.subarray(s + 5, s + len) });
       }
       if (len < 5) break;
       p += len;
     }
-    seenMeta.push(`${meta.disc}/${meta.cat}/${meta.num}/f${meta.lead}(5.${drs ? drs.tn : '?'})`);
-    if (grid && drs && sec7 && (!pick || pick(meta))) {
-      results.push({ ...decodeOne(grid, drs, bitmap, sec7), cat: meta.cat, num: meta.num, lead: meta.lead });
-      if (!all) return results[0];
+    for (const fl of fields) {
+      const m = fl.meta;
+      seenMeta.push(`${m.disc}/${m.cat}/${m.num}/f${m.lead}(5.${fl.drs ? fl.drs.tn : '?'})`);
+      if (fl.grid && fl.drs && (!pick || pick(m))) {
+        results.push({ ...decodeOne(fl.grid, fl.drs, fl.bitmap, fl.data), cat: m.cat, num: m.num, lead: m.lead });
+        if (!all) return results[0];
+      }
     }
     p0 = end > p0 ? end : p0 + 4;
   }
@@ -1154,7 +1159,7 @@ function fcDrawField(g) {
 
 // ---- 各モデルの取得 ----
 const fcEnc = encodeURIComponent;
-const isWaveHeight = m => m.cat === 0 && m.num === 3;          // 有義波高(風浪+うねり)
+const isWaveHeight = m => m.disc === 10 && m.cat === 0 && m.num === 3;   // 有義波高(分野10・種別0・番号3)
 const ymdOf = d => d.toISOString().slice(0, 10).replace(/-/g, "");
 const hhOf = d => String(d.getUTCHours()).padStart(2, "0");
 // now から遡った 00/06/12/18時UTC の初期時刻(新しい順)。minAgeH 時間以上前のものだけ
@@ -1268,6 +1273,7 @@ async function fcGet(model, valid) {
   // 初めて使うモデル: 新しい初期時刻から順に試し、データがあるものを採用(配信の遅れに対応)
   let lastErr = null;
   for (const init of await M.candidates()) {
+    if (valid < init) continue;                      // 表示時刻より新しい初期時刻は使えない
     try { const r = await load(init); fcInit[model] = init; return r; }
     catch (e) { lastErr = e; console.warn(`${model} 初期時刻 ${init.toISOString()}:`, e.message); }
   }
