@@ -461,7 +461,7 @@ const ArrowLayer = L.Layer.extend({
 // ---------- UI ----------
 const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
 const ascatLayer   = new ArrowLayer().addTo(map);   // ASCAT 風(矢印・全点)
-L.control.layers(null, {
+const layersCtl = L.control.layers(null, {
   "衛星 波高(高度計)": satLayer,
   "衛星 風向風速(ASCAT)": ascatLayer
 }, { position:"topright" }).addTo(map);
@@ -828,12 +828,492 @@ async function runAscat() {
   renderAscat();
 }
 
+// ---------- GRIB2 デコーダ(複数メッセージ対応。緯度経度格子 3.0 / 単純 5.0・複合 5.2・空間差分 5.3・CCSDS(AEC) 5.42 / ビットマップ対応) ----------
+// pick(meta) が真のメッセージだけを復号する。all=true なら該当する全メッセージの配列、falseなら最初の1つ。
+function decodeGrib2(buf, pick, all) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const smag = (v, bits) => (v >= 2 ** (bits - 1)) ? -(v - 2 ** (bits - 1)) : v;     // 符号付き(符号+絶対値)
+  const rdN = (o, n) => { let v = 0; for (let k = 0; k < n; k++) v = v * 256 + u8[o + k]; return v; };
+  const sgn = (o, n) => smag(rdN(o, n), n * 8);
+  const UNIT_H = { 0: 1 / 60, 1: 1, 2: 24, 10: 3, 11: 6, 12: 12, 13: 1 / 3600 };
+  const results = [], seenMeta = [];
+  let p0 = 0;
+  while (p0 + 16 <= u8.length) {
+    if (!(u8[p0] === 0x47 && u8[p0 + 1] === 0x52 && u8[p0 + 2] === 0x49 && u8[p0 + 3] === 0x42)) { p0++; continue; }   // "GRIB"
+    const msgLen = dv.getUint32(p0 + 8) * 4294967296 + dv.getUint32(p0 + 12), end = p0 + msgLen;
+    if (end > u8.length) break;                       // 途中で切れたメッセージ
+    let p = p0 + 16, grid = null, drs = null, bitmap = null, meta = { disc: u8[p0 + 6], cat: null, num: null, lead: null }, fields = [];   // 1メッセージに複数の要素(節4〜7の繰り返し)が入ることがある
+    while (p + 5 <= end - 4) {
+      const len = dv.getUint32(p), sec = u8[p + 4], s = p;
+      if (sec === 3) {
+        const tn = dv.getUint16(s + 12);
+        grid = { tn };
+        if (tn === 0) {
+          Object.assign(grid, { npts: dv.getUint32(s + 6), ni: dv.getUint32(s + 30), nj: dv.getUint32(s + 34),
+            la1: sgn(s + 46, 4) / 1e6, lo1: sgn(s + 50, 4) / 1e6, la2: sgn(s + 55, 4) / 1e6, lo2: sgn(s + 59, 4) / 1e6,
+            di: dv.getUint32(s + 63) / 1e6, dj: dv.getUint32(s + 67) / 1e6, scan: u8[s + 71] });
+        }
+      } else if (sec === 4) {
+        meta.cat = u8[s + 9]; meta.num = u8[s + 10];
+        meta.lead = (UNIT_H[u8[s + 17]] ?? NaN) * dv.getUint32(s + 18);
+      } else if (sec === 5) {
+        const tn = dv.getUint16(s + 9);
+        drs = { n: dv.getUint32(s + 5), tn, R: dv.getFloat32(s + 11), E: smag(dv.getUint16(s + 15), 16),
+                D: smag(dv.getUint16(s + 17), 16), nb: u8[s + 19] };
+        if (tn === 2 || tn === 3) {
+          Object.assign(drs, { mvm: u8[s + 22], ng: dv.getUint32(s + 31), gwRef: u8[s + 35], gwBits: u8[s + 36],
+            glRef: dv.getUint32(s + 37), glInc: u8[s + 41], lastLen: dv.getUint32(s + 42), glBits: u8[s + 46] });
+          if (tn === 3) { drs.order = u8[s + 47]; drs.nExtra = u8[s + 48]; }
+        } else if (tn === 42) {
+          Object.assign(drs, { flags: u8[s + 21], block: u8[s + 22], rsi: dv.getUint16(s + 23) });
+        }
+      } else if (sec === 6) {
+        const ind = u8[s + 5];
+        if (ind === 0) bitmap = u8.subarray(s + 6, s + len);
+        else if (ind === 255) bitmap = null;
+        else if (ind !== 254) bitmap = { bad: ind };          // 254 = 直前のビットマップをそのまま使う
+      } else if (sec === 7) {
+        fields.push({ grid, drs, bitmap, meta: { ...meta }, data: u8.subarray(s + 5, s + len) });
+      }
+      if (len < 5) break;
+      p += len;
+    }
+    for (const fl of fields) {
+      const m = fl.meta;
+      seenMeta.push(`${m.disc}/${m.cat}/${m.num}/f${m.lead}(5.${fl.drs ? fl.drs.tn : '?'})`);
+      if (fl.grid && fl.drs && (!pick || pick(m))) {
+        results.push({ ...decodeOne(fl.grid, fl.drs, fl.bitmap, fl.data), cat: m.cat, num: m.num, lead: m.lead });
+        if (!all) return results[0];
+      }
+    }
+    p0 = end > p0 ? end : p0 + 4;
+  }
+  if (all && results.length) return results;
+  throw new Error(seenMeta.length ? "該当するGRIB2メッセージがない。見つかった要素(分野/種別/番号/予報時間(圧縮)): " + seenMeta.slice(0, 12).join(", ") + " 計" + seenMeta.length + "件"
+    : "GRIB2メッセージが1つもない(先頭の文字: " + new TextDecoder().decode(u8.subarray(0, 80)).replace(/\s+/g, " ") + ")");
+
+  function decodeOne(grid, drs, bitmap, D) {
+    if (grid.tn !== 0) throw new Error("未対応の格子テンプレート 3." + grid.tn);
+    if (bitmap && bitmap.bad !== undefined) throw new Error("未対応のビットマップ指示 " + bitmap.bad);
+    if (![0, 2, 3, 42].includes(drs.tn)) throw new Error("未対応のデータ圧縮方式 5." + drs.tn + (drs.tn === 40 ? "(JPEG2000)" : drs.tn === 200 ? "(ランレングス)" : ""));
+    let bp = 0;
+    const bits = n => {
+      let v = 0;
+      while (n > 0) {
+        const avail = 8 - (bp & 7), take = Math.min(avail, n), byte = D[bp >> 3] ?? 0;
+        v = v * (2 ** take) + ((byte >> (avail - take)) & ((1 << take) - 1));
+        bp += take; n -= take;
+      }
+      return v;
+    };
+    const align = () => { bp = (bp + 7) & ~7; };
+    const readFS = () => {                     // 0の連続の後の1までの0の数
+      let q = 0;
+      for (;;) {
+        const rem = ((D[bp >> 3] ?? 255) << (bp & 7)) & 0xFF;
+        if (rem !== 0) { const lz = Math.clz32(rem) - 24; q += lz; bp += lz + 1; return q; }
+        q += 8 - (bp & 7); bp += 8 - (bp & 7);
+      }
+    };
+    let nvals = bitmap ? 0 : grid.npts;
+    if (bitmap) for (let i = 0; i < grid.npts; i++) if ((bitmap[i >> 3] >> (7 - (i & 7))) & 1) nvals++;
+    let X;
+    if (drs.tn === 0) {
+      X = new Float64Array(nvals);
+      for (let i = 0; i < nvals; i++) X[i] = drs.nb ? bits(drs.nb) : 0;
+    } else if (drs.tn === 42) {
+      X = aecDecode(nvals);
+    } else {
+      let g1 = 0, g2 = 0, minsd = 0;
+      if (drs.tn === 3) {
+        const nb = drs.nExtra * 8;
+        g1 = smag(bits(nb), nb); if (drs.order === 2) g2 = smag(bits(nb), nb);
+        minsd = smag(bits(nb), nb);
+      }
+      const ng = drs.ng, ref = new Float64Array(ng), wid = new Int32Array(ng), len = new Float64Array(ng);
+      for (let i = 0; i < ng; i++) ref[i] = drs.nb ? bits(drs.nb) : 0;  align();
+      for (let i = 0; i < ng; i++) wid[i] = drs.gwRef + (drs.gwBits ? bits(drs.gwBits) : 0);  align();
+      for (let i = 0; i < ng; i++) len[i] = drs.glRef + (drs.glBits ? bits(drs.glBits) : 0) * drs.glInc;  align();
+      len[ng - 1] = drs.lastLen;
+      X = new Float64Array(nvals); const miss = new Uint8Array(nvals); let k = 0;
+      for (let g = 0; g < ng; g++) {
+        const w = wid[g], allOnes = 2 ** w - 1;
+        for (let i = 0; i < len[g] && k < nvals; i++, k++) {
+          if (w === 0) { X[k] = ref[g]; if (drs.mvm && ref[g] === 2 ** drs.nb - 1) miss[k] = 1; }
+          else { const q = bits(w); if (drs.mvm && (q === allOnes || (drs.mvm === 2 && q === allOnes - 1))) miss[k] = 1; X[k] = ref[g] + q; }
+        }
+      }
+      if (drs.tn === 3) {
+        const o = drs.order;
+        for (let i = o; i < nvals; i++) X[i] += minsd;
+        X[0] = g1; if (o === 2) X[1] = g2;
+        if (o === 1) for (let i = 1; i < nvals; i++) X[i] += X[i - 1];
+        else for (let i = 2; i < nvals; i++) X[i] += 2 * X[i - 1] - X[i - 2];
+      }
+      if (drs.mvm) for (let i = 0; i < nvals; i++) if (miss[i]) X[i] = NaN;
+    }
+    const sc2 = 2 ** drs.E, sc10 = 10 ** drs.D;
+    const vals = new Float32Array(grid.npts);
+    if (bitmap) { let k = 0; for (let i = 0; i < grid.npts; i++) vals[i] = ((bitmap[i >> 3] >> (7 - (i & 7))) & 1) ? (drs.R + X[k++] * sc2) / sc10 : NaN; }
+    else for (let i = 0; i < grid.npts; i++) vals[i] = (drs.R + X[i] * sc2) / sc10;
+    // 走査方向を「緯度は南から北、経度は西から東」に揃える
+    const { ni, nj, scan } = grid, iNeg = !!(scan & 0x80), jPos = !!(scan & 0x40), jFast = !!(scan & 0x20);
+    const lats = [], lons = [], res = new Float32Array(ni * nj);
+    const latS = jPos ? grid.la1 : grid.la1 - (nj - 1) * grid.dj, lonW = iNeg ? grid.lo1 - (ni - 1) * grid.di : grid.lo1;
+    for (let r = 0; r < nj; r++) lats.push(latS + r * grid.dj);
+    for (let c = 0; c < ni; c++) lons.push(lonW + c * grid.di);
+    if (!jFast && !iNeg && !jPos) { for (let r = 0; r < nj; r++) res.set(vals.subarray(r * ni, (r + 1) * ni), (nj - 1 - r) * ni); }
+    else for (let k = 0; k < ni * nj; k++) {
+      const row = jFast ? k % nj : (k / ni) | 0, col = jFast ? (k / nj) | 0 : k % ni;
+      res[(jPos ? row : nj - 1 - row) * ni + (iNeg ? ni - 1 - col : col)] = vals[k];
+    }
+    return { ni, nj, lats, lons, values: res };
+
+    // ---- CCSDS(AEC / libaec)デコーダ: 符号なし、MSB先頭、前処理(単位遅延予測)あり ----
+    function aecDecode(N) {
+      const n = drs.nb, J = drs.block, RSI = drs.rsi, flags = drs.flags;
+      if (flags & 1) throw new Error("符号付きCCSDSは未対応");
+      if (flags & 16) throw new Error("CCSDSのRESTRICTEDオプションは未対応");
+      const pre = !!(flags & 8), idLen = n > 16 ? 5 : n > 8 ? 4 : 3, xmax = 2 ** n - 1, ones = (1 << idLen) - 1;
+      const out = new Float64Array(N + 2 * J);      // 末尾の不完全なブロックも、符号化側は J サンプル分を詰めているので余白を持つ
+      let o = 0;
+      while (o < N) {
+        let b = 0, ref = 0, first = true, prev = 0;
+        const rsiStart = o;
+        while (b < RSI && o < N) {
+          const id = bits(idLen);
+          let blocks = 1, kind = "split", k = 0;
+          if (id === 0) {
+            if (bits(1) === 0) {                       // ゼロブロック
+              kind = "zero";
+              if (first && pre) { ref = bits(n); }
+              const fs = readFS(); blocks = fs + 1;
+              if (blocks === 5) blocks = 64 - (b % 64); else if (blocks > 5) blocks -= 1;
+              if (blocks > RSI - b) blocks = RSI - b;
+            } else kind = "se";                        // 第二拡張
+          } else if (id === ones) kind = "raw";
+          else k = id - 1;
+          const startO = o;
+          if (kind === "zero") {
+            const cnt = Math.min(blocks * J, out.length - o);
+            for (let i = 0; i < cnt; i++) out[o + i] = 0;
+            if (first && pre) { out[o] = ref; }
+            o += cnt; b += blocks;
+            if (pre) unmap(startO, o, first);
+            first = false; continue;
+          }
+          const cnt = J;
+          let skipFirst = 0;
+          if (first && pre) { ref = bits(n); skipFirst = 1; }
+          if (kind === "raw") { for (let i = skipFirst; i < cnt; i++) out[o + i] = bits(n); }
+          else if (kind === "se") {
+            // 第二拡張: 2サンプルを1つのFS符号で表す。先頭ブロックは参照サンプルの位置に0を置く
+            const total = Math.ceil(cnt / 2) * 2, tmp = new Float64Array(total);
+            for (let i = 0; i < total; i += 2) {               // 先頭ブロックでは最初のペアの前半が参照サンプルの位置(値は捨てる)
+              const m = readFS(), t = Math.floor((Math.sqrt(8 * m + 1) - 1) / 2), d1 = m - t * (t + 1) / 2, d0 = t - d1;
+              tmp[i] = d0; tmp[i + 1] = d1;
+            }
+            for (let i = skipFirst; i < cnt; i++) out[o + i] = tmp[i];
+          } else {
+            for (let i = skipFirst; i < cnt; i++) out[o + i] = readFS();
+            if (k > 0) for (let i = skipFirst; i < cnt; i++) out[o + i] = out[o + i] * (2 ** k) + bits(k);
+          }
+          if (first && pre) out[o] = ref;
+          o += cnt; b++;
+          if (pre) unmap(startO, o, first);
+          first = false;
+        }
+      }
+      return out.subarray(0, N);
+
+      // 前処理の逆変換(写像された差分 → 値)。RSIの先頭ブロックは out[startO] に参照サンプルが入っている
+      function unmap(a, e, isFirst) {
+        let i = a;
+        if (isFirst) { prevV = out[a]; i = a + 1; }
+        for (; i < e; i++) {
+          const d = out[i], th = Math.min(prevV, xmax - prevV);
+          let delta;
+          if (d <= 2 * th) delta = (d % 2 === 0) ? d / 2 : -(d + 1) / 2;
+          else delta = (prevV <= xmax - prevV) ? d - th : th - d;
+          prevV += delta; out[i] = prevV;
+        }
+      }
+    }
+  }
+}
+let prevV = 0;
+
+// 領域で切り出す。経度は 360°単位でずらして領域に合わせる(ECMWFの -180°始まりの格子は 180〜540° と読めるため)
+function cropField(g, A) {
+  let lonsAll = g.lons;
+  for (const k of [0, -360, 360]) {
+    const sh = k ? g.lons.map(v => v + k) : g.lons;
+    if (sh.some(v => v >= A.lonMin - 1e-6 && v <= A.lonMax + 1e-6)) { lonsAll = sh; break; }
+  }
+  const i0 = g.lats.findIndex(v => v >= A.latMin - 1e-6), j0 = lonsAll.findIndex(v => v >= A.lonMin - 1e-6);
+  let i1 = g.lats.length - 1; while (i1 > 0 && g.lats[i1] > A.latMax + 1e-6) i1--;
+  let j1 = lonsAll.length - 1; while (j1 > 0 && lonsAll[j1] > A.lonMax + 1e-6) j1--;
+  const nj = i1 - i0 + 1, ni = j1 - j0 + 1;
+  if (i0 < 0 || j0 < 0 || nj < 2 || ni < 2)
+    throw new Error(`対象領域がデータの範囲外(データ: 緯度 ${g.lats[0]}〜${g.lats[g.lats.length - 1]}、経度 ${g.lons[0]}〜${g.lons[g.lons.length - 1]}、${g.ni}×${g.nj})`);
+  const values = new Float32Array(nj * ni);
+  for (let i = 0; i < nj; i++) values.set(g.values.subarray((i0 + i) * g.ni + j0, (i0 + i) * g.ni + j0 + ni), i * ni);
+  return { ni, nj, lats: g.lats.slice(i0, i1 + 1), lons: lonsAll.slice(j0, j1 + 1), values, lead: g.lead };
+}
+
+// ---------- 波高の予測: IFS 0.1° / GFS-Wave 0.16° / CWM 0.05° をラジオボタンで選んで等値線を描く ----------
+// 観測(衛星・実況)は別処理で、モデルを切り替えても読み直さない。
+const FC_STEPH = 3;      // スライダーの時間刻み(時間)
+const FC_SPAN  = 72;     // 現在から何時間先まで
+const FC_LEVELS = Array.from({ length: 28 }, (_, i) => 0.5 * (i + 1));   // 0.5m〜14m を 0.5m 刻み
+const fcLayer = L.layerGroup().addTo(map);
+layersCtl.addOverlay(fcLayer, "波高予測 等値線");
+const fcRenderer = L.canvas({ padding: 0.5 });
+const fcPanel = L.control({ position: "topleft" });
+fcPanel.onAdd = () => {
+  const d = L.DomUtil.create("div", "legend");
+  d.innerHTML = '<b>波高予測(等値線)</b><br>' +
+    '<label><input type="radio" name="fc-model" value="ifs"> IFS 0.1°(ECMWF)</label><br>' +
+    '<label><input type="radio" name="fc-model" value="gfs" checked> GFS-Wave 0.16°(NOAA)</label><br>' +
+    '<label><input type="radio" name="fc-model" value="cwm"> CWM 0.05°(気象庁)</label><br>' +
+    '<span id="fc-time">読込中…</span><br>' +
+    '<input id="fc-slider" type="range" min="0" max="0" value="0" style="width:210px"><br>' +
+    '<small id="fc-info"></small><br>' +
+    '<small>等値線 0.5m刻み(太線=整数m)<br><span id="fc-src"></span></small>';
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  return d;
+};
+fcPanel.addTo(map);
+const fcSay  = t => { const e = document.getElementById("fc-time"); if (e) e.textContent = t; };
+const fcInfo = t => { const e = document.getElementById("fc-info"); if (e) e.textContent = t; };
+const fcSrc  = t => { const e = document.getElementById("fc-src");  if (e) e.innerHTML = t; };
+const jstFmt = t => t.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function contourLines(f, NY, NX, level, latOf, lonOf) {
+  const adj = new Map(), pos = new Map();
+  const at = (i, j) => f[i * NX + j];
+  const edge = (kind, i, j) => {
+    const id = kind + i + "," + j;
+    if (!pos.has(id)) {
+      if (kind === "h") { const a = at(i, j), b = at(i, j + 1), t = (level - a) / (b - a); pos.set(id, [latOf(i), lonOf(j + t)]); }
+      else { const a = at(i, j), b = at(i + 1, j), t = (level - a) / (b - a); pos.set(id, [latOf(i + t), lonOf(j)]); }
+    }
+    return id;
+  };
+  const link = (p, q) => {
+    if (!adj.has(p)) adj.set(p, []); if (!adj.has(q)) adj.set(q, []);
+    adj.get(p).push(q); adj.get(q).push(p);
+  };
+  for (let i = 0; i < NY - 1; i++) for (let j = 0; j < NX - 1; j++) {
+    const a = at(i, j), b = at(i, j + 1), c = at(i + 1, j + 1), d = at(i + 1, j);
+    if (a !== a || b !== b || c !== c || d !== d) continue;           // 欠測(陸)を含むセルは飛ばす
+    const k = (a >= level ? 8 : 0) | (b >= level ? 4 : 0) | (c >= level ? 2 : 0) | (d >= level ? 1 : 0);
+    if (k === 0 || k === 15) continue;
+    const T = () => edge("h", i, j), R = () => edge("v", i, j + 1), B = () => edge("h", i + 1, j), Lf = () => edge("v", i, j);
+    const hi = (a + b + c + d) / 4 >= level;
+    switch (k) {
+      case 1: case 14: link(Lf(), B()); break;
+      case 2: case 13: link(B(), R()); break;
+      case 3: case 12: link(Lf(), R()); break;
+      case 4: case 11: link(T(), R()); break;
+      case 6: case 9: link(T(), B()); break;
+      case 7: case 8: link(T(), Lf()); break;
+      case 5: if (hi) { link(T(), Lf()); link(B(), R()); } else { link(T(), R()); link(Lf(), B()); } break;
+      case 10: if (hi) { link(T(), R()); link(Lf(), B()); } else { link(T(), Lf()); link(B(), R()); } break;
+    }
+  }
+  const used = new Set(), lines = [];
+  const walk = s => {
+    const line = [s]; used.add(s); let cur = s;
+    for (;;) { const nb = adj.get(cur).find(n => !used.has(n)); if (!nb) break; used.add(nb); line.push(nb); cur = nb; }
+    if (line.length > 2 && adj.get(cur).includes(s)) line.push(s);     // 閉じた等値線
+    return line.map(id => pos.get(id));
+  };
+  for (const [id, nb] of adj) if (nb.length === 1 && !used.has(id)) lines.push(walk(id));   // 端のある線
+  for (const id of adj.keys()) if (!used.has(id)) lines.push(walk(id));                     // 閉じた線
+  return lines;
+}
+
+// 等値線とラベルを描く(格子 f[i*NX+j]。iは緯度方向(南→北)、jは経度方向(西→東)。欠測はNaN)
+function fcDrawField(g) {
+  fcLayer.clearLayers();
+  const { values: f, nj: NY, ni: NX, lats, lons } = g;
+  const latOf = x => lats[0] + x * (lats[NY - 1] - lats[0]) / (NY - 1), lonOf = x => lons[0] + x * (lons[NX - 1] - lons[0]) / (NX - 1);
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < f.length; i++) { const v = f[i]; if (v === v) { if (v < mn) mn = v; if (v > mx) mx = v; } }
+  for (const lv of FC_LEVELS) {
+    if (lv <= mn || lv > mx) continue;
+    const major = Math.abs(lv - Math.round(lv)) < 1e-9;
+    for (const ln of contourLines(f, NY, NX, lv, latOf, lonOf)) {
+      if (ln.length < 3) continue;
+      L.polyline(ln, { renderer: fcRenderer, color: "#0b2e6f", weight: major ? 2.4 : 1.1, opacity: 0.85, interactive: false }).addTo(fcLayer);
+      if (major && ln.length >= 6) {
+        const p = ln[Math.floor(ln.length / 2)];
+        L.marker(p, { interactive: false, icon: L.divIcon({ className: "", iconSize: [0, 0],
+          html: `<div style="transform:translate(-50%,-50%);font:bold 12px sans-serif;color:#0b2e6f;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;white-space:nowrap;">${lv.toFixed(0)}m</div>` })
+        }).addTo(fcLayer);
+      }
+    }
+  }
+}
+
+// ---- 各モデルの取得 ----
+const fcEnc = encodeURIComponent;
+const isWaveHeight = m => m.disc === 10 && m.cat === 0 && m.num === 3;   // 有義波高(分野10・種別0・番号3)
+const ymdOf = d => d.toISOString().slice(0, 10).replace(/-/g, "");
+const hhOf = d => String(d.getUTCHours()).padStart(2, "0");
+// now から遡った 00/06/12/18時UTC の初期時刻(新しい順)。minAgeH 時間以上前のものだけ
+function fcCycles(now, minAgeH, n) {
+  let c = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Math.floor(now.getUTCHours() / 6) * 6));
+  const out = [];
+  while (out.length < n) { if (now - c >= minAgeH * 36e5) out.push(c); c = new Date(c - 6 * 36e5); }
+  return out;
+}
+
+const FC_IMPL = {
+  // NOAA GFS-Wave: NOMADSのGRIBフィルタで領域と要素を絞る。0.16°(北緯52.5度まで)が取れなければ0.25°にする
+  gfs: {
+    maxLead: 120, src: "NOAA GFS-Wave(NOMADS)",
+    candidates: () => fcCycles(new Date(), 5.5, 4),      // 配信は初期時刻の約5.2時間後
+    async fetch(init, lead) {
+      const get = async (grid, toplat) => {
+        const url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl?dir=" + fcEnc(`/gfs.${ymdOf(init)}/${hhOf(init)}/wave/gridded`) +
+          `&file=gfswave.t${hhOf(init)}z.global.${grid}.f${String(lead).padStart(3, "0")}.grib2&var_HTSGW=on&lev_surface=on&subregion=` +
+          `&leftlon=${AREA.lonMin}&rightlon=${AREA.lonMax}&toplat=${toplat}&bottomlat=${AREA.latMin}`;
+        const buf = await (await fetch(proxy + fcEnc(url))).arrayBuffer();
+        if (String.fromCharCode(...new Uint8Array(buf, 0, 4)) !== "GRIB")
+          throw new Error("GRIB2が返らない: " + new TextDecoder().decode(new Uint8Array(buf, 0, 100)).replace(/\s+/g, " "));
+        return cropField(decodeGrib2(buf, isWaveHeight), AREA);
+      };
+      try { const f = await get("0p16", Math.min(AREA.latMax, 52.5)); f.grid = "0.16°"; return f; }
+      catch (e) { console.warn("GFS 0.16°が取れない。0.25°に切替:", e.message); const f = await get("0p25", AREA.latMax); f.grid = "0.25°"; return f; }
+    }
+  },
+  // ECMWF IFS(HRES-WAM) 0.1° オープンデータ: 索引(.index)で波高の部分だけをバイト範囲で取る
+  ifs: {
+    maxLead: 144, src: 'ECMWF IFS(HRES-WAM)0.1° オープンデータ(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC-BY-4.0</a>)',
+    candidates: () => fcCycles(new Date(), 0, 6),         // 公開の遅れは決め打ちせず、索引の有無で確かめる
+    async fetch(init, lead) {
+      const base = `https://data.ecmwf.int/forecasts/${ymdOf(init)}/${hhOf(init)}z/ifs/0p1/wave/${ymdOf(init)}${hhOf(init)}0000-${lead}h-wave-fc-sfc`;
+      const it = await (await fetch(proxy + fcEnc(base + ".index"))).text();
+      if (it.trimStart()[0] !== "{") throw new Error("ECMWFの索引がない(未配信)");
+      const rec = it.trim().split("\n").map(l => { try { return JSON.parse(l); } catch { return null; } }).find(r => r && r.param === "swh");
+      if (!rec) throw new Error("索引にswh(有義波高)がない");
+      const rg = `bytes=${rec._offset}-${rec._offset + rec._length - 1}`;
+      const buf = await (await fetch(proxy + fcEnc(base + ".grib2") + "&range=" + fcEnc(rg))).arrayBuffer();
+      const f = cropField(decodeGrib2(buf, isWaveHeight), AREA); f.grid = "0.1°"; return f;
+    }
+  },
+  // 気象庁CWM(0.05°、北緯20〜50°・東経120〜150°): 京都大学生存圏研究所のアーカイブの、1回分(約82MB)を取得して全予報時刻を読む
+  cwm: {
+    maxLead: 72, src: "気象庁 沿岸波浪モデル(CWM)GPV(京都大学生存圏研究所アーカイブ)",
+    files: new Map(), data: new Map(),
+    async candidates() {
+      const now = new Date(), found = new Map();
+      for (const d of [now, new Date(now - 24 * 36e5)]) {
+        const dir = `http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}/`;
+        try {
+          const html = await (await fetch(proxy + fcEnc(dir))).text();
+          for (const m of html.matchAll(/Z__C_RJTD_(\d{14})_CWM_GPV_Rjp_Gll0p05deg_Pcws_FD\d{4}-\d{4}_grib2\.bin/g)) {
+            const iso = `${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}T${m[1].slice(8,10)}:${m[1].slice(10,12)}:${m[1].slice(12,14)}Z`;
+            if (!found.has(iso)) found.set(iso, []);
+            if (!found.get(iso).includes(dir + m[0])) found.get(iso).push(dir + m[0]);
+          }
+        } catch (e) { console.warn("CWM一覧の取得失敗:", dir, e.message); }
+      }
+      if (!found.size) throw new Error("CWMのファイルが一覧に見つからない");
+      for (const [iso, urls] of found) this.files.set(new Date(iso).toISOString(), urls);   // キーは toISOString() 形式にそろえる
+      return [...found.keys()].sort().reverse().slice(0, 4).map(s => new Date(s));
+    },
+    async fetch(init, lead) {
+      const key = init.toISOString();
+      if (!this.data.has(key)) {
+        this.data.set(key, (async () => {
+          const map = new Map();
+          for (const url of this.files.get(key)) {
+            const r = await fetch(proxy + fcEnc(url));
+            const rd = r.body.getReader(), chunks = []; let got = 0;
+            for (;;) { const { done, value } = await rd.read(); if (done) break; chunks.push(value); got += value.length; fcSay(`CWM取得中… ${(got / 1e6).toFixed(0)}MB`); }
+            const u8 = new Uint8Array(got); let o = 0; for (const c of chunks) { u8.set(c, o); o += c.length; }
+            if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "GRIB")
+              throw new Error(`CWMのダウンロードがGRIB2ではない(${(got / 1e6).toFixed(1)}MB、先頭: ` + new TextDecoder().decode(u8.subarray(0, 100)).replace(/\s+/g, " ") + ")");
+            fcSay("CWM解読中…");
+            for (const g of decodeGrib2(u8.buffer, isWaveHeight, true)) { const f = cropField(g, AREA); f.grid = "0.05°"; map.set(g.lead, f); }
+          }
+          if (!map.size) throw new Error("CWMファイルに波高が見つからない");
+          return map;
+        })());
+        this.data.get(key).catch(() => this.data.delete(key));        // 失敗したら次回やり直せるように
+      }
+      const f = (await this.data.get(key)).get(lead);
+      if (!f) throw new Error(`CWMにこの予報時刻(+${lead}時間)がない`);
+      return f;
+    }
+  }
+};
+
+// ---- 表示の制御 ----
+const fcNow = Date.now(), fcBase = Math.floor(fcNow / (FC_STEPH * 36e5)) * FC_STEPH * 36e5;
+const fcSlots = Array.from({ length: FC_SPAN / FC_STEPH + 1 }, (_, k) => new Date(fcBase + k * FC_STEPH * 36e5));
+const fcInit = {};          // モデルごとに決めた初期時刻(メモリのみ)
+const fcCache = new Map();  // モデル・初期時刻・予報時間 → 格子(メモリのみ。切り替えて戻ったとき再取得しない)
+let fcToken = 0;
+
+async function fcGet(model, valid) {
+  const M = FC_IMPL[model];
+  const load = async init => {
+    const lead = Math.round((valid - init) / 36e5), key = `${model}|${init.toISOString()}|${lead}`;
+    if (fcCache.has(key)) return { field: fcCache.get(key), init, lead };
+    if (lead < 0 || lead > M.maxLead) throw new Error(`この時刻は予報範囲外(初期時刻+${lead}時間、最大+${M.maxLead}時間)`);
+    const field = await M.fetch(init, lead);
+    fcCache.set(key, field);
+    return { field, init, lead };
+  };
+  if (fcInit[model]) return load(fcInit[model]);
+  // 初めて使うモデル: 新しい初期時刻から順に試し、データがあるものを採用(配信の遅れに対応)
+  let lastErr = null;
+  for (const init of await M.candidates()) {
+    if (valid < init) continue;                      // 表示時刻より新しい初期時刻は使えない
+    try { const r = await load(init); fcInit[model] = init; return r; }
+    catch (e) { lastErr = e; console.warn(`${model} 初期時刻 ${init.toISOString()}:`, e.message); }
+  }
+  throw new Error("取得できる初期時刻がない: " + (lastErr ? lastErr.message : ""));
+}
+
+async function fcShow() {
+  const tok = ++fcToken, model = document.querySelector('input[name="fc-model"]:checked').value;
+  const sl = document.getElementById("fc-slider"), valid = fcSlots[+sl.value];
+  fcSay(`${jstFmt(valid)} JST を読込中…`); fcInfo("");
+  fcSrc(FC_IMPL[model].src);
+  try {
+    const { field, init, lead } = await fcGet(model, valid);
+    if (tok !== fcToken) return;                                   // 読込中に別の操作があれば破棄
+    fcSay(`${jstFmt(valid)} JST`);
+    fcInfo(`初期時刻 ${init.toISOString().slice(0, 13).replace("T", " ")}Z + ${lead}時間 / 格子 ${field.grid}`);
+    fcDrawField(field);
+  } catch (e) {
+    if (tok !== fcToken) return;
+    console.warn("波高予測:", e);
+    fcLayer.clearLayers(); fcSay(`${jstFmt(valid)} JST 取得失敗`); fcInfo(e.message);
+  }
+}
+
+function runForecast() {
+  const sl = document.getElementById("fc-slider");
+  sl.max = fcSlots.length - 1; sl.value = 0;
+  sl.addEventListener("input", () => fcSay(`${jstFmt(fcSlots[+sl.value])} JST`));
+  sl.addEventListener("change", fcShow);
+  document.querySelectorAll('input[name="fc-model"]').forEach(r => r.addEventListener("change", fcShow));
+  return fcShow();
+}
+
 // ---------- 実行 ----------
 (async () => {
   const bw = await findBase(PRODUCT_W);
   const errs = [];
   await Promise.allSettled([
     runAscat().catch(e => { console.error(e); errs.push("ASCAT: " + e.message); }),
+    runForecast(),
     bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明")
   ]);
   cnt.note = (errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了") + (ascatNote ? " / " + ascatNote : "");
