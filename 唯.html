@@ -123,7 +123,7 @@ const $ = id => document.getElementById(id);
 
 /* 表示を滑らかにするための気圧格子。取得する気圧面は増やさない。 */
 const DENSE_PRESSURES = [];
-for (let p = 300; p <= 925; p += 5) DENSE_PRESSURES.push(p);
+for (let p = 300; p <= 925; p += 25) DENSE_PRESSURES.push(p);
 
 function variableName(type, pressure) {
   return `${type}_${pressure}hPa`;
@@ -317,7 +317,7 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
   while (remaining >= 10) {
     const bx = x + dx * position;
     const by = y + dy * position;
-    line(bx, by, bx + dy * 10, by + dx * 10);
+    line(bx, by, bx - dy * 10, by + dx * 10);
     remaining -= 10;
     position -= step;
   }
@@ -325,7 +325,7 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
   if (remaining >= 5) {
     const bx = x + dx * position;
     const by = y + dy * position;
-    line(bx, by, bx + dy * 5, by + dx * 5);
+    line(bx, by, bx - dy * 5, by + dx * 5);
   }
 
   svg.appendChild(group);
@@ -498,7 +498,7 @@ async function loadData() {
       z: smoothTTd,
       zmin: 0,
       zmax: 30,
-      zsmooth: "best",
+      /* 色の境界をぼかさず、指定した4区分をそのまま表示する。 */
       showscale: true,
       colorscale: [
         [0.0000, "#18752b"],
@@ -515,10 +515,7 @@ async function loadData() {
         len: 0.75,
         tickvals: [0, 3, 6, 10, 15, 20, 30]
       },
-      hovertemplate:
-        "%{x|%m-%d %H:%M} JST<br>" +
-        "%{y} hPa<br>" +
-        "T−Td: %{z:.1f}°C<extra></extra>"
+      hoverinfo: "skip"
     };
 
     const temperatureTrace = {
@@ -539,10 +536,37 @@ async function loadData() {
       labelfont: { size: 11, color: "red" },
       showscale: false,
       connectgaps: true,
+      hoverinfo: "skip"
+    };
+
+    /* 数値表示は実際に取得した7気圧面だけ。補間格子はホバー対象にしない。 */
+    const hoverX = [];
+    const hoverY = [];
+    const hoverCustom = [];
+    for (let levelIndex = 0; levelIndex < PRESSURE_LEVELS.length; levelIndex++) {
+      const pressure = PRESSURE_LEVELS[levelIndex];
+      for (let i = 0; i < times.length; i++) {
+        const t = temperature[levelIndex][i];
+        const spread = tTd[levelIndex][i];
+        if (!Number.isFinite(t) || !Number.isFinite(spread)) continue;
+        hoverX.push(times[i]);
+        hoverY.push(pressure);
+        hoverCustom.push([t, spread]);
+      }
+    }
+    const observedValuesTrace = {
+      type: "scatter",
+      mode: "markers",
+      x: hoverX,
+      y: hoverY,
+      customdata: hoverCustom,
+      marker: { size: 12, opacity: 0.001, color: "#000" },
+      showlegend: false,
       hovertemplate:
         "%{x|%m-%d %H:%M} JST<br>" +
-        "%{y} hPa<br>" +
-        "気温: %{z:.1f}°C<extra></extra>"
+        "%{y} hPa（取得値）<br>" +
+        "気温: %{customdata[0]:.1f}°C<br>" +
+        "T−Td: %{customdata[1]:.1f}°C<extra></extra>"
     };
 
     const tickValues = [];
@@ -610,7 +634,7 @@ async function loadData() {
     };
 
     const gd = $("chart");
-    await Plotly.newPlot(gd, [spreadTrace, temperatureTrace], layout, config);
+    await Plotly.newPlot(gd, [spreadTrace, temperatureTrace, observedValuesTrace], layout, config);
 
     gd._windTimes = times;
     gd._windData = windByLevel;
