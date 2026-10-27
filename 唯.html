@@ -1,45 +1,46 @@
-```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>気圧面・時間断面図</title>
+<title>ECMWF IFS025 時系列鉛直断面図</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
   body {
     font-family: sans-serif;
-    margin: 16px;
+    margin: 0;
+    padding: 20px;
     color: #222;
+    background: #f5f6f8;
   }
-  h2 { margin: 0 0 12px; }
+  main { max-width: 1500px; margin: auto; }
+  h1 { font-size: 1.5rem; }
   .controls {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 12px;
-    margin-bottom: 12px;
+    padding: 15px;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 8px;
   }
-  .controls label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 14px;
+  label { display: flex; flex-direction: column; gap: 5px; }
+  input, button { padding: 8px; font-size: 1rem; }
+  button {
+    color: white; background: #185abd; border: 0;
+    border-radius: 5px; cursor: pointer;
   }
-  input {
-    width: 120px;
-    padding: 6px;
-    box-sizing: border-box;
-  }
-  button { padding: 7px 16px; cursor: pointer; }
   #error {
     color: #b00020;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     margin: 8px 0;
   }
   #chart {
     width: 100%;
-    height: 760px;
+    height: 750px;
+    background: white;
     position: relative;
   }
   #windOverlay {
@@ -50,147 +51,144 @@
     pointer-events: none;
     overflow: visible;
   }
-  .note {
-    color: #555;
-    font-size: 12px;
-    margin-top: 6px;
+  .notes {
+    margin-top: 15px;
+    padding: 15px;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    line-height: 1.7;
+  }
+  @media (max-width: 600px) {
+    body { padding: 8px; }
+    #chart { height: 650px; }
   }
 </style>
 </head>
 <body>
+<main>
+  <h1>ECMWF IFS025 時系列鉛直断面図</h1>
+  <p>気温・気温と露点温度の差・風の鉛直分布を表示します。</p>
 
-<h2>気圧面・時間断面図</h2>
+  <section class="controls">
+    <label>緯度
+      <input id="lat" type="number" min="-90" max="90" step="0.1" value="35">
+    </label>
+    <label>経度
+      <input id="lon" type="number" min="-180" max="180" step="0.1" value="135">
+    </label>
+    <button id="load" type="button">描画</button>
+  </section>
 
-<div class="controls">
-  <label>緯度
-    <input id="latitude" type="number"
-           min="-90" max="90" step="0.1" value="35">
-  </label>
-  <label>経度
-    <input id="longitude" type="number"
-           min="-180" max="180" step="0.1" value="135">
-  </label>
-  <button id="drawButton" type="button">描画</button>
-</div>
+  <p>
+    モデル：ecmwf_ifs025 /
+    予報期間：3日間 /
+    時間間隔：毎時 /
+    上端：300 hPa /
+    タイムゾーン：JST
+  </p>
+  <p>使用気圧面：300、400、500、600、700、850、925 hPa</p>
 
-<div id="error" role="alert"></div>
+  <div id="error" role="alert"></div>
+  <div id="chart"><svg id="windOverlay" aria-hidden="true"></svg></div>
 
-<div id="chart">
-  <svg id="windOverlay" aria-hidden="true"></svg>
-</div>
-
-<div class="note">
-  ECMWF IFS 0.25°モデル／予報期間3日／1時間間隔／日本標準時。
-  気温等値線は3℃間隔。風の矢羽根はノット単位で表示します。
-</div>
+  <section class="notes">
+    <b>表示内容</b>
+    <ul>
+      <li>赤線：気温の等温線（3℃間隔）。</li>
+      <li>背景色：T−Td。3℃以下は濃い緑、3℃超〜6℃以下は薄い緑、6℃超〜15℃未満は白、15℃以上は黄色。</li>
+      <li>黒い矢羽根：風向・風速。約3時間ごとに表示。</li>
+      <li>横軸：JST。6時・18時を目盛りにします。</li>
+      <li>日付が変わる時刻に破線を表示します。</li>
+    </ul>
+    <b>固定条件</b>
+    <ul>
+      <li>モデル、予報期間、時間間隔、気圧面は固定です。</li>
+      <li>変更できるのは緯度・経度のみです。</li>
+      <li>欠損値は前後の有効な時刻から線形補間します。前後どちらかの値がない端の欠損は補間しません。</li>
+      <li>気圧方向も表示用に補間して滑らかにします。補間値は新たな予報データではありません。</li>
+    </ul>
+  </section>
+</main>
 
 <script>
 "use strict";
 
-/* 固定設定 */
 const MODEL = "ecmwf_ifs025";
 const FORECAST_DAYS = 3;
 const TIMEZONE = "Asia/Tokyo";
 const PRESSURE_LEVELS = [300, 400, 500, 600, 700, 850, 925];
 const TEMPERATURE_INTERVAL = 3;
+const $ = id => document.getElementById(id);
 
-/* 滑らかな描画用の気圧格子。元データはこの間隔では取得しない。 */
+/* 表示を滑らかにするための気圧格子。取得する気圧面は増やさない。 */
 const DENSE_PRESSURES = [];
-for (let p = 300; p <= 925; p += 5) {
-  DENSE_PRESSURES.push(p);
+for (let p = 300; p <= 925; p += 5) DENSE_PRESSURES.push(p);
+
+function variableName(type, pressure) {
+  return `${type}_${pressure}hPa`;
 }
 
-/*
- * 欠損値を前後の有効値から線形補間する。
- * 両側の有効値が存在しない端の欠損は埋めない。
- */
-function interpolateMissing(values) {
-  const result = values.map(v =>
-    Number.isFinite(v) ? v : NaN
-  );
-
-  let i = 0;
-
-  while (i < result.length) {
-    if (Number.isFinite(result[i])) {
-      i++;
-      continue;
-    }
-
-    const start = i;
-
-    while (i < result.length &&
-           !Number.isFinite(result[i])) {
-      i++;
-    }
-
-    const end = i;
-    const left = start - 1;
-    const right = end;
-
-    if (
-      left >= 0 &&
-      right < result.length &&
-      Number.isFinite(result[left]) &&
-      Number.isFinite(result[right])
-    ) {
-      const a = result[left];
-      const b = result[right];
-      const span = right - left;
-
-      for (let j = start; j < end; j++) {
-        result[j] = a + (b - a) * ((j - left) / span);
-      }
-    }
-  }
-
-  return result;
+function parseJST(value) {
+  return new Date(value + ":00+09:00");
 }
 
-function numericArray(values) {
-  if (!Array.isArray(values)) return [];
-
+function numericArray(values, expectedLength) {
+  if (!Array.isArray(values)) return Array(expectedLength).fill(NaN);
   return values.map(v => {
-    if (v === null || v === undefined || v === "") {
-      return NaN;
-    }
-
+    if (v === null || v === undefined || v === "") return NaN;
     const n = Number(v);
     return Number.isFinite(n) ? n : NaN;
   });
 }
 
-/*
- * 時刻を日本標準時として数値化する。
- * APIの時刻は YYYY-MM-DDTHH:MM 形式。
- */
-function timeToEpoch(value) {
-  return new Date(value + ":00+09:00").getTime();
+/* 前後の有効値がある欠損だけを時間方向に線形補間する。 */
+function interpolateMissing(values) {
+  const out = values.map(v => Number.isFinite(v) ? v : NaN);
+  let i = 0;
+
+  while (i < out.length) {
+    if (Number.isFinite(out[i])) {
+      i++;
+      continue;
+    }
+
+    const start = i;
+    while (i < out.length && !Number.isFinite(out[i])) i++;
+    const end = i;
+    const left = start - 1;
+    const right = end;
+
+    if (
+      left >= 0 && right < out.length &&
+      Number.isFinite(out[left]) && Number.isFinite(out[right])
+    ) {
+      const a = out[left];
+      const b = out[right];
+      const span = right - left;
+      for (let j = start; j < end; j++) {
+        out[j] = a + (b - a) * ((j - left) / span);
+      }
+    }
+  }
+  return out;
 }
 
-/*
- * 気圧方向にも線形補間する。
- * 元の7気圧面を、描画用の5 hPa間隔の格子へ補間する。
- * これは表示上の補間であり、実際の予報データが
- * 5 hPa間隔で提供されているという意味ではない。
- */
+/* [気圧面][時刻] の配列を、気圧方向に線形補間する。 */
 function interpolatePressureGrid(matrix, sourceLevels, targetLevels) {
   return targetLevels.map(targetP => {
     let lower = -1;
     let upper = -1;
 
     for (let i = 0; i < sourceLevels.length - 1; i++) {
-      if (
-        targetP >= sourceLevels[i] &&
-        targetP <= sourceLevels[i + 1]
-      ) {
+      if (targetP >= sourceLevels[i] && targetP <= sourceLevels[i + 1]) {
         lower = i;
         upper = i + 1;
         break;
       }
     }
 
-    if (lower === -1 || upper === -1) {
+    if (lower < 0 || upper < 0) {
       return matrix[0].map(() => NaN);
     }
 
@@ -198,44 +196,54 @@ function interpolatePressureGrid(matrix, sourceLevels, targetLevels) {
     const p2 = sourceLevels[upper];
     const ratio = (targetP - p1) / (p2 - p1);
 
-    return matrix[lower].map((v1, timeIndex) => {
-      const v2 = matrix[upper][timeIndex];
-
-      if (!Number.isFinite(v1) || !Number.isFinite(v2)) {
-        return NaN;
-      }
-
+    return matrix[lower].map((v1, j) => {
+      const v2 = matrix[upper][j];
+      if (!Number.isFinite(v1) || !Number.isFinite(v2)) return NaN;
       return v1 + (v2 - v1) * ratio;
     });
   });
 }
 
-/*
- * 風速・風向を東西(u)・南北(v)成分に変換。
- * 風向角を直接補間せず、成分ごとに欠損を補間する。
- */
-function windComponents(speedMs, directionDeg) {
+function createApiUrl(latitude, longitude) {
+  const variables = [];
+  for (const p of PRESSURE_LEVELS) {
+    variables.push(
+      variableName("temperature", p),
+      variableName("dew_point", p),
+      variableName("wind_speed", p),
+      variableName("wind_direction", p)
+    );
+  }
+
+  const params = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    hourly: variables.join(","),
+    models: MODEL,
+    timezone: TIMEZONE,
+    forecast_days: String(FORECAST_DAYS),
+    wind_speed_unit: "ms"
+  });
+
+  return "https://api.open-meteo.com/v1/forecast?" + params.toString();
+}
+
+/* 風向を直接補間せず、東西・南北成分にしてから補間する。 */
+function windComponents(speedSeries, directionSeries, length) {
   const u = [];
   const v = [];
 
-  const n = Math.max(speedMs.length, directionDeg.length);
+  for (let i = 0; i < length; i++) {
+    const speed = speedSeries[i];
+    const direction = directionSeries[i];
 
-  for (let i = 0; i < n; i++) {
-    const speed = speedMs[i];
-    const direction = directionDeg[i];
-
-    if (
-      !Number.isFinite(speed) ||
-      !Number.isFinite(direction)
-    ) {
+    if (!Number.isFinite(speed) || !Number.isFinite(direction)) {
       u.push(NaN);
       v.push(NaN);
       continue;
     }
 
     const rad = direction * Math.PI / 180;
-
-    // 風向は「吹いてくる方向」
     u.push(-speed * Math.sin(rad));
     v.push(-speed * Math.cos(rad));
   }
@@ -249,26 +257,19 @@ function windComponents(speedMs, directionDeg) {
 function vectorToWind(u, v) {
   return {
     speedMs: Math.hypot(u, v),
-    direction:
-      (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360
+    direction: (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360
   };
 }
 
-/*
- * 気象図形式の風の矢羽根。
- * 50 kt：旗、10 kt：長い羽根、5 kt：短い羽根。
- */
+/* 気象図形式の風矢羽根。風速は5 kt単位に丸めて表示。 */
 function makeWindBarb(svg, x, y, speedMs, directionDeg) {
-  if (![x, y, speedMs, directionDeg].every(Number.isFinite)) {
-    return;
-  }
+  if (![x, y, speedMs, directionDeg].every(Number.isFinite)) return;
 
   const knots = Math.round(speedMs * 1.943844 / 5) * 5;
   if (knots < 5) return;
 
   const ns = "http://www.w3.org/2000/svg";
   const group = document.createElementNS(ns, "g");
-
   group.setAttribute("stroke", "#111");
   group.setAttribute("fill", "#111");
   group.setAttribute("stroke-width", "1.15");
@@ -278,8 +279,7 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
   const rad = directionDeg * Math.PI / 180;
   const dx = Math.sin(rad);
   const dy = -Math.cos(rad);
-  const shaftLength = 30;
-
+  const shaftLength = 29;
   const x2 = x + dx * shaftLength;
   const y2 = y + dy * shaftLength;
 
@@ -292,18 +292,15 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
     group.appendChild(el);
   }
 
-  // 主軸
   line(x, y, x2, y2);
 
   let remaining = knots;
   let position = shaftLength - 1;
   const step = 5.2;
 
-  // 50ノット単位の旗
   while (remaining >= 50) {
     const bx = x + dx * position;
     const by = y + dy * position;
-
     const ex = bx - dx * 8;
     const ey = by - dy * 8;
 
@@ -312,50 +309,34 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
       "points",
       `${bx},${by} ${ex},${ey} ${ex + dy * 10},${ey - dx * 10}`
     );
-
     group.appendChild(flag);
     remaining -= 50;
     position -= step;
   }
 
-  // 10ノット単位の長い羽根
   while (remaining >= 10) {
     const bx = x + dx * position;
     const by = y + dy * position;
-
-    line(
-      bx, by,
-      bx + dy * 10,
-      by + dx * 10
-    );
-
+    line(bx, by, bx + dy * 10, by + dx * 10);
     remaining -= 10;
     position -= step;
   }
 
-  // 5ノット単位の短い羽根
   if (remaining >= 5) {
     const bx = x + dx * position;
     const by = y + dy * position;
-
-    line(
-      bx, by,
-      bx + dy * 5,
-      by + dx * 5
-    );
+    line(bx, by, bx + dy * 5, by + dx * 5);
   }
 
   svg.appendChild(group);
 }
 
-/* 矢羽根をPlotly図の上に重ねる。 */
 function drawWindOverlay(gd, times, windByLevel) {
-  const svg = document.getElementById("windOverlay");
+  const svg = $("windOverlay");
   svg.replaceChildren();
 
   const width = gd.clientWidth;
   const height = gd.clientHeight;
-
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("width", width);
   svg.setAttribute("height", height);
@@ -365,230 +346,240 @@ function drawWindOverlay(gd, times, windByLevel) {
 
   const xa = full.xaxis;
   const ya = full.yaxis;
-
   const xOffset = xa._offset;
   const yOffset = ya._offset;
 
-  // 矢羽根は元データの気圧面に配置し、3時間ごとに表示
   for (const level of PRESSURE_LEVELS) {
     const series = windByLevel[level];
     if (!series) continue;
 
+    /* 矢羽根は約3時間ごとに置き、背景のデータは毎時使用する。 */
     for (let i = 0; i < times.length; i += 3) {
       const u = series.u[i];
       const v = series.v[i];
-
-      if (!Number.isFinite(u) || !Number.isFinite(v)) {
-        continue;
-      }
+      if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
 
       const wind = vectorToWind(u, v);
-      const xPx = xOffset + xa.d2p(times[i]);
+      const xPx = xOffset + xa.d2p(times[i].getTime());
       const yPx = yOffset + ya.d2p(level);
 
-      makeWindBarb(
-        svg, xPx, yPx,
-        wind.speedMs, wind.direction
-      );
+      makeWindBarb(svg, xPx, yPx, wind.speedMs, wind.direction);
     }
   }
 }
 
-async function drawChart() {
-  const errorEl = document.getElementById("error");
+function makeDayBoundaryLines(times) {
+  const shapes = [];
+  const seen = new Set();
+
+  for (const date of times) {
+    if (date.getHours() !== 0) continue;
+
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    shapes.push({
+      type: "line",
+      xref: "x",
+      yref: "paper",
+      x0: date,
+      x1: date,
+      y0: 0,
+      y1: 1,
+      line: { color: "#777", width: 1, dash: "dash" }
+    });
+  }
+
+  return shapes;
+}
+
+async function loadData() {
+  const errorEl = $("error");
   errorEl.textContent = "";
 
-  const lat = Number(document.getElementById("latitude").value);
-  const lon = Number(document.getElementById("longitude").value);
+  const latitude = Number($("lat").value);
+  const longitude = Number($("lon").value);
 
-  if (
-    !Number.isFinite(lat) || lat < -90 || lat > 90 ||
-    !Number.isFinite(lon) || lon < -180 || lon > 180
-  ) {
-    errorEl.textContent = "緯度または経度が範囲外です。";
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    errorEl.textContent = "緯度は-90〜90で指定してください。";
+    return;
+  }
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    errorEl.textContent = "経度は-180〜180で指定してください。";
     return;
   }
 
-  const variables = [];
-
-  for (const p of PRESSURE_LEVELS) {
-    variables.push(
-      `temperature_${p}hPa`,
-      `dew_point_${p}hPa`,
-      `wind_speed_${p}hPa`,
-      `wind_direction_${p}hPa`
-    );
-  }
-
-  const params = new URLSearchParams({
-    latitude: String(lat),
-    longitude: String(lon),
-    hourly: variables.join(","),
-    models: MODEL,
-    forecast_days: String(FORECAST_DAYS),
-    timezone: TIMEZONE,
-    wind_speed_unit: "ms"
-  });
-
-  const url =
-    "https://api.open-meteo.com/v1/forecast?" +
-    params.toString();
+  const button = $("load");
+  button.disabled = true;
 
   try {
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`APIエラー: HTTP ${response.status}`);
-    }
+    const response = await fetch(createApiUrl(latitude, longitude));
+    if (!response.ok) throw new Error(`APIエラー：HTTP ${response.status}`);
 
     const data = await response.json();
+    const hourly = data.hourly;
 
-    if (
-      !data.hourly ||
-      !Array.isArray(data.hourly.time)
-    ) {
-      throw new Error("予報データの形式が想定と異なります。");
+    if (!hourly || !Array.isArray(hourly.time)) {
+      throw new Error("API応答に時系列データがありません。");
     }
 
-    const times = data.hourly.time.map(timeToEpoch);
-    const xDates = times.map(t => new Date(t));
+    const timeStrings = hourly.time;
+    const times = timeStrings.map(parseJST);
+    const nTimes = times.length;
+
+    if (!nTimes) throw new Error("時刻データがありません。");
 
     const temperature = [];
-    const dewpoint = [];
-    const spread = [];
+    const dewPoint = [];
+    const tTd = [];
     const windByLevel = {};
 
     for (const p of PRESSURE_LEVELS) {
-      // 気温・露点温度は時間方向の欠損を補間
-      const t = interpolateMissing(
-        numericArray(data.hourly[`temperature_${p}hPa`])
-      );
+      const tRaw = numericArray(hourly[variableName("temperature", p)], nTimes);
+      const tdRaw = numericArray(hourly[variableName("dew_point", p)], nTimes);
+      const speed = numericArray(hourly[variableName("wind_speed", p)], nTimes);
+      const direction = numericArray(hourly[variableName("wind_direction", p)], nTimes);
 
-      const td = interpolateMissing(
-        numericArray(data.hourly[`dew_point_${p}hPa`])
-      );
+      if (
+        tRaw.length !== nTimes ||
+        tdRaw.length !== nTimes ||
+        speed.length !== nTimes ||
+        direction.length !== nTimes
+      ) {
+        throw new Error(`必要なデータがありません：${p} hPa`);
+      }
+
+      const t = interpolateMissing(tRaw);
+      const td = interpolateMissing(tdRaw);
 
       temperature.push(t);
-      dewpoint.push(td);
+      dewPoint.push(td);
+      tTd.push(t.map((value, i) =>
+        Number.isFinite(value) && Number.isFinite(td[i])
+          ? value - td[i]
+          : NaN
+      ));
 
-      // T−Tdを算出
-      spread.push(
-        t.map((value, i) =>
-          Number.isFinite(value) &&
-          Number.isFinite(td[i])
-            ? value - td[i]
-            : NaN
-        )
-      );
-
-      // 風の成分も時間方向の欠損を補間
-      windByLevel[p] = windComponents(
-        numericArray(data.hourly[`wind_speed_${p}hPa`]),
-        numericArray(data.hourly[`wind_direction_${p}hPa`])
-      );
+      windByLevel[p] = windComponents(speed, direction, nTimes);
     }
 
-    /*
-     * 時間方向の欠損補間に加えて、気圧方向にも補間し、
-     * 描画用の密な格子に変換する。
-     */
+    const finiteTemperatures = temperature.flat().filter(Number.isFinite);
+    if (!finiteTemperatures.length) {
+      throw new Error("有効な気温データがありません。");
+    }
+
+    const minTemperature =
+      Math.floor(Math.min(...finiteTemperatures) / TEMPERATURE_INTERVAL) *
+      TEMPERATURE_INTERVAL;
+    const maxTemperature =
+      Math.ceil(Math.max(...finiteTemperatures) / TEMPERATURE_INTERVAL) *
+      TEMPERATURE_INTERVAL;
+
+    /* 気圧方向の補間で格子を密にし、等値線・背景を滑らかにする。 */
     const smoothTemperature = interpolatePressureGrid(
       temperature, PRESSURE_LEVELS, DENSE_PRESSURES
     );
-
-    const smoothSpread = interpolatePressureGrid(
-      spread, PRESSURE_LEVELS, DENSE_PRESSURES
+    const smoothTTd = interpolatePressureGrid(
+      tTd, PRESSURE_LEVELS, DENSE_PRESSURES
     );
 
     /*
-     * T−Tdの色分け：
+     * T−Tdは背景色だけで表現し、等値線は描かない。
      * 3℃以下：濃い緑
      * 3℃超〜6℃以下：薄い緑
-     * 6℃超〜15℃未満：透明
+     * 6℃超〜15℃未満：白
      * 15℃以上：黄色
-     *
-     * T−Tdの等値線は描画しない。
      */
     const spreadTrace = {
       type: "heatmap",
-      x: xDates,
+      x: times,
       y: DENSE_PRESSURES,
-      z: smoothSpread,
+      z: smoothTTd,
       zmin: 0,
       zmax: 30,
       zsmooth: "best",
-      showscale: false,
-      hovertemplate:
-        "時刻: %{x|%m/%d %H:%M}<br>" +
-        "気圧: %{y} hPa<br>" +
-        "T−Td: %{z:.1f}℃<extra></extra>",
+      showscale: true,
       colorscale: [
         [0.0000, "#18752b"],
         [0.0999, "#18752b"],
         [0.1000, "#b9e6a5"],
         [0.1999, "#b9e6a5"],
-        [0.2000, "rgba(255,255,255,0)"],
-        [0.4999, "rgba(255,255,255,0)"],
+        [0.2000, "#ffffff"],
+        [0.4999, "#ffffff"],
         [0.5000, "#ffe84a"],
         [1.0000, "#ffe84a"]
-      ]
+      ],
+      colorbar: {
+        title: { text: "T−Td (°C)" },
+        len: 0.75,
+        tickvals: [0, 3, 6, 10, 15, 20, 30]
+      },
+      hovertemplate:
+        "%{x|%m-%d %H:%M} JST<br>" +
+        "%{y} hPa<br>" +
+        "T−Td: %{z:.1f}°C<extra></extra>"
     };
 
-    /*
-     * 気温等値線は3℃間隔。
-     * T−Tdの等値線は作らない。
-     */
     const temperatureTrace = {
       type: "contour",
-      x: xDates,
+      x: times,
       y: DENSE_PRESSURES,
       z: smoothTemperature,
+      name: "気温",
       autocontour: false,
       contours: {
-        start: -60,
-        end: 45,
+        start: minTemperature,
+        end: maxTemperature,
         size: TEMPERATURE_INTERVAL,
         coloring: "lines",
-        showlabels: true,
-        labelfont: {
-          size: 10,
-          color: "#222"
-        }
+        showlabels: true
       },
-      line: {
-        color: "#333",
-        width: 1
-      },
+      line: { color: "red", width: 1.4 },
+      labelfont: { size: 11, color: "red" },
       showscale: false,
       connectgaps: true,
       hovertemplate:
-        "時刻: %{x|%m/%d %H:%M}<br>" +
-        "気圧: %{y} hPa<br>" +
-        "気温: %{z:.1f}℃<extra></extra>"
+        "%{x|%m-%d %H:%M} JST<br>" +
+        "%{y} hPa<br>" +
+        "気温: %{z:.1f}°C<extra></extra>"
     };
+
+    const tickValues = [];
+    const tickTexts = [];
+
+    for (const date of times) {
+      const hour = date.getHours();
+      if (hour === 6 || hour === 18) {
+        tickValues.push(date);
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        tickTexts.push(`${month}-${day} ${String(hour).padStart(2, "0")}JST`);
+      }
+    }
 
     const layout = {
       title: {
         text:
-          `気圧面・時間断面図　` +
-          `緯度 ${lat.toFixed(2)}°　経度 ${lon.toFixed(2)}°`,
+          `ECMWF IFS025 鉛直断面図 ` +
+          `(${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`,
         x: 0.5
       },
-      autosize: true,
-      margin: { l: 75, r: 25, t: 70, b: 80 },
       paper_bgcolor: "white",
       plot_bgcolor: "white",
-
+      margin: { l: 75, r: 95, t: 75, b: 100 },
       xaxis: {
-        title: "日本標準時",
+        title: "日時 (JST)",
         type: "date",
-        tickformat: "%m/%d<br>%H:%M",
+        tickmode: "array",
+        tickvals: tickValues,
+        ticktext: tickTexts,
+        tickangle: -35,
         showgrid: true,
-        gridcolor: "#ddd",
+        gridcolor: "#e5e7eb",
         zeroline: false,
         fixedrange: true
       },
-
       yaxis: {
         title: "気圧 (hPa)",
         type: "linear",
@@ -597,12 +588,13 @@ async function drawChart() {
         tickvals: PRESSURE_LEVELS,
         ticktext: PRESSURE_LEVELS.map(String),
         showgrid: true,
-        gridcolor: "#ccc",
+        gridcolor: "#e5e7eb",
         zeroline: false,
         fixedrange: true
       },
-
-      showlegend: false,
+      shapes: makeDayBoundaryLines(times),
+      legend: { orientation: "h", y: -0.28 },
+      hovermode: "closest",
       dragmode: false
     };
 
@@ -611,75 +603,40 @@ async function drawChart() {
       displaylogo: false,
       scrollZoom: false,
       doubleClick: false,
-      staticPlot: false,
       modeBarButtonsToRemove: [
-        "zoom2d",
-        "pan2d",
-        "select2d",
-        "lasso2d",
-        "zoomIn2d",
-        "zoomOut2d",
-        "autoScale2d",
-        "resetScale2d"
+        "zoom2d", "pan2d", "select2d", "lasso2d",
+        "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"
       ]
     };
 
-    const gd = document.getElementById("chart");
-
-    await Plotly.newPlot(
-      gd,
-      [spreadTrace, temperatureTrace],
-      layout,
-      config
-    );
+    const gd = $("chart");
+    await Plotly.newPlot(gd, [spreadTrace, temperatureTrace], layout, config);
 
     gd._windTimes = times;
     gd._windData = windByLevel;
-
     drawWindOverlay(gd, times, windByLevel);
 
     if (!gd._windOverlayHandlerAttached) {
       gd.on("plotly_afterplot", () => {
         if (gd._windTimes && gd._windData) {
-          drawWindOverlay(
-            gd,
-            gd._windTimes,
-            gd._windData
-          );
+          drawWindOverlay(gd, gd._windTimes, gd._windData);
         }
       });
-
       gd._windOverlayHandlerAttached = true;
     }
 
   } catch (error) {
     errorEl.textContent =
-      "図を作成できませんでした。\n" +
-      (error && error.message
-        ? error.message
-        : String(error));
+      "データ取得・描画エラー：" +
+      (error && error.message ? error.message : String(error));
+    console.error(error);
+  } finally {
+    button.disabled = false;
   }
 }
 
-document
-  .getElementById("drawButton")
-  .addEventListener("click", drawChart);
-
-window.addEventListener("resize", () => {
-  const gd = document.getElementById("chart");
-
-  if (gd._windTimes && gd._windData) {
-    drawWindOverlay(
-      gd,
-      gd._windTimes,
-      gd._windData
-    );
-  }
-});
-
-/* 初回描画 */
-drawChart();
+$("load").addEventListener("click", loadData);
+loadData();
 </script>
 </body>
 </html>
-```
