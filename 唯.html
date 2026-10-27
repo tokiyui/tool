@@ -3,37 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ECMWF IFS 時系列鉛直断面図</title>
+<title>ECMWF IFS025 時系列鉛直断面図</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-  :root { color-scheme: light; }
-  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 20px; color: #1f2937; background: #f7f8fa; }
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 20px;
+    color: #1f2937;
+    background: #f7f8fa;
+  }
   main { max-width: 1500px; margin: auto; }
-  h1 { font-size: 1.45rem; margin: 0 0 8px; }
-  .sub { color: #4b5563; margin: 0 0 16px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; background: white; border: 1px solid #d1d5db; border-radius: 10px; }
-  label { display: flex; flex-direction: column; gap: 5px; font-size: .9rem; }
-  input, select, button { font: inherit; padding: 8px 10px; border: 1px solid #9ca3af; border-radius: 6px; background: white; }
-  button { cursor: pointer; background: #1d4ed8; color: white; border-color: #1d4ed8; }
+  h1 { font-size: 1.45rem; margin-bottom: 8px; }
+  .sub { color: #4b5563; margin-bottom: 16px; }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end;
+    padding: 14px;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: .9rem;
+  }
+  input, select, button {
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid #9ca3af;
+    border-radius: 6px;
+    background: white;
+  }
+  button {
+    cursor: pointer;
+    background: #1d4ed8;
+    color: white;
+    border-color: #1d4ed8;
+  }
   button:disabled { opacity: .55; cursor: wait; }
-  #status { margin: 12px 2px; min-height: 1.5em; font-size: .92rem; }
-  #chart { width: 100%; height: min(72vh, 850px); min-height: 540px; background: white; border-radius: 10px; }
-  .notes { margin-top: 14px; padding: 12px 16px; background: white; border: 1px solid #d1d5db; border-radius: 10px; font-size: .9rem; line-height: 1.65; }
+  #status { margin: 12px 2px; min-height: 1.5em; }
+  #chart {
+    width: 100%;
+    height: min(72vh, 850px);
+    min-height: 540px;
+    background: white;
+    border-radius: 10px;
+  }
+  .notes {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font-size: .9rem;
+    line-height: 1.65;
+  }
   .error { color: #b91c1c; }
-  code { background: #eef2ff; padding: 1px 4px; border-radius: 4px; }
+  code {
+    background: #eef2ff;
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>ECMWF IFS 時系列鉛直断面図</h1>
-  <p class="sub">Open-Meteo hourly forecast · 気温・露点温度差・風の鉛直分布</p>
+  <h1>ECMWF IFS025 時系列鉛直断面図</h1>
+  <p class="sub">
+    Open-Meteo hourly forecast · 気温・露点温度差・風の鉛直分布
+  </p>
+
   <section class="controls">
     <label>緯度
-      <input id="lat" type="number" min="-90" max="90" step="0.1" value="35">
+      <input id="lat" type="number" min="-90" max="90"
+             step="0.1" value="35">
     </label>
+
     <label>経度
-      <input id="lon" type="number" min="-180" max="180" step="0.1" value="135">
+      <input id="lon" type="number" min="-180" max="180"
+             step="0.1" value="135">
     </label>
+
     <label>予報日数
       <select id="days">
         <option value="1">1日</option>
@@ -47,9 +102,10 @@
         <option value="16">16日</option>
       </select>
     </label>
+
     <label>上端の気圧面
       <select id="top">
-        <option value="300">300 hPa</option>
+        <option value="300" selected>300 hPa</option>
         <option value="400">400 hPa</option>
         <option value="500">500 hPa</option>
         <option value="600">600 hPa</option>
@@ -59,226 +115,477 @@
         <option value="900">900 hPa</option>
       </select>
     </label>
+
     <label>表示間隔
       <select id="interval">
-        <option value="1">毎時</option>
-        <option value="3" selected>3時間</option>
+        <option value="1" selected>毎時</option>
+        <option value="3">3時間</option>
         <option value="6">6時間</option>
       </select>
     </label>
+
     <button id="load">データ取得・描画</button>
   </section>
-  <div id="status" role="status">APIから予報データを取得してください。</div>
+
+  <div id="status" role="status">
+    APIから予報データを取得しています…
+  </div>
+
   <div id="chart"></div>
+
   <section class="notes">
     <b>図の見方</b>
     <ul>
       <li>赤線：気温の等温線（3℃間隔）。</li>
-      <li>背景色：T−Td（気温−露点温度）。小さいほど空気が湿っています。</li>
-      <li>風矢羽相当：矢印の向きは風向、長さは風速に比例します。矢印は気象学の標準的な羽根記号そのものではなく、読みやすさを優先したベクトル表示です。</li>
-      <li>Open-MeteoのAPIが返す予報時刻を使用します。JSTはAPIの <code>timezone=Asia/Tokyo</code> 指定によるものです。</li>
+      <li>背景色：T−Td（気温−露点温度）。値が小さいほど空気が湿っています。</li>
+      <li>黒線：風向・風速から作成した簡略風ベクトルです。気象学の標準的な風矢羽とは異なります。</li>
+      <li>時刻はJSTです。</li>
     </ul>
-    <b>元のPython図との相違</b>
+
+    <b>注意事項</b>
     <ul>
-      <li>このAPI URLには、元コードで使用するGRIB2の全鉛直層・同じ格子点データはありません。指定された気圧面の値を用いて描画します。</li>
-      <li>指定URLにない気圧面の値は補間せず、存在する気圧面だけを描画します。</li>
-      <li>LCL・EL・CAPEおよび湿球温度の等値線は、元コードと同じ計算条件を再現できないため表示していません。</li>
-      <li>ブラウザがインターネットに接続できる必要があります。APIの応答制限やネットワーク障害時はエラーメッセージが表示されます。</li>
+      <li>モデルは <code>ecmwf_ifs025</code> です。</li>
+      <li>Open-Meteo APIから指定気圧面の予報値を取得します。</li>
+      <li>LCL・EL・CAPE・湿球温度は未実装です。</li>
+      <li>インターネット接続が必要です。</li>
     </ul>
   </section>
 </main>
+
 <script>
 (() => {
-  const pressureLevels = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300];
+  "use strict";
+
+  // 使用する気圧面（hPa）
+  const pressureLevels = [
+    1000, 975, 950, 925, 900, 850,
+    800, 700, 600, 500, 400, 300
+  ];
+
   const $ = id => document.getElementById(id);
   const toRad = d => d * Math.PI / 180;
 
   function variableName(kind, p) {
     return `${kind}_${p}hPa`;
   }
+
+  // APIの時刻はJST。Dateオブジェクトには明示的に+09:00を付ける。
   function parseLocalDate(s) {
-    // API timezone is Asia/Tokyo and its timestamps have no UTC suffix.
-    return new Date(s + (s.length === 16 ? ':00' : '') + '+09:00');
+    return new Date(
+      s + (s.length === 16 ? ':00' : '') + '+09:00'
+    );
   }
+
+  // Open-Meteo API URLを作成
   function makeUrl(lat, lon, days) {
     const vars = [];
+
     for (const p of pressureLevels) {
       vars.push(variableName('temperature', p));
       vars.push(variableName('dew_point', p));
       vars.push(variableName('wind_speed', p));
       vars.push(variableName('wind_direction', p));
     }
+
     const q = new URLSearchParams({
-      latitude: String(lat), longitude: String(lon),
+      latitude: String(lat),
+      longitude: String(lon),
       hourly: vars.join(','),
-      models: 'ecmwf_ifs',
+      models: 'ecmwf_ifs025',
       timezone: 'Asia/Tokyo',
       forecast_days: String(days),
       wind_speed_unit: 'ms'
     });
+
     return 'https://api.open-meteo.com/v1/forecast?' + q.toString();
   }
+
   function getSeries(hourly, kind, p) {
     return hourly[variableName(kind, p)] || null;
   }
-  function fmtTime(s) {
-    return s.replace('T', ' ');
-  }
+
+  // 表示間隔に応じてデータを抽出
   function downsampleIndices(n, step) {
     const out = [];
-    for (let i = 0; i < n; i += step) out.push(i);
-    if (out[out.length - 1] !== n - 1) out.push(n - 1);
+
+    for (let i = 0; i < n; i += step) {
+      out.push(i);
+    }
+
+    if (out[out.length - 1] !== n - 1) {
+      out.push(n - 1);
+    }
+
     return out;
   }
 
   async function load() {
     const btn = $('load');
     const status = $('status');
+
     btn.disabled = true;
     status.className = '';
     status.textContent = 'Open-Meteoからデータを取得しています…';
+
     try {
       const lat = Number($('lat').value);
       const lon = Number($('lon').value);
       const days = Number($('days').value);
       const top = Number($('top').value);
       const step = Number($('interval').value);
-      if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
-          !Number.isFinite(lon) || lon < -180 || lon > 180) {
-        throw new Error('緯度は -90〜90、経度は -180〜180 の範囲で指定してください。');
+
+      if (
+        !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+        !Number.isFinite(lon) || lon < -180 || lon > 180
+      ) {
+        throw new Error(
+          '緯度は-90〜90、経度は-180〜180の範囲で指定してください。'
+        );
       }
-      const response = await fetch(makeUrl(lat, lon, days));
-      if (!response.ok) throw new Error(`APIエラー: HTTP ${response.status}`);
+
+      // APIからデータ取得
+      const url = makeUrl(lat, lon, days);
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`APIエラー: HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      if (!data.hourly || !data.hourly.time) throw new Error('API応答に hourly/time がありません。');
+
+      if (!data.hourly || !data.hourly.time) {
+        throw new Error('API応答に hourly/time がありません。');
+      }
 
       const h = data.hourly;
       const allTimes = h.time;
+
       const indices = downsampleIndices(allTimes.length, step);
       const times = indices.map(i => parseLocalDate(allTimes[i]));
-      const levels = pressureLevels.filter(p => p <= 1000 && p >= top)
-        .filter(p => getSeries(h, 'temperature', p) && getSeries(h, 'dew_point', p));
-      if (!levels.length) throw new Error('選択した範囲に描画可能な気圧面がありません。');
 
-      const temp = levels.map(p => indices.map(i => getSeries(h, 'temperature', p)[i]));
-      const dew = levels.map(p => indices.map(i => getSeries(h, 'dew_point', p)[i]));
-      const spread = temp.map((row, j) => row.map((v, i) =>
-        Number.isFinite(v) && Number.isFinite(dew[j][i]) ? v - dew[j][i] : null
-      ));
+      // 上端300 hPa、下端1000 hPa
+      const levels = pressureLevels
+        .filter(p => p <= 1000 && p >= top)
+        .filter(p =>
+          getSeries(h, 'temperature', p) &&
+          getSeries(h, 'dew_point', p)
+        );
 
-      // Temperature contours, with a fixed 3-degree interval.
+      if (!levels.length) {
+        throw new Error('描画可能な気圧面がありません。');
+      }
+
+      // 気温と露点温度
+      const temp = levels.map(p =>
+        indices.map(i => getSeries(h, 'temperature', p)[i])
+      );
+
+      const dew = levels.map(p =>
+        indices.map(i => getSeries(h, 'dew_point', p)[i])
+      );
+
+      // T - Td
+      const spread = temp.map((row, j) =>
+        row.map((v, i) =>
+          Number.isFinite(v) && Number.isFinite(dew[j][i])
+            ? v - dew[j][i]
+            : null
+        )
+      );
+
       const finiteTemps = temp.flat().filter(Number.isFinite);
-      const minT = Math.floor(Math.min(...finiteTemps) / 3) * 3;
-      const maxT = Math.ceil(Math.max(...finiteTemps) / 3) * 3;
-      const traces = [{
-        type: 'contour', x: times, y: levels, z: spread,
-        name: 'T−Td', showscale: true,
-        colorscale: [
-          [0.00, '#35d04f'], [0.18, '#7ee787'], [0.35, '#e8f7e8'],
-          [0.36, '#ffffff'], [0.65, '#ffffff'], [0.66, '#ffe66d'],
-          [1.00, '#ffb52e']
-        ],
-        zmin: 0, zmax: 15, autocontour: false,
-        contours: { start: 0, end: 15, size: 3, coloring: 'heatmap', showlines: false },
-        colorbar: { title: 'T−Td (°C)', len: 0.72, y: 0.55 },
-        hovertemplate: '%{x|%m-%d %H:%M}<br>%{y} hPa<br>T−Td: %{z:.1f}°C<extra></extra>'
-      }, {
-        type: 'contour', x: times, y: levels, z: temp,
-        name: '気温', showscale: false, connectgaps: false,
-        contours: { start: minT, end: maxT, size: 3, coloring: 'lines', showlabels: true },
-        line: { color: '#e53935', width: 1.25 },
-        labelfont: { size: 10, color: '#c62828' },
-        hovertemplate: '%{x|%m-%d %H:%M}<br>%{y} hPa<br>気温: %{z:.1f}°C<extra></extra>'
-      }];
 
-      // Wind vectors: meteorological direction is the direction FROM which wind blows.
-      // Convert to eastward/northward components, then plot a short arrow in data coordinates.
-      const windX = [], windY = [], windText = [];
+      if (!finiteTemps.length) {
+        throw new Error('有効な気温データがありません。');
+      }
+
+      const minT =
+        Math.floor(Math.min(...finiteTemps) / 3) * 3;
+      const maxT =
+        Math.ceil(Math.max(...finiteTemps) / 3) * 3;
+
+      const traces = [
+        {
+          type: 'contour',
+          x: times,
+          y: levels,
+          z: spread,
+          name: 'T−Td',
+          showscale: true,
+
+          colorscale: [
+            [0.00, '#35d04f'],
+            [0.18, '#7ee787'],
+            [0.35, '#e8f7e8'],
+            [0.36, '#ffffff'],
+            [0.65, '#ffffff'],
+            [0.66, '#ffe66d'],
+            [1.00, '#ffb52e']
+          ],
+
+          zmin: 0,
+          zmax: 15,
+          autocontour: false,
+
+          contours: {
+            start: 0,
+            end: 15,
+            size: 3,
+            coloring: 'heatmap',
+            showlines: false
+          },
+
+          colorbar: {
+            title: 'T−Td (°C)',
+            len: 0.72,
+            y: 0.55
+          },
+
+          hovertemplate:
+            '%{x|%m-%d %H:%M}<br>' +
+            '%{y} hPa<br>' +
+            'T−Td: %{z:.1f}°C<extra></extra>'
+        },
+
+        {
+          type: 'contour',
+          x: times,
+          y: levels,
+          z: temp,
+          name: '気温',
+          showscale: false,
+          connectgaps: false,
+
+          contours: {
+            start: minT,
+            end: maxT,
+            size: 3,
+            coloring: 'lines',
+            showlabels: true
+          },
+
+          line: {
+            color: '#e53935',
+            width: 1.25
+          },
+
+          labelfont: {
+            size: 10,
+            color: '#c62828'
+          },
+
+          hovertemplate:
+            '%{x|%m-%d %H:%M}<br>' +
+            '%{y} hPa<br>' +
+            '気温: %{z:.1f}°C<extra></extra>'
+        }
+      ];
+
+      // 風ベクトル
+      // 風向は「風が吹いてくる方向」を表す。
+      // 風速・風向を東西・南北成分に変換して簡略表示する。
+      const windX = [];
+      const windY = [];
+
       const windLevels = levels.filter(p =>
-        getSeries(h, 'wind_speed', p) && getSeries(h, 'wind_direction', p));
-      const windIndices = indices.filter((_, j) => j % Math.max(1, Math.ceil(indices.length / 18)) === 0);
+        getSeries(h, 'wind_speed', p) &&
+        getSeries(h, 'wind_direction', p)
+      );
+
+      // 風ベクトルが密集しすぎないよう、最大約18時刻を選ぶ
+      const windIndices = indices.filter(
+        (_, j) =>
+          j % Math.max(1, Math.ceil(indices.length / 18)) === 0
+      );
+
       for (const p of windLevels) {
-        const row = levels.indexOf(p);
         for (const i of windIndices) {
           const speed = getSeries(h, 'wind_speed', p)[i];
           const dir = getSeries(h, 'wind_direction', p)[i];
-          if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
-          // u eastward, v northward (m/s); direction angle is clockwise from north.
+
+          if (
+            !Number.isFinite(speed) ||
+            !Number.isFinite(dir)
+          ) {
+            continue;
+          }
+
+          // 東向きをu、北向きをvとする
           const u = -speed * Math.sin(toRad(dir));
           const v = -speed * Math.cos(toRad(dir));
-          // Use a short visual arrow: x length in hours, y length in hPa.
+
           const j = indices.indexOf(i);
-          const dxHours = Math.max(0.45, Math.min(1.3, Math.abs(u) * 0.045));
-          const dy = Math.max(5, Math.min(22, Math.abs(v) * 0.55));
           const x0 = times[j];
-          const x1 = new Date(x0.getTime() + u * dxHours * 3600000 / Math.max(1, speed));
+
+          // 見やすさのために矢印の長さを制限
+          const dxHours = Math.max(
+            0.45,
+            Math.min(1.3, Math.abs(u) * 0.045)
+          );
+
+          const dy = Math.max(
+            5,
+            Math.min(22, Math.abs(v) * 0.55)
+          );
+
+          const x1 = new Date(
+            x0.getTime() +
+            u * dxHours * 3600000 / Math.max(1, speed)
+          );
+
           const y0 = p;
           const y1 = p - v * dy / Math.max(1, speed);
+
           windX.push(x0, x1, null);
           windY.push(y0, y1, null);
-          windText.push(`${p} hPa<br>${fmtTime(allTimes[i])}<br>風速 ${speed.toFixed(1)} m/s<br>風向 ${Math.round(dir)}°`);
         }
       }
+
       if (windX.length) {
         traces.push({
-          type: 'scatter', mode: 'lines', x: windX, y: windY,
+          type: 'scatter',
+          mode: 'lines',
+          x: windX,
+          y: windY,
           name: '風ベクトル（簡略表示）',
-          line: { color: '#222222', width: 1.15 },
+          line: {
+            color: '#222222',
+            width: 1.15
+          },
           hoverinfo: 'skip'
         });
       }
 
+      // 6時・18時の目盛り
       const tickVals = [];
       const tickText = [];
+
       for (let i = 0; i < times.length; i++) {
         const d = times[i];
+
         if (d.getHours() === 6 || d.getHours() === 18) {
           tickVals.push(d);
-          tickText.push(`${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}JST`);
+
+          tickText.push(
+            `${String(d.getMonth() + 1).padStart(2, '0')}-` +
+            `${String(d.getDate()).padStart(2, '0')} ` +
+            `${String(d.getHours()).padStart(2, '0')}JST`
+          );
         }
       }
+
+      // 各日の0時に縦線
       const dayLines = [];
       const seen = new Set();
+
       for (const d of times) {
         if (d.getHours() === 0) {
-          const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          const key =
+            `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
           if (!seen.has(key)) {
             seen.add(key);
-            dayLines.push({ type: 'line', xref: 'x', yref: 'paper',
-              x0: d, x1: d, y0: 0, y1: 1,
-              line: { color: '#777', width: 1, dash: 'dash' } });
+
+            dayLines.push({
+              type: 'line',
+              xref: 'x',
+              yref: 'paper',
+              x0: d,
+              x1: d,
+              y0: 0,
+              y1: 1,
+              line: {
+                color: '#777',
+                width: 1,
+                dash: 'dash'
+              }
+            });
           }
         }
       }
+
+      // グラフ設定
       const layout = {
-        title: { text: `気温・T−Td・風の時系列鉛直断面 (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`, x: 0.5 },
-        paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-        margin: { l: 75, r: 90, t: 75, b: 90 },
+        title: {
+          text:
+            `気温・T−Td・風の時系列鉛直断面 ` +
+            `(${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
+          x: 0.5
+        },
+
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+
+        margin: {
+          l: 75,
+          r: 90,
+          t: 75,
+          b: 90
+        },
+
         xaxis: {
-          title: '日時 (JST)', type: 'date', tickmode: 'array',
-          tickvals: tickVals, ticktext: tickText, tickangle: -30,
-          showgrid: true, gridcolor: '#e5e7eb', zeroline: false
+          title: '日時 (JST)',
+          type: 'date',
+          tickmode: 'array',
+          tickvals: tickVals,
+          ticktext: tickText,
+          tickangle: -30,
+          showgrid: true,
+          gridcolor: '#e5e7eb',
+          zeroline: false
         },
+
         yaxis: {
-          title: '気圧 (hPa)', type: 'linear', autorange: 'reversed',
-          range: [1000, top], tickmode: 'array',
-          tickvals: levels, ticktext: levels.map(String),
-          showgrid: true, gridcolor: '#e5e7eb', zeroline: false
+          title: '気圧 (hPa)',
+          type: 'linear',
+          autorange: 'reversed',
+          range: [1000, top],
+          tickmode: 'array',
+          tickvals: levels,
+          ticktext: levels.map(String),
+          showgrid: true,
+          gridcolor: '#e5e7eb',
+          zeroline: false
         },
+
         shapes: dayLines,
-        legend: { orientation: 'h', y: -0.22 },
+
+        legend: {
+          orientation: 'h',
+          y: -0.22
+        },
+
         hovermode: 'closest'
       };
-      await Plotly.newPlot('chart', traces, layout, { responsive: true, displaylogo: false });
-      status.textContent = `取得成功：${allTimes.length}時刻、${levels.length}気圧面。モデル=${data.hourly_units ? 'ECMWF IFS（指定）' : 'ECMWF IFS（指定）'}、JST。更新 ${new Date().toLocaleString('ja-JP')}`;
+
+      await Plotly.newPlot(
+        'chart',
+        traces,
+        layout,
+        {
+          responsive: true,
+          displaylogo: false
+        }
+      );
+
+      status.textContent =
+        `取得成功：${allTimes.length}時刻、` +
+        `${levels.length}気圧面。` +
+        `モデル=ecmwf_ifs025、JST。` +
+        `更新 ${new Date().toLocaleString('ja-JP')}`;
+
     } catch (err) {
       status.className = 'error';
-      status.textContent = `描画に失敗しました：${err.message}`;
+      status.textContent =
+        `描画に失敗しました：${err.message}`;
     } finally {
       btn.disabled = false;
     }
   }
+
   $('load').addEventListener('click', load);
+
+  // ページを開いたら自動取得
   load();
 })();
 </script>
