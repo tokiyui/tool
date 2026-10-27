@@ -261,71 +261,53 @@ function vectorToWind(u, v) {
   };
 }
 
-/* 気象図形式の風矢羽根。風速は5 kt単位に丸めて表示。 */
+/* 気象学の標準的な風矢羽根。棒は観測点から風の吹いてくる方向へ伸ばす。 */
 function makeWindBarb(svg, x, y, speedMs, directionDeg) {
   if (![x, y, speedMs, directionDeg].every(Number.isFinite)) return;
 
-  const knots = Math.round(speedMs * 1.943844 / 5) * 5;
+  // m/s を kt に変換し、5 kt 単位で丸める。
+  let knots = Math.round(speedMs * 1.943844 / 5) * 5;
   if (knots < 5) return;
 
   const ns = "http://www.w3.org/2000/svg";
   const group = document.createElementNS(ns, "g");
+  group.setAttribute("transform", `translate(${x} ${y}) rotate(${directionDeg})`);
   group.setAttribute("stroke", "#111");
   group.setAttribute("fill", "#111");
   group.setAttribute("stroke-width", "1.15");
   group.setAttribute("stroke-linecap", "round");
   group.setAttribute("stroke-linejoin", "round");
 
-  const rad = directionDeg * Math.PI / 180;
-  const dx = Math.sin(rad);
-  const dy = -Math.cos(rad);
-  const shaftLength = 29;
-  const x2 = x + dx * shaftLength;
-  const y2 = y + dy * shaftLength;
-
-  function line(x1, y1, xx2, yy2) {
+  function line(x1, y1, x2, y2) {
     const el = document.createElementNS(ns, "line");
-    el.setAttribute("x1", x1);
-    el.setAttribute("y1", y1);
-    el.setAttribute("x2", xx2);
-    el.setAttribute("y2", yy2);
+    el.setAttribute("x1", x1); el.setAttribute("y1", y1);
+    el.setAttribute("x2", x2); el.setAttribute("y2", y2);
     group.appendChild(el);
   }
 
-  line(x, y, x2, y2);
+  // ローカル座標では北向きに棒を伸ばし、グループ全体を風向角だけ回転。
+  const shaftLength = 30;
+  line(0, 0, 0, -shaftLength);
 
   let remaining = knots;
-  let position = shaftLength - 1;
-  const step = 5.2;
-
+  let yPos = -shaftLength + 1;
+  const spacing = 5.2;
   while (remaining >= 50) {
-    const bx = x + dx * position;
-    const by = y + dy * position;
-    const ex = bx - dx * 8;
-    const ey = by - dy * 8;
-
+    // 50 kt は棒の先端側に塗りつぶした三角旗を置く。
     const flag = document.createElementNS(ns, "polygon");
-    flag.setAttribute(
-      "points",
-      `${bx},${by} ${ex},${ey} ${ex + dy * 10},${ey - dx * 10}`
-    );
+    flag.setAttribute("points", `0,${yPos} 0,${yPos + 8} 9,${yPos + 4}`);
     group.appendChild(flag);
     remaining -= 50;
-    position -= step;
+    yPos += spacing;
   }
-
   while (remaining >= 10) {
-    const bx = x + dx * position;
-    const by = y + dy * position;
-    line(bx, by, bx - dy * 10, by + dx * 10);
+    // 10 kt 羽根：棒から右側へ、棒の根元方向に斜めに伸ばす。
+    line(0, yPos, 8, yPos + 5);
     remaining -= 10;
-    position -= step;
+    yPos += spacing;
   }
-
   if (remaining >= 5) {
-    const bx = x + dx * position;
-    const by = y + dy * position;
-    line(bx, by, bx - dy * 5, by + dx * 5);
+    line(0, yPos, 4.5, yPos + 2.8);
   }
 
   svg.appendChild(group);
@@ -496,6 +478,7 @@ async function loadData() {
       x: times,
       y: DENSE_PRESSURES,
       z: smoothTTd,
+      zsmooth: "best",
       zmin: 0,
       zmax: 30,
       /* 色の境界をぼかさず、指定した4区分をそのまま表示する。 */
