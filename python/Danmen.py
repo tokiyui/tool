@@ -297,7 +297,6 @@ if data_type == "specific":
     ds['level'].attrs['units'] = 'hPa'
     ds['lat'].attrs['units'] = 'degrees_north'
     ds['lon'].attrs['units'] = 'degrees_east'
-    #if model == "IFS":
     ds['level'] = np.sort(ds['level'])[::-1]
     ds['dewpoint_temperature'] = mpcalc.dewpoint_from_specific_humidity(ds['level'] * units.hPa, ds['specific_humidity'] * 1000 * units('g/kg'))
 else:
