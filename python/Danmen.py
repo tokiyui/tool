@@ -18,7 +18,7 @@ import requests
 # 実行時引数で使用するGPVモデルを指定
 parser = argparse.ArgumentParser(description="GPVデータの取得と時系列鉛直断面図の作成")
 parser.add_argument("model", choices=["IFS", "MSM", "GFS", "GSM"], help="使用するGPVモデル")
-model = parser.parse_args(["IFS"]).model
+model = parser.parse_args(["GSM"]).model
 
 # モデルごとの設定
 if model == "IFS":
@@ -297,8 +297,8 @@ if data_type == "specific":
     ds['level'].attrs['units'] = 'hPa'
     ds['lat'].attrs['units'] = 'degrees_north'
     ds['lon'].attrs['units'] = 'degrees_east'
-    if model == "IFS":
-        ds['level'] = np.sort(ds['level'])[::-1]
+    #if model == "IFS":
+    ds['level'] = np.sort(ds['level'])[::-1]
     ds['dewpoint_temperature'] = mpcalc.dewpoint_from_specific_humidity(ds['level'] * units.hPa, ds['specific_humidity'] * 1000 * units('g/kg'))
 else:
     ds = xr.Dataset(
