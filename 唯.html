@@ -302,7 +302,7 @@ function makeWindBarb(svg, x, y, speedMs, directionDeg) {
   }
   while (remaining >= 10) {
     // 10 kt 羽根：棒から右側へ、棒の根元方向に斜めに伸ばす。
-    line(0, yPos, 8, yPos + 5);
+    line(0, yPos, 8, yPos - 5);
     remaining -= 10;
     yPos += spacing;
   }
