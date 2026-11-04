@@ -68,7 +68,7 @@
 <body>
 <main>
   <h1>ECMWF IFS025 時系列鉛直断面図</h1>
-  <p>各気象モデルによる任意の地点のの鉛直時間断面図を作成します。</p>
+  <p>各気象モデルによる任意の地点の鉛直時間断面図を作成します。</p>
 
   <section class="controls">
     <label>緯度
@@ -632,7 +632,6 @@ async function loadData() {
 
     const gd = $("chart");
     await Plotly.newPlot(gd, [spreadTrace, temperatureTrace, observedValuesTrace], layout, config);
-    $("modelName").textContent = modelName;
 
     gd._windTimes = times;
     gd._windData = windByLevel;
