@@ -77,11 +77,25 @@
     <label>経度
       <input id="lon" type="number" min="-180" max="180" step="0.1" value="135">
     </label>
+    <label>モデル
+      <select id="model">
+        <option value="ecmwf_ifs025">IFS</option>
+        <option value="ecmwf_aifs025_single">AIFS</option>
+        <option value="ncep_gfs_global">GFS</option>
+        <option value="ncep_aigfs025">AIGFS</option>
+        <option value="jma_msm">MSM</option>
+        <option value="jma_gsm">GSM</option>
+        <option value="dwd_icon_global">DWD</option>
+        <option value="cmc_gem_gdps">CMC</option>
+        <option value="meteofrance_arpege_world">METFR</option>
+        <option value="ukmo_global_deterministic_10km">UKMO</option>
+      </select>
+    </label>
     <button id="load" type="button">描画</button>
   </section>
 
   <p>
-    モデル：ecmwf_ifs025 /
+    モデル：<span id="modelName">IFS</span> /
     予報期間：3日間 /
     時間間隔：毎時 /
     上端：300 hPa /
@@ -103,8 +117,8 @@
     </ul>
     <b>固定条件</b>
     <ul>
-      <li>モデル、予報期間、時間間隔、気圧面は固定です。</li>
-      <li>変更できるのは緯度・経度のみです。</li>
+      <li>予報期間、時間間隔、気圧面は固定です。</li>
+      <li>変更できるのはモデル、緯度・経度です。</li>
       <li>欠損値は前後の有効な時刻から線形補間します。前後どちらかの値がない端の欠損は補間しません。</li>
       <li>気圧方向も表示用に補間して滑らかにします。補間値は新たな予報データではありません。</li>
     </ul>
@@ -114,7 +128,18 @@
 <script>
 "use strict";
 
-const MODEL = "ecmwf_ifs025";
+const MODEL_NAMES = {
+  ecmwf_ifs025: "IFS",
+  ecmwf_aifs025_single: "AIFS",
+  ncep_gfs_global: "GFS",
+  ncep_aigfs025: "AIGFS",
+  jma_msm: "MSM",
+  jma_gsm: "GSM",
+  dwd_icon_global: "DWD",
+  cmc_gem_gdps: "CMC",
+  meteofrance_arpege_world: "METFR",
+  ukmo_global_deterministic_10km: "UKMO"
+};
 const FORECAST_DAYS = 3;
 const TIMEZONE = "Asia/Tokyo";
 const PRESSURE_LEVELS = [300, 400, 500, 600, 700, 850, 925];
@@ -204,7 +229,7 @@ function interpolatePressureGrid(matrix, sourceLevels, targetLevels) {
   });
 }
 
-function createApiUrl(latitude, longitude) {
+function createApiUrl(latitude, longitude, model) {
   const variables = [];
   for (const p of PRESSURE_LEVELS) {
     variables.push(
@@ -219,7 +244,7 @@ function createApiUrl(latitude, longitude) {
     latitude: String(latitude),
     longitude: String(longitude),
     hourly: variables.join(","),
-    models: MODEL,
+    models: model,
     timezone: TIMEZONE,
     forecast_days: String(FORECAST_DAYS),
     wind_speed_unit: "ms"
@@ -382,6 +407,13 @@ async function loadData() {
 
   const latitude = Number($("lat").value);
   const longitude = Number($("lon").value);
+  const model = $("model").value;
+  const modelName = MODEL_NAMES[model];
+
+  if (!modelName) {
+    errorEl.textContent = "モデルを選択してください。";
+    return;
+  }
 
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
     errorEl.textContent = "緯度は-90〜90で指定してください。";
@@ -396,7 +428,7 @@ async function loadData() {
   button.disabled = true;
 
   try {
-    const response = await fetch(createApiUrl(latitude, longitude));
+    const response = await fetch(createApiUrl(latitude, longitude, model));
     if (!response.ok) throw new Error(`APIエラー：HTTP ${response.status}`);
 
     const data = await response.json();
@@ -568,7 +600,7 @@ async function loadData() {
     const layout = {
       title: {
         text:
-          `ECMWF IFS025 鉛直断面図 ` +
+          `${modelName} 鉛直断面図 ` +
           `(${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`,
         x: 0.5
       },
@@ -618,6 +650,7 @@ async function loadData() {
 
     const gd = $("chart");
     await Plotly.newPlot(gd, [spreadTrace, temperatureTrace, observedValuesTrace], layout, config);
+    $("modelName").textContent = modelName;
 
     gd._windTimes = times;
     gd._windData = windByLevel;
