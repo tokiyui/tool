@@ -56,8 +56,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const proxy = "https://worker.ryohorita105.workers.dev/?url=";
-const satproxy = "https://eumetsat.ryohorita105.workers.dev/?url=";
-  
+
 // ========== Helper Functions ==========
 const getArrowColor = s => s>=20?"red":s>=15?"orange":s>=10?"yellow":"blue";
 const dirs=["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
@@ -455,32 +454,30 @@ const ArrowLayer = L.Layer.extend({
       const c = m.latLngToContainerPoint([p.lat, p.lon]), dx = c.x - cp.x, dy = c.y - cp.y, dd = dx * dx + dy * dy;
       if (dd < bd) { bd = dd; best = p; }
     }
-    if (best) L.popup({ maxWidth: 240 }).setLatLng([best.lat, best.lon]).setContent(ascatInfo(best)).openOn(m);
+    if (best) L.popup({ maxWidth: 240 }).setLatLng([best.lat, best.lon]).setContent(windInfo(best)).openOn(m);
   }
 });
 
 // ---------- UI ----------
 const satLayer     = L.layerGroup().addTo(map);   // 高度計 波高(丸)
-const ascatLayer   = new ArrowLayer().addTo(map);   // ASCAT 風(矢印・全点)
-const hy2bLayer    = new ArrowLayer({ edge: "#5b2a86" }).addTo(map);   // HY-2B 風(縁は紫)
-const oscatLayer   = new ArrowLayer({ edge: "#0a5a2a" }).addTo(map);   // Oceansat-3 風(縁は緑)
+const ascatBLayer  = new ArrowLayer().addTo(map);   // Metop-B ASCAT 風(矢印・全点。縁は黒)
+const ascatCLayer  = new ArrowLayer({ edge: "#1a3d8f" }).addTo(map);   // Metop-C ASCAT 風(縁は紺)
 const layersCtl = L.control.layers(null, {
   "衛星 波高(高度計)": satLayer,
-  "衛星 風向風速(ASCAT)": ascatLayer,
-  "衛星 風向風速(HY-2B)": hy2bLayer,
-  "衛星 風向風速(Oceansat-3)": oscatLayer
+  "衛星 風向風速(ASCAT Metop-B)": ascatBLayer,
+  "衛星 風向風速(ASCAT Metop-C)": ascatCLayer
 }, { position:"topright" }).addTo(map);
 const status = L.control({ position:"bottomleft" });
 status.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id="sat-status"; return d; };
 status.addTo(map);
-const cnt = { wave:0, ascat:0, hy2b:0, osc:0, note:"読込中…" };
+const cnt = { wave:0, ascatB:0, ascatC:0, note:"読込中…" };
 const setStatus = () => {
   document.getElementById("sat-status").innerHTML =
-    `衛星 波高 ${cnt.wave}点 / 衛星風 ASCAT ${cnt.ascat} / HY-2B ${cnt.hy2b} / OSCAT ${cnt.osc} 点<br><small>${cnt.note}</small>`;
+    `衛星 波高 ${cnt.wave}点 / 衛星風 ASCAT-B ${cnt.ascatB} / ASCAT-C ${cnt.ascatC} 点<br><small>${cnt.note}</small>`;
 };
 setStatus();
 document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
-  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>矢印＝衛星風(縁: 黒=ASCAT、紫=HY-2B、緑=Oceansat-3)<br><small>衛星風: EUMETSAT OSI SAF(ASCATはKNMI提供)、CC BY 4.0、領域抽出・描画は当ページで加工</small></div>');
+  '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>矢印＝衛星風(縁: 黒=Metop-B、紺=Metop-C)<br><small>衛星風: EUMETSAT OSI SAF、CC BY 4.0、領域抽出・描画は当ページで加工</small></div>');
 
 // ---------- S3アクセス(既存のproxy経由) ----------
 const viaProxy = url => fetch(proxy + encodeURIComponent(url));
@@ -708,51 +705,7 @@ async function runTrack(base) {
   await Promise.allSettled(Object.keys(SATS).map(s => loadSat(base, s, prefixes)));
 }
 
-// ---------- ASCAT(KNMI Open Data API)。軌道ごとのファイルで、約2時間遅れ ----------
-const KNMI_API = "https://api.dataplatform.knmi.nl/open-data/v1";
-// KNMI公開の共有匿名キー(2027-08-01まで)。Worker側に個人キー(Secret: KNMI_KEY)が設定されていれば、Workerがそちらに差し替える
-const KNMI_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6IjUzYTg1ZDBhMmQ5YzRkYzJiYWNlNzQ4NTQ2Zjk4ODExIiwiaCI6Im11cm11cjEyOCJ9";
-const ASCAT_SETS  = [ ["osisaf_ascat_b_250", "ASCAT Metop-B"], ["osisaf_ascat_c_250", "ASCAT Metop-C"] ];
-const ASCAT_FILES = 9;    // 衛星ごとに最新から何ファイルを一覧に出すか(1ファイル=約1周回、9≒15時間分で12時間を余裕でカバー)
-const ASCAT_HOURS = 12;   // 観測時刻が現在から何時間以内の風を描くか
-const ASCAT_GEOFILTER = false;  // true にすると、軌道の幾何から領域を通らない周回のファイルを読まない(KNMI呼び出しの節約。取りこぼしの恐れあり)
-let ascatNote = "";
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-const chk = j => {
-  if (j && !j.files && !j.temporaryDownloadUrl) {
-    const msg = String(j.message || j.error || JSON.stringify(j).slice(0, 120));
-    if (/rate limit/i.test(msg)) throw new Error("KNMI APIの回数制限(共有キーが使い切られている)");
-    throw new Error("KNMI API: " + msg + "(Workerが auth を転送していない可能性)");
-  }
-  return j;
-};
-// KNMI APIはCORS非対応なので常にWorker経由。回数制限なら待って再試行する
-// 回数制限(429)のときは、全リクエスト共通で待機してから再試行する(共有キーの冷却は1時間ほどかかることがある)
-const ASCAT_WAITS = [30, 60, 120, 300, 300, 600, 600, 600, 600, 600];   // 秒。合計およそ1時間
-let knmiBlockedUntil = 0, knmiFails = 0;
-async function knmiJson(url) {
-  for (;;) {
-    while (Date.now() < knmiBlockedUntil) await sleep(1000);          // 他の要求が待機中なら、一緒に待つ
-    try {
-      const r = await fetch(satproxy + encodeURIComponent(url) + "&auth=" + encodeURIComponent(KNMI_KEY));
-      if (!r.ok) throw new Error("KNMI API " + r.status);
-      const j = chk(await r.json());
-      knmiFails = 0;
-      return j;
-    } catch (e) {
-      if (!/回数制限/.test(e.message)) throw e;
-      if (knmiFails >= ASCAT_WAITS.length) throw e;                   // 待ち切っても取れなかった
-      if (Date.now() >= knmiBlockedUntil) {                           // 同時に失敗した要求のうち最初の1つだけが待ち時間を決める
-        const w = ASCAT_WAITS[knmiFails++];
-        knmiBlockedUntil = Date.now() + w * 1000;
-        const at = new Date(knmiBlockedUntil).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        cnt.note = `KNMI共有キーが回数制限中。${at}に再試行(${knmiFails}/${ASCAT_WAITS.length})。WorkerのSecret(KNMI_KEY)に個人キーを設定すると解消します`; setStatus();
-      }
-    }
-  }
-}
-
+// ---------- 散乱計の風(軌道ファイル)の共通部品 ----------
 // .gz圧縮されていれば展開する
 async function gunzipIfNeeded(buf) {
   const b = new Uint8Array(buf, 0, 2);
@@ -761,7 +714,7 @@ async function gunzipIfNeeded(buf) {
   return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
 }
 
-// ASCATの軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
+// 散乱計の軌道ファイル(2次元の lat/lon/time/wind_speed/wind_dir)から領域内の風を取り出す
 // 品質フラグ(wvc_quality_flag)の意味のうち、この語を含むものは除外する(Ku帯の降雨混入など)。名前が違えば調整する
 const SCAT_BAD_FLAGS = /rain|ice|land|coast|qc|reject|invalid|fail|poor|not.?usable|inconsistent/i;
 let qcLogged = false;
@@ -799,75 +752,26 @@ const readSwath = (buf, since, opts = {}) => withNc(buf, (names, get) => {
   return out;
 });
 
-const ascatStart = fn => {
-  const m = /_(\d{8})_(\d{6})_/.exec(fn);
-  return m ? new Date(`${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}T${m[2].slice(0,2)}:${m[2].slice(2,4)}:${m[2].slice(4,6)}Z`) : null;
-};
-
-// Metopは太陽同期軌道(降交点の地方時 約9:30、昇交点 約21:30)。ファイル先頭時刻(UTC)から、
-// その周回(約100分)が対象領域の経度帯を通りうるかを、余裕(±1時間+スワス幅8°)を見て判定する
-function mayCoverArea(start) {
-  const h = start.getUTCHours() + start.getUTCMinutes() / 60;
-  for (const lt of [9.75, 21.75]) {
-    const lo = lt - (AREA.lonMax + 8) / 15 - 1, hi = lt - (AREA.lonMin - 8) / 15 + 1;   // この時間帯(UTC時)に領域上空
-    for (const k of [-1, 0, 1]) if (h + 24 * k <= hi && h + 24 * k + 1.75 >= lo) return true;
-  }
-  return false;
-}
-
 // ポップアップ用の説明
-function ascatInfo(p) {
+function windInfo(p) {
   const from = (p.dir + 180) % 360;
   return `衛星風 ${p.label}<br>風速: ${p.speed.toFixed(1)} m/s<br>風向: ${dirs[Math.round(from / 22.5) % 16]}(${from.toFixed(0)}°から)<br>` +
          `観測: ${p.time ? p.time.toLocaleString("ja-JP") : "不明"}`;
 }
 
-// 取得できた分から順に描く(間引きなし。新しい観測が上に重なる)
-const ascatAll = [];
-function renderAscat() {
-  ascatLayer.setPoints(ascatAll.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
-  cnt.ascat = ascatAll.length;
-  setStatus();
-}
-
-async function runAscat() {
-  const since = new Date(Date.now() - ASCAT_HOURS * 36e5);
-  let limited = false;
-  await Promise.all(ASCAT_SETS.map(async ([ds, label]) => {
-    const lst = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files?maxKeys=${ASCAT_FILES}&orderBy=created&sorting=desc`);
-    const all = (lst.files || []).map(f => f.filename);
-    if (!all.length) console.warn(`[${ds}] 一覧が空。KNMIの返事:`, JSON.stringify(lst).slice(0, 400));
-    // 観測期間にかかる周回(1周回≒110分を加味)で、領域を通りうるものだけ読む
-    const names = all.filter(fn => {
-      const st = ascatStart(fn);
-      return !st || (st >= new Date(since - 110 * 60e3) && (!ASCAT_GEOFILTER || mayCoverArea(st)));
-    });
-    console.log(`[${ds}] 一覧 ${all.length} / 読む ${names.length} ファイル`, names);
-    for (const fn of names) {
-      if (limited) break;
-      try {
-        const u = await knmiJson(`${KNMI_API}/datasets/${ds}/versions/nrt/files/${encodeURIComponent(fn)}/url`);
-        const pts = await readSwath(await gunzipIfNeeded(await fetchBin(u.temporaryDownloadUrl)), since);
-        pts.forEach(p => ascatAll.push({ ...p, label, file: fn }));
-        if (pts.length) renderAscat();
-      } catch (e) {
-        if (/回数制限/.test(e.message)) limited = true;
-        console.warn(`[${ds}] ${fn} 失敗:`, e);
-      }
-    }
-  }));
-  if (limited) ascatNote = "KNMI共有キーの回数制限により一部未取得(時間をおいて開き直してください)";
-  renderAscat();
-}
-
-// ---------- EUMETSAT Data Store: HY-2B / Oceansat-3 の風(Ku帯)。登録(コンシューマーキー)が必要で、キーはWorkerのSecretに置く ----------
+// ---------- EUMETSAT Data Store(衛星風の唯一のデータ源): ASCAT 沿岸12.5km風(Metop-B / Metop-C) ----------
+// Data Storeの公開コレクション一覧で確認できた風ベクトルは、Metop搭載ASCATの次の2つだけ(HY-2B/HY-2C/Oceansat-3は無い):
+//   EO:EUM:DAT:METOP:OSI-104 … OSI SAF ASCAT沿岸風 12.5km(本ページの既定。NetCDF、品質フラグ付き)
+//   EO:EUM:DAT:METOP:OAS025  … EUMETSAT ASCAT風+土壌水分 25km(別形式のため、使うときは変数名の確認が必要)
+// 登録(Consumer key/secret)が必要で、キーはWorkerのSecretに置く。
 const EUM_API = "https://api.eumetsat.int";
-const EUM_SETS = [
-  { coll: "EO:EUM:DAT:0537", label: "HY-2B HSCAT",      layer: hy2bLayer,  key: "hy2b", all: [] },
-  { coll: "EO:EUM:DAT:0996", label: "Oceansat-3 OSCAT", layer: oscatLayer, key: "osc",  all: [] }
+const EUM_COLL = "EO:EUM:DAT:METOP:OSI-104";
+const EUM_SETS = [   // 1つのコレクションにMetop-B/Cが混在するので、ファイル名の衛星名で振り分ける
+  { label: "ASCAT Metop-B", re: /metop-?b/i, layer: ascatBLayer, key: "ascatB", all: [] },
+  { label: "ASCAT Metop-C", re: /metop-?c/i, layer: ascatCLayer, key: "ascatC", all: [] }
 ];
-const EUM_FILES = 10;               // 衛星ごとに新しい順で何ファイルまで読むか(1日15ファイル前後)
-const EUM_HOURS = ASCAT_HOURS;      // 観測時刻が現在から何時間以内の風を描くか
+const EUM_FILES = 12;      // 衛星ごとに新しい順で何ファイルまで読むか(1周回=1ファイル)
+const EUM_HOURS = 12;      // 観測時刻が現在から何時間以内の風を描くか
 
 // ZIP(中央ディレクトリ方式)から最初の .nc(無ければ最初のファイル)を取り出す。無圧縮(0)とdeflate(8)に対応
 async function unzipFirst(buf) {
@@ -898,7 +802,7 @@ async function unpackProduct(buf) {            // ZIP や gzip なら展開し�
 }
 
 async function eumJson(url) {
-  const r = await fetch(satproxy + encodeURIComponent(url));
+  const r = await fetch(proxy + encodeURIComponent(url));
   const txt = await r.text();
   if (!r.ok) throw new Error(`EUMETSAT ${r.status}: ${txt.slice(0, 120)}`);
   try { return JSON.parse(txt); } catch { throw new Error("EUMETSATの応答がJSONでない: " + txt.slice(0, 100)); }
@@ -911,30 +815,44 @@ const eumStart = f => {
   return m ? parseT(`${m[1]}T${m[2]}`) : null;
 };
 
-async function runEumSet(S) {
+// 検索: 対象領域にかかる周回だけ(bbox)。bboxが使えない/0件のときは範囲指定なしで探し直す
+async function eumSearch() {
   const end = new Date(), since = new Date(end - EUM_HOURS * 36e5), iso = d => d.toISOString().slice(0, 19) + "Z";
-  const js = await eumJson(`${EUM_API}/data/search-products/os?format=json&pi=${encodeURIComponent(S.coll)}&dtstart=${iso(new Date(since - 110 * 60e3))}&dtend=${iso(end)}&c=100`);
+  const base = `${EUM_API}/data/search-products/os?format=json&pi=${encodeURIComponent(EUM_COLL)}&dtstart=${iso(new Date(since - 110 * 60e3))}&dtend=${iso(end)}&c=100`;
+  try {
+    const js = await eumJson(base + `&bbox=${AREA.lonMin},${AREA.latMin},${AREA.lonMax},${AREA.latMax}`);
+    if ((js.features || []).length) return js;
+    console.warn("bbox付きの検索が0件。範囲指定なしで再検索します");
+  } catch (e) { console.warn("bbox付きの検索に失敗。範囲指定なしで再検索します:", e.message); }
+  return eumJson(base);
+}
+
+async function runEum() {
+  const js = await eumSearch(), since = new Date(Date.now() - EUM_HOURS * 36e5);
   const prods = (js.features || []).map(f => ({
     id: f.id, st: eumStart(f),
+    sat: [f.id, f.properties && f.properties.title, JSON.stringify((f.properties && f.properties.acquisitionInformation) || "")].join(" "),
     href: (f.properties && f.properties.links && f.properties.links.data && f.properties.links.data[0] && f.properties.links.data[0].href) ||
-          `${EUM_API}/data/download/1.0.0/collections/${encodeURIComponent(S.coll)}/products/${encodeURIComponent(f.id)}`
-  })).sort((a, b) => (b.st || 0) - (a.st || 0)).slice(0, EUM_FILES);
-  console.log(`[${S.label}] 検索 ${(js.features || []).length} 件 / 読む ${prods.length} 件`, prods.slice(0, 2).map(p => p.id));
-  for (const p of prods) {
-    try {
-      const r = await fetch(satproxy + encodeURIComponent(p.href));
-      if (!r.ok) throw new Error(`HTTP ${r.status}: ` + (await r.text()).slice(0, 100));
-      const pts = await readSwath(await unpackProduct(await r.arrayBuffer()), since, { qc: true });
-      pts.forEach(q => S.all.push({ ...q, label: S.label, file: p.id }));
-      S.layer.setPoints(S.all.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
-      cnt[S.key] = S.all.length; setStatus();
-    } catch (e) { console.warn(`[${S.label}] ${p.id} 失敗:`, e); }
-  }
-}
-async function runEum() {
+          `${EUM_API}/data/download/1.0.0/collections/${encodeURIComponent(EUM_COLL)}/products/${encodeURIComponent(f.id)}`
+  }));
+  console.log(`[EUMETSAT] 検索 ${prods.length} 件`, prods.slice(0, 3).map(p => p.id));
   const errs = [];
-  await Promise.all(EUM_SETS.map(S => runEumSet(S).catch(e => { console.warn(`[${S.label}]`, e.message); errs.push(`${S.label}: ${e.message}`); })));
-  if (errs.length) throw new Error(errs.join(" / "));
+  await Promise.all(EUM_SETS.map(async S => {
+    const mine = prods.filter(p => S.re.test(p.sat)).sort((a, b) => (b.st || 0) - (a.st || 0)).slice(0, EUM_FILES);
+    console.log(`[${S.label}] 読む ${mine.length} 件`);
+    if (!mine.length) { errs.push(`${S.label}: 該当ファイルなし`); return; }
+    for (const p of mine) {
+      try {
+        const r = await fetch(proxy + encodeURIComponent(p.href));
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ` + (await r.text()).slice(0, 100));
+        const pts = await readSwath(await unpackProduct(await r.arrayBuffer()), since, { qc: true });
+        pts.forEach(q => S.all.push({ ...q, label: S.label, file: p.id }));
+        S.layer.setPoints(S.all.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
+        cnt[S.key] = S.all.length; setStatus();
+      } catch (e) { console.warn(`[${S.label}] ${p.id} 失敗:`, e); errs.push(`${S.label} ${p.id}: ${e.message}`); }
+    }
+  }));
+  if (errs.length) throw new Error(errs.slice(0, 3).join(" / "));
 }
 
 // ---------- GRIB2 デコーダ(複数メッセージ対応。緯度経度格子 3.0 / 単純 5.0・複合 5.2・空間差分 5.3・CCSDS(AEC) 5.42 / ビットマップ対応) ----------
@@ -1421,12 +1339,11 @@ function runForecast() {
   const bw = await findBase(PRODUCT_W);
   const errs = [];
   await Promise.allSettled([
-    runAscat().catch(e => { console.error(e); errs.push("ASCAT: " + e.message); }),
     runEum().catch(e => { console.error(e); errs.push("EUMETSAT風: " + e.message); }),
     runForecast(),
     bw ? runTrack(bw).catch(e => { console.error(e); errs.push("高度計: " + e.message); }) : errs.push("高度計バケット不明")
   ]);
-  cnt.note = (errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了") + (ascatNote ? " / " + ascatNote : "");
+  cnt.note = (errs.length ? "一部取得失敗(コンソール参照): " + errs.join(" / ") : "取得完了");
   setStatus();
 })();
 </script>
