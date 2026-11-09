@@ -636,7 +636,11 @@ async function withNc(buf, fn) {
   if (b[0] === 0x43 && b[1] === 0x44 && b[2] === 0x46) { const nc = parseNC3(buf); return fn(nc.names, nc.get); }
   if (b[0] === 0xEF && b[1] === 0xBF && b[2] === 0xBD)
     throw new Error("バイナリが壊れている(Workerがテキストとして返している。r.bodyをそのまま返す必要あり)");
-  throw new Error("未知のファイル形式");
+  const head = new Uint8Array(buf, 0, Math.min(40, buf.byteLength));
+  const hex = Array.from(head.subarray(0, 12), x => x.toString(16).padStart(2, "0")).join(" ");
+  const ascii = new TextDecoder().decode(head).replace(/[^\x20-\x7e]/g, ".");
+  if (ascii.startsWith("BUFR")) throw new Error(`BUFR形式でNetCDFではない(${buf.byteLength}バイト ${lastPackInfo})`);
+  throw new Error(`未知のファイル形式(${buf.byteLength}バイト、先頭 ${hex} "${ascii}" ${lastPackInfo})`);
 }
 
 const UNIT_MS = { seconds:1e3, minutes:6e4, hours:36e5, days:864e5 };
@@ -774,21 +778,25 @@ const EUM_FILES = 12;      // 衛星ごとに新しい順で何ファイルま�
 const EUM_HOURS = 12;      // 観測時刻が現在から何時間以内の風を描くか
 
 // ZIP(中央ディレクトリ方式)から最初の .nc(無ければ最初のファイル)を取り出す。無圧縮(0)とdeflate(8)に対応
+let lastPackInfo = "";                          // 直近に開いたZIPの中身(読めないときの診断用)
 async function unzipFirst(buf) {
   const u8 = new Uint8Array(buf), dv = new DataView(buf);
   let e = u8.length - 22;
   while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
   if (e < 0) throw new Error("ZIPの終端が見つからない");
-  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true), pick = null;
+  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
+  const ents = [];
   for (let i = 0; i < n && dv.getUint32(p, true) === 0x02014b50; i++) {
-    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nlen = dv.getUint16(p + 28, true),
-          xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
-    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen)), isNc = /\.nc$/i.test(name);
-    if (!pick || isNc) pick = { method, csize, lho, name };
-    if (isNc) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true),
+          nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+    ents.push({ method, csize, usize, lho, name: new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen)) });
     p += 46 + nlen + xlen + clen;
   }
-  if (!pick) throw new Error("ZIPにファイルがない");
+  if (!ents.length) throw new Error("ZIPにファイルがない");
+  lastPackInfo = "ZIP内: " + ents.map(x => `${x.name}(${x.usize}B)`).join(", ");
+  // データ本体を選ぶ: .nc を優先し、無ければ manifest などの付属ファイルを除いて最大のもの
+  const big = (a, b) => b.usize - a.usize, isMeta = nm => /\.(xml|txt|json|md5|sha\d*)$/i.test(nm) || /manifest/i.test(nm);
+  const pick = ents.filter(x => /\.nc$/i.test(x.name)).sort(big)[0] || ents.filter(x => !isMeta(x.name)).sort(big)[0] || ents[0];
   const start = pick.lho + 30 + dv.getUint16(pick.lho + 26, true) + dv.getUint16(pick.lho + 28, true);
   const data = u8.subarray(start, start + pick.csize);
   if (pick.method === 0) return data.slice().buffer;
@@ -796,6 +804,7 @@ async function unzipFirst(buf) {
   return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer();
 }
 async function unpackProduct(buf) {            // ZIP や gzip なら展開して、NetCDF本体を返す
+  lastPackInfo = "";
   const b = new Uint8Array(buf, 0, 4);
   if (b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) buf = await unzipFirst(buf);
   return gunzipIfNeeded(buf);
