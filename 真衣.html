@@ -810,6 +810,14 @@ async function unpackProduct(buf) {            // ZIP や gzip なら展開し�
   return gunzipIfNeeded(buf);
 }
 
+// サーバーが返したエラー本文(XML/JSON/HTML)から、原因が分かる部分を取り出す
+function eumErrorText(buf) {
+  const txt = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 1500)));
+  const g = tag => { const m = new RegExp(`<am:${tag}>([^<]*)</am:${tag}>`).exec(txt); return m ? m[1] : null; };
+  const code = g("code");
+  if (code) return `コード${code} ${g("message") || ""} ${g("description") || ""}`.trim();
+  return txt.replace(/\s+/g, " ").slice(0, 300);
+}
 async function eumJson(url) {
   const r = await fetch(proxy + encodeURIComponent(url));
   const txt = await r.text();
@@ -853,8 +861,12 @@ async function runEum() {
     for (const p of mine) {
       try {
         const r = await fetch(proxy + encodeURIComponent(p.href));
-        if (!r.ok) throw new Error(`HTTP ${r.status}: ` + (await r.text()).slice(0, 100));
-        const pts = await readSwath(await unpackProduct(await r.arrayBuffer()), since, { qc: true });
+        const raw = await r.arrayBuffer(), up = r.headers.get("X-Upstream-Status");
+        if (!r.ok) throw new Error(`HTTP ${r.status}(上流 ${up}): ` + eumErrorText(raw));
+        const hd = new Uint8Array(raw, 0, Math.min(4, raw.byteLength));
+        if (raw.byteLength < 4096 && (hd[0] === 0x3c || hd[0] === 0x7b))       // 小さな「<…」「{…」は、データではなくエラー応答
+          throw new Error(`サーバーのエラー応答(HTTP ${r.status}、上流 ${up}、${r.headers.get("X-Upstream-URL") || ""}): ` + eumErrorText(raw));
+        const pts = await readSwath(await unpackProduct(raw), since, { qc: true });
         pts.forEach(q => S.all.push({ ...q, label: S.label, file: p.id }));
         S.layer.setPoints(S.all.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
         cnt[S.key] = S.all.length; setStatus();
