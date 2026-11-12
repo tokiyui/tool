@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>温位・相当温位エマグラム／対流解析</title><script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:0;padding:18px;color:#222;background:#f4f6f8}main{max-width:1600px;margin:auto}h1{font-size:1.45rem}.controls,.panel{background:#fff;border:1px solid #d4d8de;border-radius:9px;padding:14px;margin:12px 0}.controls{display:flex;flex-wrap:wrap;align-items:end;gap:11px}label{display:flex;flex-direction:column;gap:5px;font-size:.9rem}input,select,button{font:inherit;padding:9px;border:1px solid #bbb;border-radius:5px}select{min-height:40px;min-width:160px}button{background:#185abd;color:white;border:0;cursor:pointer}button:disabled{opacity:.5}#error{color:#b00020;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}#chart{height:850px;width:100%;background:white;position:relative}#windOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:9px}.metric{background:#fff;border:1px solid #d7dce2;border-radius:7px;padding:10px}.metric .name{font-size:.82rem;color:#555}.metric .value{font-size:1.25rem;font-weight:650;margin-top:3px;font-variant-numeric:tabular-nums}.metric .detail{font-size:.76rem;color:#666;margin-top:3px}.section-title{font-size:1.05rem;margin:20px 0 8px}.notes{line-height:1.65;font-size:.9rem}.warn{color:#8a4b00}.status{font-size:.85rem;color:#555}@media(max-width:600px){body{padding:7px}#chart{height:700px}.metric .value{font-size:1.1rem}}
+</style></head><body><main>
+<h1>温位・相当温位エマグラム／対流解析</h1><p>Open-Meteoの気圧面データから温位・相当温位プロファイル、持ち上げ凝結高度、自由対流高度、平衡高度および対流不安定指数を推定します。</p>
+<section class="controls">
+<label>緯度<input id="lat" type="number" min="-90" max="90" step="0.1" value="35"></label><label>経度<input id="lon" type="number" min="-180" max="180" step="0.1" value="135"></label>
+<label>モデル<select id="model"><option value="ecmwf_ifs025">IFS</option><option value="ecmwf_aifs025_single">AIFS</option><option value="ncep_gfs_global">GFS</option><option value="ncep_aigfs025">AIGFS</option><option value="jma_msm">MSM</option><option value="jma_gsm">GSM</option><option value="dwd_icon_global">DWD</option><option value="cmc_gem_gdps">CMC</option><option value="meteofrance_arpege_world">METFR</option><option value="ukmo_global_deterministic_10km">UKMO</option></select></label>
+<label>予報時刻（JST）<select id="forecastTime"><option value="">データ取得後に選択</option></select></label><button id="load">データ取得・描画</button></section>
+<div id="error" role="alert"></div><div id="status" class="status"></div>
+<div id="chart"><svg id="windOverlay" aria-hidden="true"></svg></div>
+<h2 class="section-title">対流・不安定指数</h2><div id="metrics" class="grid"></div>
+<section class="panel notes"><b>計算・解釈上の注意</b><ul>
+<li>温位 θ、相当温位 θe、飽和相当温位 θesはKで表示。θesは各気圧面の気温を飽和させた場合の相当温位です。</li>
+<li>赤：温位 θ、青：相当温位 θe、緑：飽和相当温位 θes。背景の乾燥・湿潤塗り分けはありません。</li>
+<li>地上気圧面の代用として、取得できた最も低い気圧（最下層）を初期 parcel に使用します。地形・実際の地上気圧より上の面が最下層となる場合があります。</li>
+<li>CAPE/CIN/LCL/LFC/ELは最下層からのSurface-based parcelを用いた近似計算です。湿潤上昇は疑似断熱近似、環境・parcel間は気圧方向に補間します。</li>
+<li>表示する指数はSSI、K-Index、Total Totals、KT-Indexです。併せて500 hPa・850 hPa気温と可降水量（PW）を表示します。</li>
+<li>KT-Indexは最下層から500 mの相当温位を用いた定義で計算します。500 m高度は最下層気圧面を基準とした相対高度です。</li><li>左右の十字キーで予報時刻を1時間ずつ変更できます。入力欄・選択欄の操作中は無効です。</li><li>Open-Meteoのモデル・地点ごとに利用可能な気圧面が異なります。欠損面は補間しますが、上下端の外挿は行いません。指数などは欠損や鉛直範囲不足の場合「NaN」と表示します。</li>
+</ul></section></main>
+<script>
+"use strict";
+const MODEL_NAMES={ecmwf_ifs025:"IFS",ecmwf_aifs025_single:"AIFS",ncep_gfs_global:"GFS",ncep_aigfs025:"AIGFS",jma_msm:"MSM",jma_gsm:"GSM",dwd_icon_global:"DWD",cmc_gem_gdps:"CMC",meteofrance_arpege_world:"METFR",ukmo_global_deterministic_10km:"UKMO"};
+const PRESSURE_LEVELS=[1000,975,950,925,900,850,800,700,600,500,400,300,250,200],FORECAST_DAYS=3,TZ="Asia/Tokyo",$=id=>document.getElementById(id);
+let current=null;
+const Rd=287.05,Rv=461.5,Cp=1004,Lv=2.5e6,eps=.622,kappa=Rd/Cp,g=9.80665;
+function vname(v,p){return `${v}_${p}hPa`}
+function parseTime(s){return new Date(s+":00+09:00")}
+function arr(a,n){return Array.isArray(a)?a.map(x=>x==null||x===""?NaN:Number(x)):Array(n).fill(NaN)}
+function interpMissing(a){const o=a.slice();let i=0;while(i<o.length){if(Number.isFinite(o[i])){i++;continue}let s=i;while(i<o.length&&!Number.isFinite(o[i]))i++;let l=s-1,r=i;if(l>=0&&r<o.length)for(let j=s;j<r;j++)o[j]=o[l]+(o[r]-o[l])*(j-l)/(r-l)}return o}
+function esat(t){return 6.112*Math.exp(17.67*t/(t+243.5))}
+function mixingRatio(t,p){const e=esat(t);return e>=p?NaN:eps*e/(p-e)}
+function theta(t,p){return Number.isFinite(t)?(t+273.15)*Math.pow(1000/p,kappa):NaN}
+function thetaE(t,td,p){if(![t,td,p].every(Number.isFinite)||p<=0||td<=-100||t<=-100)return NaN;const e=esat(td);if(e>=p)return NaN;const r=eps*e/(p-e),tk=t+273.15,tdk=td+273.15;if(tdk<=0||tk<=0)return NaN;const tl=1/(1/(tdk-56)+Math.log(tk/tdk)/800)+56;return theta(t,p-e)*Math.exp((3036/tl-1.78)*r*(1+.448*r))*Math.pow(tk/tl,.28*r)}
+function thetaSat(t,p){return thetaE(t,t,p)}
+function lclTemp(t,td){const tk=t+273.15,tdk=td+273.15;return 1/(1/(tdk-56)+Math.log(tk/tdk)/800)+56}
+function lclPressure(t,td,p){const tl=lclTemp(t,td);return p*Math.pow(tl/(t+273.15),1/kappa)}
+function createUrl(lat,lon,model){const vars=[];for(const p of PRESSURE_LEVELS)for(const v of ["temperature","dew_point","wind_speed","wind_direction"])vars.push(vname(v,p));return "https://api.open-meteo.com/v1/forecast?"+new URLSearchParams({latitude:lat,longitude:lon,hourly:vars.join(","),models:model,timezone:TZ,forecast_days:FORECAST_DAYS,wind_speed_unit:"ms"})}
+function windUV(speed,dir){const u=[],v=[];for(let i=0;i<speed.length;i++){if(!Number.isFinite(speed[i])||!Number.isFinite(dir[i])){u.push(NaN);v.push(NaN)}else{const a=dir[i]*Math.PI/180;u.push(-speed[i]*Math.sin(a));v.push(-speed[i]*Math.cos(a))}}return{u:interpMissing(u),v:interpMissing(v)}}
+function interpLog(rows,p,key){const good=rows.filter(r=>Number.isFinite(r[key])).sort((a,b)=>b.p-a.p);if(!good.length||p>good[0].p||p<good[good.length-1].p)return NaN;for(let i=0;i<good.length-1;i++)if(p<=good[i].p&&p>=good[i+1].p){const f=(Math.log(p)-Math.log(good[i].p))/(Math.log(good[i+1].p)-Math.log(good[i].p));return good[i][key]+f*(good[i+1][key]-good[i][key])}return NaN}
+function envAt(rows,p){const t=interpLog(rows,p,"t"),td=interpLog(rows,p,"td"),u=interpLog(rows,p,"u"),v=interpLog(rows,p,"v");return{p,t,td,u,v}}
+function moistDtdlnp(t,p){const rs=mixingRatio(t,p);if(!Number.isFinite(rs))return NaN;const tk=t+273.15;const gamma=(g/Cp)*(1+Lv*rs/(Rd*tk))/(1+(Lv*Lv*rs*eps)/(Cp*Rd*tk*tk));return gamma*Rd*tk/(g*(1+rs))}
+function parcelAtPressure(rows,p0,t0,td0,targets){
+ const plcl=lclPressure(t0,td0,p0),tlcl=lclTemp(t0,td0),out=[];
+ const sorted=targets.slice().sort((a,b)=>b-a);
+ for(const p of sorted){let tp;if(p>=plcl)tp=(t0+273.15)*Math.pow(p/p0,kappa)-273.15;else{let pp=plcl,tt=tlcl;while(pp>p){const pn=Math.max(p,pp-2);const dln=Math.log(pn/pp),k1=moistDtdlnp(tt,pp),k2=moistDtdlnp(tt+k1*dln/2,Math.sqrt(pp*pn)),k3=moistDtdlnp(tt+k2*dln/2,Math.sqrt(pp*pn)),k4=moistDtdlnp(tt+k3*dln,pn);tt+=(dln/6)*(k1+2*k2+2*k3+k4);pp=pn}tp=tt}out.push({p,t:tp,td:p<=plcl?tp:interpLog(rows,p,"td"),plcl})}
+ return out}
+function virtualT(t,p,td){const r=mixingRatio(td,p);return Number.isFinite(r)?(t+273.15)*(1+r/eps)/(1+r):t+273.15}
+function zProfile(rows){let z=0;const out=rows.slice().sort((a,b)=>b.p-a.p).map((r,i,a)=>{if(i){const prev=a[i-1],tv=((prev.t+273.15)+(r.t+273.15))/2;z+=Rd*tv/g*Math.log(prev.p/r.p)}return{...r,z}});return out}
+function interpHeight(rows,z,key){const a=rows.filter(r=>Number.isFinite(r.z)&&Number.isFinite(r[key])).sort((x,y)=>x.z-y.z);if(a.length<2||z<a[0].z||z>a[a.length-1].z)return NaN;for(let i=1;i<a.length;i++)if(z<=a[i].z){const f=(z-a[i-1].z)/(a[i].z-a[i-1].z);return a[i-1][key]+f*(a[i][key]-a[i-1][key])}return a[a.length-1][key]}
+function ktIndex(env){const t=interpHeight(env,500,"t"),td=interpHeight(env,500,"td"),p=interpHeight(env,500,"p"),e500=envAt(env,500),e700=envAt(env,700);if(![t,td,p,e500.t,e700.t,e700.td].every(Number.isFinite))return NaN;const thetae500m=thetaE(t,td,p),thetaes500=thetaSat(e500.t,500),thetaes700=thetaSat(e700.t,700),thetae700=thetaE(e700.t,e700.td,700);if(![thetae500m,thetaes500,thetaes700,thetae700].every(Number.isFinite))return NaN;return(thetae500m-thetaes500)-(thetaes700-thetae700)}
+function parcelDiagnostics(rows){
+ const env=zProfile(rows.filter(r=>Number.isFinite(r.t)&&Number.isFinite(r.td))).filter(r=>Number.isFinite(r.z));if(env.length<4)return{error:"鉛直プロファイル不足"};
+ const s=env[0],targets=[];for(let p=s.p;p>=Math.max(150,env[env.length-1].p);p-=5)targets.push(p);if(targets.at(-1)>env.at(-1).p)targets.push(env.at(-1).p);
+ const parcel=parcelAtPressure(env,s.p,s.t,s.td,targets),points=[];let lfc=null,el=null,maxB=-Infinity,mpl=null;
+ for(const q of parcel){const e=envAt(env,q.p);if(!Number.isFinite(e.t)||!Number.isFinite(e.td))continue;const z=Rd*((e.t+q.t)/2+273.15)/g*Math.log(s.p/q.p);const tvp=virtualT(q.t,q.p,q.td),tve=virtualT(e.t,q.p,e.td),b=g*(tvp-tve)/tve;points.push({...q,z,b,env:e});if(b>maxB){maxB=b;mpl={p:q.p,z,b}}}
+ let cape=0,cin=0;for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],dz=b.z-a.z,mean=(a.b+b.b)/2;if(!lfc&&b.p<=lclPressure(s.t,s.td,s.p)&&mean>0)lfc={p:b.p,z:b.z};if(lfc&&!el&&a.b>0&&b.b<=0)el={p:b.p,z:b.z};if(lfc&&(!el||b.z<=el.z))cape+=Math.max(0,mean)*dz;else if(!lfc)cin+=Math.min(0,mean)*dz}
+ const plcl=lclPressure(s.t,s.td,s.p),zlcl=Rd*((s.t+273.15)+(lclTemp(s.t,s.td)))/2/g*Math.log(s.p/plcl);
+ const at500=envAt(env,500),p500=parcel.find(q=>Math.abs(q.p-500)<3)||parcelAtPressure(env,s.p,s.t,s.td,[500])[0],li=at500.t-p500.t;
+ const p850=envAt(env,850),p700=envAt(env,700),p500e=envAt(env,500),p850parcel=parcelAtPressure(env,850,p850.t,p850.td,[500])[0],si=Number.isFinite(p850parcel?.t)&&Number.isFinite(p500e.t)?p500e.t-p850parcel.t:NaN;
+ const ki=(p850.t-p500e.t)+p850.td-(p700.t-p700.td);
+ const tt=(p850.t-p500e.t)+p850.td-2*p500e.t;
+ const dci=Number.isFinite(p850.td)?p850.t+p850.td-2*p500e.t:NaN;
+ const lr=(p850.t-p500e.t)/((Rd*((p850.t+p500e.t)/2+273.15)/g*Math.log(850/500))/1000);
+ let pw=0;for(let i=1;i<env.length;i++){const a=env[i-1],b=env[i],ra=mixingRatio(a.td,a.p),rb=mixingRatio(b.td,b.p);if(Number.isFinite(ra)&&Number.isFinite(rb))pw+=((ra+rb)/2)*(a.p-b.p)*100/g}
+ // 鉛直積算水蒸気フラックス（IVT）：∫qV dp/g。qは比湿、u/vはm s⁻¹、pはPa。
+ let ivtu=0,ivtv=0,ivtLayers=0;for(let i=1;i<env.length;i++){const a=env[i-1],b=env[i],ra=mixingRatio(a.td,a.p),rb=mixingRatio(b.td,b.p),qa=ra/(1+ra),qb=rb/(1+rb);if([qa,qb,a.u,a.v,b.u,b.v].every(Number.isFinite)){const dp=(a.p-b.p)*100;ivtu+=(qa*a.u+qb*b.u)*.5*dp/g;ivtv+=(qa*a.v+qb*b.v)*.5*dp/g;ivtLayers++}}const ivt=ivtLayers?Math.hypot(ivtu,ivtv):NaN;
+ const wind=windDiagnostics(env,cape);
+ const dcape=estimateDCAPE(env);
+ const kt=ktIndex(env);
+ return{cape,cin,li,si,ki,tt,dci,lr,pw,ivt,ivtu:ivtLayers?ivtu:NaN,ivtv:ivtLayers?ivtv:NaN,ivtLayers,plcl,zlcl,lfc,el,mpl,wind,kt,t500:p500e.t,t850:p850.t,points,env}
+}
+function heightAtPressure(env,p){const r=envAt(env,p);if(!Number.isFinite(r.t))return NaN;const lower=env.filter(x=>x.p>=p).sort((a,b)=>a.p-b.p)[0];if(lower)return lower.z;return NaN}
+function windAtHeight(env,z,key){const a=env.filter(r=>Number.isFinite(r[key]));if(z<a[0].z||z>a.at(-1).z)return NaN;for(let i=1;i<a.length;i++)if(z<=a[i].z){const f=(z-a[i-1].z)/(a[i].z-a[i-1].z);return a[i-1][key]+f*(a[i][key]-a[i-1][key])}return a.at(-1)[key]}
+function windDiagnostics(env,cape){
+ const levels=[0,500,1000,3000,6000],w=levels.map(z=>({z,u:windAtHeight(env,z,"u"),v:windAtHeight(env,z,"v")}));
+ const shear=(a,b)=>{const x=w.find(q=>q.z===a),y=w.find(q=>q.z===b);return x&&y&&[x.u,x.v,y.u,y.v].every(Number.isFinite)?Math.hypot(y.u-x.u,y.v-x.v):NaN};
+ const mean=(zmax,key)=>{const vals=env.filter(r=>r.z<=zmax&&Number.isFinite(r[key]));return vals.length?vals.reduce((s,r)=>s+r[key],0)/vals.length:NaN};
+ const srhApprox=(depth)=>{const base=w[0],top=w.find(q=>q.z===depth);if(!base||!top||![base.u,base.v,top.u,top.v].every(Number.isFinite))return NaN;const du=top.u-base.u,dv=top.v-base.v,mag=Math.hypot(du,dv);if(!mag)return NaN;const smu=(mean(depth,"u")||0)+7.5*dv/mag,smv=(mean(depth,"v")||0)-7.5*du/mag;let sum=0,prev=null;for(let z=0;z<=depth;z+=250){const u=windAtHeight(env,z,"u"),v=windAtHeight(env,z,"v");if(!Number.isFinite(u)||!Number.isFinite(v))continue;if(prev)sum+=(u-smu)*(prev.v-smv)-(prev.u-smu)*(v-smv);prev={u,v}}return sum};
+ const srh=srhApprox(3000),shear06=shear(0,6000),shear01=shear(0,1000),shear03=shear(0,3000),ehi=Number.isFinite(cape)&&Number.isFinite(srh)?cape*srh/160000:NaN,brn=Number.isFinite(cape)&&Number.isFinite(shear06)&&shear06>0?cape/(.5*shear06*shear06):NaN;
+ return{shear01,shear03,shear06,srh,ehi,brn}
+}
+function wetBulbStull(t,td){const rh=Math.max(1,Math.min(100,100*esat(td)/esat(t)));return t*Math.atan(.151977*Math.sqrt(rh+8.313659))+Math.atan(t+rh)-Math.atan(rh-1.676331)+.00391838*Math.pow(rh,1.5)*Math.atan(.023101*rh)-4.686035}
+function estimateDCAPE(env){
+ const source=env.filter(r=>Number.isFinite(r.t)&&Number.isFinite(r.td)).reduce((best,r)=>!best||thetaE(r.t,r.td,r.p)<thetaE(best.t,best.td,best.p)?r:best,null);
+ if(!source||source.p<=env[0].p*.98)return NaN;
+ const tw=wetBulbStull(source.t,source.td),th=theta(tw,source.p),pts=[];
+ for(let p=source.p;p<=env[0].p;p+=5){const e=envAt(env,p);if(!Number.isFinite(e.t))continue;const tdry=th*Math.pow(p/1000,kappa)-273.15;const z=Rd*((e.t+tdry)/2+273.15)/g*Math.log(source.p/p);const b=g*(virtualT(tdry,p,tdry)-virtualT(e.t,p,e.td))/(e.t+273.15);pts.push({z,b})}
+ let energy=0;for(let i=1;i<pts.length;i++)energy+=Math.max(0,-(pts[i-1].b+pts[i].b)/2)*(pts[i].z-pts[i-1].z);
+ return energy
+}
+function windDir(u,v){return(Math.atan2(-u,-v)*180/Math.PI+360)%360}
+function sweatIndex(p850,td850,p500,env){
+ const a=envAt(env,850),b=envAt(env,500);if(![p850.t,td850,p500.t,a.u,a.v,b.u,b.v].every(Number.isFinite))return NaN;
+ const t850=p850.t*1.8+32,td=td850*1.8+32,t500=p500.t*1.8+32,sp850=Math.hypot(a.u,a.v)*1.943844,sp500=Math.hypot(b.u,b.v)*1.943844,dir850=windDir(a.u,a.v),dir500=windDir(b.u,b.v);
+ let directional=0;if(dir850>=130&&dir850<=250&&dir500>=210&&dir500<=310&&dir500>dir850&&sp850>=15&&sp500>=15)directional=125*(Math.sin((dir500-dir850)*Math.PI/180)+.2);
+ return 12*td+20*(t500-t850)+2*sp850+sp500+directional
+}
+function fmt(v,d=0){return Number.isFinite(v)?v.toFixed(d):"NaN"}
+function metric(name,value,unit="",detail=""){return `<div class="metric"><div class="name">${name}</div><div class="value">${value}${unit}</div><div class="detail">${detail}</div></div>`}
+function renderMetrics(d){
+ const items=[
+ metric("SSI",fmt(d.si,1)," K","850 hPa parcel → 500 hPa"),
+ metric("K-Index",fmt(d.ki,1)," K","850 / 700 / 500 hPa"),
+ metric("Total Totals",fmt(d.tt,1)," K","850 / 500 hPa"),
+ metric("500 hPa 気温",fmt(d.t500,1)," ℃",""),
+ metric("850 hPa 気温",fmt(d.t850,1)," ℃",""),
+ metric("可降水量（PW）",fmt(d.pw*1000,1)," mm","取得可能な全気圧層で積算"),
+ metric("KT-Index",fmt(d.kt,1)," K","最下層から500 mのθeを使用"),
+ metric("鉛直積算水蒸気フラックス（IVT）",fmt(d.ivt,1)," kg m⁻¹ s⁻¹",`東西成分 ${fmt(d.ivtu,1)}・南北成分 ${fmt(d.ivtv,1)} kg m⁻¹ s⁻¹（積算 ${d.ivtLayers||0} 層）`)
+ ];$("metrics").innerHTML=items.join("");
+}
+function barb(svg,x,y,speed,dir){if(![x,y,speed,dir].every(Number.isFinite))return;let k=Math.round(speed*1.943844/5)*5;if(k<5)return;const ns="http://www.w3.org/2000/svg",g0=document.createElementNS(ns,"g");g0.setAttribute("transform",`translate(${x} ${y}) rotate(${dir})`);g0.setAttribute("stroke","#111");g0.setAttribute("fill","#111");g0.setAttribute("stroke-width","1.1");const line=(x1,y1,x2,y2)=>{const e=document.createElementNS(ns,"line");Object.entries({x1,y1,x2,y2}).forEach(([a,b])=>e.setAttribute(a,b));g0.appendChild(e)};line(0,0,0,-28);let y0=-27;while(k>=50){const f=document.createElementNS(ns,"polygon");f.setAttribute("points",`0,${y0} 0,${y0+8} 9,${y0+4}`);g0.appendChild(f);k-=50;y0+=5}while(k>=10){line(0,y0,8,y0-5);k-=10;y0+=5}if(k>=5)line(0,y0,4,y0-3);svg.appendChild(g0)}
+function drawBarbs(gd,rows){const svg=$("windOverlay");svg.replaceChildren();const w=gd.clientWidth,h=gd.clientHeight;svg.setAttribute("viewBox",`0 0 ${w} ${h}`);svg.setAttribute("width",w);svg.setAttribute("height",h);const f=gd._fullLayout;if(!f?.xaxis||!f?.yaxis)return;for(const r of rows){if(![r.theta,r.u,r.v].every(Number.isFinite))continue;const speed=Math.hypot(r.u,r.v),dir=(Math.atan2(-r.u,-r.v)*180/Math.PI+360)%360;barb(svg,f.xaxis._offset+f.xaxis.d2p(r.theta),f.yaxis._offset+f.yaxis.d2p(r.p),speed,dir)}}
+function renderProfile(i){
+ if(!current)return;const rows=PRESSURE_LEVELS.map((p,j)=>({p,t:current.t[j][i],td:current.td[j][i],u:current.wind[p].u[i],v:current.wind[p].v[i]})).filter(r=>Number.isFinite(r.t)&&Number.isFinite(r.td)).sort((a,b)=>b.p-a.p);
+ if(rows.length<5){$("error").textContent="有効な気温・露点温度の気圧面が5層未満です。";return}
+ rows.forEach(r=>{r.theta=theta(r.t,r.p);r.thetae=thetaE(r.t,r.td,r.p);r.thetaes=thetaSat(r.t,r.p)});
+ const d=parcelDiagnostics(rows);renderMetrics(d);
+ const all=rows.flatMap(r=>[r.theta,r.thetae,r.thetaes]).filter(Number.isFinite),xmin=Math.floor((Math.min(...all)-5)/5)*5,xmax=Math.ceil((Math.max(...all)+5)/5)*5;
+ const traces=[
+ {type:"scatter",mode:"lines+markers",name:"温位 θ",x:rows.map(r=>r.theta),y:rows.map(r=>r.p),line:{color:"red",width:2.5},marker:{size:5},customdata:rows.map(r=>r.t),hovertemplate:"%{y} hPa<br>温位: %{x:.2f} K<br>気温: %{customdata:.1f} ℃<extra></extra>"},
+ {type:"scatter",mode:"lines+markers",name:"相当温位 θe",x:rows.map(r=>r.thetae),y:rows.map(r=>r.p),line:{color:"blue",width:2.5},marker:{size:5},customdata:rows.map(r=>r.td),hovertemplate:"%{y} hPa<br>相当温位: %{x:.2f} K<br>露点温度: %{customdata:.1f} ℃<extra></extra>"},
+ {type:"scatter",mode:"lines+markers",name:"飽和相当温位 θes",x:rows.map(r=>r.thetaes),y:rows.map(r=>r.p),line:{color:"green",width:2.5},marker:{size:5},customdata:rows.map(r=>r.t),hovertemplate:"%{y} hPa<br>飽和相当温位: %{x:.2f} K<br>気温: %{customdata:.1f} ℃<extra></extra>"}
+ ];
+ const markers=[];for(const [name,obj,color] of [["LFC",d.lfc,"#a000a0"],["EL",d.el,"#d26900"]])if(obj&&Number.isFinite(obj.p))markers.push({type:"line",xref:"paper",yref:"y",x0:0,x1:1,y0:obj.p,y1:obj.p,line:{color,width:1.5,dash:"dash"},name});
+ const titleTime=current.times[i].toLocaleString("ja-JP",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
+ const layout={title:{text:`${current.modelName} 温位・相当温位エマグラム (${current.lat.toFixed(2)}°, ${current.lon.toFixed(2)}°)<br><sup>${titleTime} JST　|　SSI ${fmt(d.si,1)} K　K-Index ${fmt(d.ki,1)}　TT ${fmt(d.tt,1)}</sup>`,x:.5},paper_bgcolor:"white",plot_bgcolor:"white",margin:{l:80,r:35,t:95,b:75},xaxis:{title:"Potential Temperature (K)",range:[xmin,xmax],dtick:10,showgrid:true,gridcolor:"#ddd",zeroline:false},yaxis:{title:"Pressure (hPa)",type:"log",range:[Math.log10(1050),Math.log10(180)],tickmode:"array",tickvals:[1000,925,850,700,600,500,400,300,250,200],ticktext:["1000","925","850","700","600","500","400","300","250","200"],showgrid:true,gridcolor:"#ddd"},shapes:markers,legend:{orientation:"h",y:-.18},hovermode:"closest"};
+ const gd=$("chart");Plotly.react(gd,traces,layout,{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:["zoom2d","pan2d","select2d","lasso2d"]}).then(()=>drawBarbs(gd,rows));gd._barbRows=rows;if(!gd._barbHandler){gd.on("plotly_afterplot",()=>{if(gd._barbRows)drawBarbs(gd,gd._barbRows)});gd._barbHandler=true}
+}
+async function loadData(){
+ const err=$("error");err.textContent="";$("status").textContent="";const lat=Number($("lat").value),lon=Number($("lon").value),model=$("model").value;if(!Number.isFinite(lat)||lat< -90||lat>90||!Number.isFinite(lon)||lon< -180||lon>180){err.textContent="緯度・経度の範囲を確認してください。";return}
+ const btn=$("load");btn.disabled=true;try{const res=await fetch(createUrl(lat,lon,model));if(!res.ok)throw Error(`APIエラー HTTP ${res.status}：指定モデルが要求した気圧面に対応していない可能性があります。`);const json=await res.json(),h=json.hourly;if(!h?.time)throw Error("API応答に時系列がありません。");const times=h.time.map(parseTime),t=[],td=[],wind={};for(const p of PRESSURE_LEVELS){const a=arr(h[vname("temperature",p)],times.length),b=arr(h[vname("dew_point",p)],times.length),sp=arr(h[vname("wind_speed",p)],times.length),dr=arr(h[vname("wind_direction",p)],times.length);t.push(interpMissing(a));td.push(interpMissing(b));const u=[],v=[];for(let k=0;k<times.length;k++){if(Number.isFinite(sp[k])&&Number.isFinite(dr[k])){const rad=dr[k]*Math.PI/180;u.push(-sp[k]*Math.sin(rad));v.push(-sp[k]*Math.cos(rad))}else{u.push(NaN);v.push(NaN)}}wind[p]={u:interpMissing(u),v:interpMissing(v)}}
+ current={times,t,td,wind,modelName:MODEL_NAMES[model],lat,lon};const sel=$("forecastTime");sel.replaceChildren();times.forEach((date,j)=>{const o=document.createElement("option");o.value=j;o.textContent=date.toLocaleString("ja-JP",{timeZone:TZ,month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})+" JST";sel.appendChild(o)});const idx=Math.min(12,times.length-1);sel.value=idx;renderProfile(idx);$("status").textContent=`取得完了：${times.length}時刻、要求気圧面 ${PRESSURE_LEVELS.length}層。実際に有効な層数は選択時刻によって変わります。`
+ }catch(e){err.textContent="データ取得・解析エラー："+(e?.message||String(e));console.error(e)}finally{btn.disabled=false}}
+$("load").addEventListener("click",loadData);$("forecastTime").addEventListener("change",()=>renderProfile(Number($("forecastTime").value)));
+document.addEventListener("keydown",e=>{if(e.altKey||e.ctrlKey||e.metaKey)return;const tag=e.target?.tagName?.toLowerCase();if(["input","select","textarea","button"].includes(tag)||e.target?.isContentEditable)return;if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight")return;const sel=$("forecastTime");if(!sel.options.length)return;e.preventDefault();const currentIndex=Number(sel.value),next=Math.max(0,Math.min(sel.options.length-1,currentIndex+(e.key==="ArrowRight"?1:-1)));if(next!==currentIndex){sel.value=String(next);renderProfile(next)}});
+loadData();
+</script></body></html>
