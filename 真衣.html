@@ -390,7 +390,7 @@ const PRODUCT_W = "native/WAVE_GLO_PHY_SWH_L3_NRT_014_001/";   // 高度計: 波
 const SATS      = { j3:"Jason-3", s3a:"Sentinel-3A", s3b:"Sentinel-3B", s6a:"Sentinel-6A",
                     c2:"CryoSat-2", al:"SARAL/AltiKa", h2b:"HY-2B", h2c:"HY-2C", cfo:"CFOSAT", swon:"SWOT" };
 const AREA      = { lonMin:100, lonMax:170, latMin:10, latMax:60 };
-const OBS_HOURS = 12;    // 高度計: 現在から何時間以内の観測を描くか
+const OBS_HOURS = 6;    // 高度計: 現在から何時間以内の観測を描くか
 const THIN      = 1;     // 高度計: 点の間引き(1=全点。重い場合は 2 や 3 にする)
 // ---------- 矢印を大量に描くためのcanvasレイヤー(個々のマーカーを作らないので数万本でも軽い) ----------
 const ArrowLayer = L.Layer.extend({
