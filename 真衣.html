@@ -832,6 +832,31 @@ const eumStart = f => {
   return m ? parseT(`${m[1]}T${m[2]}`) : null;
 };
 
+// ダウンロード: 公式ガイドの形(版番号なし、コレクションIDは%3A表記)を最初に試し、「404 該当リソースなし」なら別の形を順に試す。
+// 通った形は覚えて、以後はそれを最初に使う
+let eumDlStyle = null;
+async function eumDownload(p) {
+  const enc = encodeURIComponent, c = enc(EUM_COLL), id = enc(p.id);
+  const cands = [
+    { k: "plain", u: `${EUM_API}/data/download/collections/${c}/products/${id}` },
+    ...(p.href ? [{ k: "href", u: p.href }] : []),
+    { k: "v1", u: `${EUM_API}/data/download/1.0.0/collections/${c}/products/${id}` },
+    { k: "v2", u: `${EUM_API}/data/download/2.0.0/collections/${c}/products/${id}` }
+  ].filter((x, i, a) => a.findIndex(y => y.u === x.u) === i);
+  if (eumDlStyle) cands.sort((a, b) => (b.k === eumDlStyle) - (a.k === eumDlStyle));
+  let lastErr;
+  for (const x of cands) {
+    const r = await fetch(proxy + enc(x.u));
+    const raw = await r.arrayBuffer(), up = r.headers.get("X-Upstream-Status");
+    const first = raw.byteLength ? new Uint8Array(raw, 0, 1)[0] : 0;
+    if (r.ok && !(raw.byteLength < 4096 && (first === 0x3c || first === 0x7b))) { eumDlStyle = x.k; return raw; }   // 小さな「<」「{」はエラー応答
+    const msg = eumErrorText(raw);
+    lastErr = new Error(`${r.ok ? "サーバーのエラー応答" : "HTTP " + r.status}(HTTP ${r.status}、上流 ${up}、${x.u.replace(EUM_API, "")}): ` + msg);
+    if (!/404|No matching resource/i.test(msg)) break;      // 認証や上限などの別の理由なら、他の形を試しても同じなのでここで止める
+  }
+  throw lastErr;
+}
+
 // 検索: 対象領域にかかる周回だけ(bbox)。bboxが使えない/0件のときは範囲指定なしで探し直す
 async function eumSearch() {
   const end = new Date(), since = new Date(end - EUM_HOURS * 36e5), iso = d => d.toISOString().slice(0, 19) + "Z";
@@ -860,12 +885,7 @@ async function runEum() {
     if (!mine.length) { errs.push(`${S.label}: 該当ファイルなし`); return; }
     for (const p of mine) {
       try {
-        const r = await fetch(proxy + encodeURIComponent(p.href));
-        const raw = await r.arrayBuffer(), up = r.headers.get("X-Upstream-Status");
-        if (!r.ok) throw new Error(`HTTP ${r.status}(上流 ${up}): ` + eumErrorText(raw));
-        const hd = new Uint8Array(raw, 0, Math.min(4, raw.byteLength));
-        if (raw.byteLength < 4096 && (hd[0] === 0x3c || hd[0] === 0x7b))       // 小さな「<…」「{…」は、データではなくエラー応答
-          throw new Error(`サーバーのエラー応答(HTTP ${r.status}、上流 ${up}、${r.headers.get("X-Upstream-URL") || ""}): ` + eumErrorText(raw));
+        const raw = await eumDownload(p);
         const pts = await readSwath(await unpackProduct(raw), since, { qc: true });
         pts.forEach(q => S.all.push({ ...q, label: S.label, file: p.id }));
         S.layer.setPoints(S.all.slice().sort((a, b) => (a.time || 0) - (b.time || 0)));
