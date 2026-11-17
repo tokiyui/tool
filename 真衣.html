@@ -771,8 +771,8 @@ const EUM_SETS = [   // 1つのコレクションにMetop-B/Cが混在するの�
   { label: "ASCAT Metop-B", re: /metop-?b/i, layer: ascatBLayer, key: "ascatB", all: [] },
   { label: "ASCAT Metop-C", re: /metop-?c/i, layer: ascatCLayer, key: "ascatC", all: [] }
 ];
-const EUM_FILES = 12;      // 衛星ごとに新しい順で何ファイルまで読むか(1周回=1ファイル)
-const EUM_HOURS = 12;      // 観測時刻が現在から何時間以内の風を描くか
+const EUM_FILES = 6;      // 衛星ごとに新しい順で何ファイルまで読むか(1周回=1ファイル)
+const EUM_HOURS = 6;      // 観測時刻が現在から何時間以内の風を描くか
 
 // ZIP(中央ディレクトリ方式)から最初の .nc(無ければ最初のファイル)を取り出す。無圧縮(0)とdeflate(8)に対応
 async function unzipFirst(buf) {
