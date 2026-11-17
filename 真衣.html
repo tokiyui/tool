@@ -481,7 +481,7 @@ document.querySelector(".legend")?.insertAdjacentHTML("beforeend",
   '<div style="clear:both;margin-top:4px">黒縁の丸＝衛星波高<br>矢印＝衛星風(縁: 黒=Metop-B、紺=Metop-C)<br><small>衛星風: EUMETSAT OSI SAF、CC BY 4.0、領域抽出・描画は当ページで加工</small></div>');
 
 // ---------- S3アクセス(既存のproxy経由) ----------
-const viaProxy = url => fetch(proxy2 + encodeURIComponent(url));
+const viaProxy = url => fetch(satproxy + encodeURIComponent(url));
 
 async function listS3(base, params) {
   let token = null; const prefixes = [], objects = [];
@@ -803,7 +803,7 @@ async function unpackProduct(buf) {            // ZIP や gzip なら展開し�
 }
 
 async function eumJson(url) {
-  const r = await fetch(proxy2 + encodeURIComponent(url));
+  const r = await fetch(satproxy + encodeURIComponent(url));
   const txt = await r.text();
   if (!r.ok) throw new Error(`EUMETSAT ${r.status}: ${txt.slice(0, 120)}`);
   try { return JSON.parse(txt); } catch { throw new Error("EUMETSATの応答がJSONでない: " + txt.slice(0, 100)); }
@@ -844,7 +844,7 @@ async function runEum() {
     if (!mine.length) { errs.push(`${S.label}: 該当ファイルなし`); return; }
     for (const p of mine) {
       try {
-        const r = await fetch(proxy2 + encodeURIComponent(p.href));
+        const r = await fetch(satproxy + encodeURIComponent(p.href));
         if (!r.ok) throw new Error(`HTTP ${r.status}: ` + (await r.text()).slice(0, 100));
         const pts = await readSwath(await unpackProduct(await r.arrayBuffer()), since, { qc: true });
         pts.forEach(q => S.all.push({ ...q, label: S.label, file: p.id }));
