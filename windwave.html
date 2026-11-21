@@ -155,7 +155,7 @@ async function fetchAll() {
       if(!m) return;
       const s=o.wind?.[0], d=o.windDirection?.[0];
       if(s==null||d==null) return;
-      if(s < 8) return;
+      if(s < 5) return;
       const txt = windDirText16(d);
       const ang = windDir16ToAngle(d);
       if(ang===null||!txt) return;
@@ -441,7 +441,7 @@ const ArrowLayer = L.Layer.extend({
         ctx.strokeStyle = pass || col; ctx.lineWidth = lw; ctx.stroke();
       }
     }
-    if (z >= 5 && nVis <= 4000) {            // 拡大時は風速(m/s)の数字も添える
+    if (z >= 8 && nVis <= 4000) {            // 拡大時は風速(m/s)の数字も添える
       ctx.font = "bold 11px sans-serif"; ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.fillStyle = "#000";
       for (const col in groups) for (const [x, y, d, s] of groups[col]) {
         const t = d * Math.PI / 180, tx = x - Math.cos(t) * 10, ty = y - Math.sin(t) * 10;
